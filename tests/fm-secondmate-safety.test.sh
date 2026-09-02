@@ -2534,7 +2534,7 @@ EOF
   holder=${held%% *}
   lock=${held#* }
   if FM_HOME="$subhome" FM_SPAWN_NO_GUARD=1 \
-    "$ROOT/bin/fm-spawn.sh" newtask "$subhome/projects/alpha" --scout >/dev/null 2>"$err"; then
+    "$ROOT/bin/fm-spawn.sh" newtask "$subhome/projects/alpha" --base main --scout >/dev/null 2>"$err"; then
     kill "$holder" 2>/dev/null || true
     fail "a fresh spawn published a task while a forced teardown owned the set"
   fi

@@ -66,7 +66,7 @@ When you receive a firstmate message containing `ALBATROSS`, append `done: recei
 Do not change project files or make a commit.'''))
 PY
 
-FM_HOME="$LAB" "$ROOT/bin/fm-spawn.sh" "$TASK" "$LAB/projects/comms" --scout --harness claude --model haiku --backend cmux \
+FM_HOME="$LAB" "$ROOT/bin/fm-spawn.sh" "$TASK" "$LAB/projects/comms" --base main --scout --harness claude --model haiku --backend cmux \
   || fail "could not launch the real Claude cmux probe"
 SPAWNED=1
 

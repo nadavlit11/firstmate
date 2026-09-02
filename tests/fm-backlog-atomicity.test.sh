@@ -403,7 +403,7 @@ run_spawn() {  # <case-dir> <args...>
 
 run_ship_spawn() {  # <case-dir> <id>
   local case_dir=$1 id=$2
-  run_spawn "$case_dir" "$id" "$case_dir/project" --mode no-mistakes --yolo off
+  run_spawn "$case_dir" "$id" "$case_dir/project" --base main --mode no-mistakes --yolo off
 }
 
 # Teardown against a recorded worktree that no longer exists: the landed-work and
@@ -999,7 +999,7 @@ test_dispatch_interruption_during_kimi_readiness_fails_before_commit() {
 
   out=$(HOME="$home" FM_KIMI_READY_POLLS=2 FM_KIMI_POLL_INTERVAL=0 \
     run_spawn "$case_dir" "$id" "$case_dir/project" --harness kimi \
-      --mode no-mistakes --yolo off) || rc=$?
+      --base main --mode no-mistakes --yolo off) || rc=$?
   [ "$rc" -ne 0 ] || fail "Kimi readiness interruption was reported as success"
   assert_absent "$home/state/$id.meta" \
     "Kimi readiness interruption retained an unconfirmed task record"

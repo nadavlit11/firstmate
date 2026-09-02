@@ -52,6 +52,19 @@ git -C "$PROJ" rev-parse --verify --quiet "refs/heads/$BRANCH" >/dev/null || { e
 
 DEFAULT=$(default_branch) || { echo "error: cannot determine default branch for $PROJ; expected origin/HEAD, main, or master" >&2; exit 1; }
 
+# This landing targets the default branch alone. A task dispatched from another
+# base (a production line, a release tag) must not be fast-forwarded into the
+# default branch: where that base is AHEAD of the default branch, the merge would
+# succeed and quietly carry the whole other line across with the task's own work.
+# The fast-forward check below cannot catch that case, so refuse on the recorded
+# base instead of on the shape of the history.
+BASE_REF=$(sed -n 's/^base=//p' "$META" | head -n 1)
+if [ -n "$BASE_REF" ] && [ "$BASE_REF" != "$DEFAULT" ]; then
+  echo "REFUSED: task $ID was dispatched from base '$BASE_REF', but this landing only fast-forwards the default branch '$DEFAULT' of $PROJ." >&2
+  echo "Land work based on another line through that line's own review and merge path." >&2
+  exit 1
+fi
+
 # The project's main checkout must be on its default branch and clean, so the
 # fast-forward lands predictably (firstmate never writes here otherwise).
 cur=$(git -C "$PROJ" symbolic-ref --short HEAD 2>/dev/null || echo "")

@@ -153,6 +153,18 @@ if [ -z "$(printf '%s' "$INTENT_BODY" | tr -d '[:space:]')" ]; then
   exit 1
 fi
 
+# The base ref the scout was dispatched from, recorded by bin/fm-spawn.sh. The
+# promoted worker must branch from that same explicit base rather than from
+# whatever this project's default branch happens to be, which is the whole reason
+# the base is dispatch input instead of a lookup. A task recorded before base=
+# existed keeps the older generic wording rather than naming a base it never had.
+BASE=$(sed -n 's/^base=//p' "$META" | head -n 1)
+if [ -n "$BASE" ]; then
+  BASE_STEP="Return to a clean \`$BASE\` base - the base this task was dispatched from - then create your branch: \`git checkout -b fm/$ID\`."
+else
+  BASE_STEP="Return to a clean default-branch base, then create your branch: \`git checkout -b fm/$ID\`."
+fi
+
 # The promoted worker must receive the same delivery contract an ordinary ship
 # brief carries, so the mode-specific Definition of done is rendered from its
 # single owner (bin/fm-dod-lib.sh) rather than summarised into a hint line. A
@@ -175,7 +187,7 @@ EOF
 ## Firstmate spec
 1. **Verify isolation before anything else.** Run \`pwd -P\` and \`git rev-parse --show-toplevel\`; both must resolve to the disposable task worktree you were launched in, such as a treehouse pool path or an Orca-managed worktree, not the primary checkout firstmate operates from. If either does not resolve to the worktree you were launched in, stop and escalate to firstmate.
 2. Inventory this worktree's scratch state with \`git status\` and \`git log\` before changing anything.
-3. Return to a clean default-branch base, then create your branch: \`git checkout -b fm/$ID\`.
+3. $BASE_STEP
 4. Carry over only the intended fix changes. Leave scratch commits, debug edits, and experiment files behind.
 5. If you reproduced a bug, turn that reproduction into a regression test.
 6. These ship instructions supersede the scout delivery rules and report-based Definition of done. Everything else in your original instructions carries over unchanged: the status protocol; the instruction inbox and its acknowledgement; the escalation rules, including ask-user; and every safety rule.

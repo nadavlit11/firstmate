@@ -11,6 +11,8 @@
 #   (d) pr= present but PR head unreachable -> fallback to local branch + warning
 #   (e) pr= + STALE recorded pr_head= + newer remote pull head -> must use fetched head
 #       (this is the class that bit reviewers holding merges over "missing" fixes)
+#   (f) base= recorded -> the diff base is the ref the task was dispatched from,
+#       not the project's default branch
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -169,7 +171,43 @@ test_unreachable_pr_head_falls_back_with_warning() {
   pass "fm-review-diff falls back to local branch with a warning when PR head is unreachable"
 }
 
+test_recorded_base_ref_is_the_diff_base() {
+  local case_dir out prod_sha
+  case_dir=$(make_case recorded-base)
+  # A production line on origin that the default branch is behind - the shape
+  # that made a default-branch diff useless: it would show the whole prod line
+  # as if this task had written it.
+  git -C "$case_dir/project" checkout -q -b prod
+  printf 'prod-line\n' > "$case_dir/project/prod.txt"
+  git -C "$case_dir/project" add prod.txt
+  git -C "$case_dir/project" commit -qm "production line"
+  git -C "$case_dir/project" push -q origin prod
+  prod_sha=$(git -C "$case_dir/project" rev-parse HEAD)
+  git -C "$case_dir/project" checkout -q main
+
+  # The task's branch really is based on the prod line, as its dispatch recorded.
+  git -C "$case_dir/wt" fetch -q origin prod
+  git -C "$case_dir/wt" reset -q --hard "$prod_sha"
+  printf 'the change under review\n' > "$case_dir/wt/feature.txt"
+  git -C "$case_dir/wt" add feature.txt
+  git -C "$case_dir/wt" commit -qm "task work on the prod line"
+
+  write_task_meta "$case_dir" "base=prod"
+  out=$(run_review_diff "$case_dir" task-x1)
+  assert_contains "$out" '+the change under review' "recorded-base: the task's own change is missing from the diff"
+  assert_not_contains "$out" 'prod.txt' \
+    "recorded-base: the diff base was the default branch, so the prod line leaked into this task's review"
+
+  # Without a recorded base the older default-branch behavior still applies.
+  write_task_meta "$case_dir"
+  out=$(run_review_diff "$case_dir" task-x1)
+  assert_contains "$out" 'prod.txt' \
+    "no recorded base: the diff should still fall back to the project's default branch"
+  pass "fm-review-diff reviews against the base ref the task was dispatched from"
+}
+
 test_pr_meta_uses_pr_head_not_stale_local
+test_recorded_base_ref_is_the_diff_base
 test_pr_meta_fetches_pull_head_without_recorded_sha
 test_stale_recorded_pr_head_loses_to_fetched_pull_head
 test_no_pr_meta_uses_local_branch

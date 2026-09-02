@@ -107,17 +107,17 @@ $rec
 EOF
   write_brief "$home" delivery-scout-a1
 
-  out=$(run_spawn "$home" "$fakebin" delivery-scout-a1 "$proj" claude --scout --mode direct-PR)
+  out=$(run_spawn "$home" "$fakebin" delivery-scout-a1 "$proj" claude --base main --scout --mode direct-PR)
   status=$?
   [ "$status" -ne 0 ] || fail "a scout spawn carrying --mode should exit non-zero"
   assert_contains "$out" "--mode applies only to ship spawns" "scout spawn did not refuse --mode"
 
-  out=$(run_spawn "$home" "$fakebin" delivery-scout-a1 "$proj" claude --scout --yolo on)
+  out=$(run_spawn "$home" "$fakebin" delivery-scout-a1 "$proj" claude --base main --scout --yolo on)
   status=$?
   [ "$status" -ne 0 ] || fail "a scout spawn carrying --yolo should exit non-zero"
   assert_contains "$out" "--yolo applies only to ship spawns" "scout spawn did not refuse --yolo"
 
-  out=$(run_spawn "$home" "$fakebin" delivery-sm-a2 "$home" --secondmate --mode no-mistakes --yolo off)
+  out=$(run_spawn "$home" "$fakebin" delivery-sm-a2 "$home" --secondmate --base main --mode no-mistakes --yolo off)
   status=$?
   [ "$status" -ne 0 ] || fail "a secondmate spawn carrying delivery flags should exit non-zero"
   assert_contains "$out" "applies only to ship spawns" "secondmate spawn did not refuse the delivery flags"
@@ -134,7 +134,7 @@ test_spawn_refuses_a_brief_mode_mismatch() {
 $rec
 EOF
   write_brief "$home" delivery-mismatch-b1 no-mistakes
-  out=$(run_spawn "$home" "$fakebin" delivery-mismatch-b1 "$proj" claude --mode direct-PR --yolo off)
+  out=$(run_spawn "$home" "$fakebin" delivery-mismatch-b1 "$proj" claude --base main --mode direct-PR --yolo off)
   status=$?
   [ "$status" -ne 0 ] || fail "a brief/spawn mode mismatch should exit non-zero"
   assert_contains "$out" "delivery mismatch for delivery-mismatch-b1" "mismatch refusal did not name the task"
@@ -144,12 +144,12 @@ EOF
 
   # The agreeing case clears the check and only fails later, at the refusing tmux.
   write_brief "$home" delivery-agree-b2 direct-PR
-  out=$(run_spawn "$home" "$fakebin" delivery-agree-b2 "$proj" claude --mode direct-PR --yolo off)
+  out=$(run_spawn "$home" "$fakebin" delivery-agree-b2 "$proj" claude --base main --mode direct-PR --yolo off)
   assert_not_contains "$out" "delivery mismatch" "an agreeing mode was reported as a mismatch"
 
   # A brief scaffolded before the contract line existed warns once and continues.
   write_brief "$home" delivery-legacy-b3
-  out=$(run_spawn "$home" "$fakebin" delivery-legacy-b3 "$proj" claude --mode local-only --yolo off)
+  out=$(run_spawn "$home" "$fakebin" delivery-legacy-b3 "$proj" claude --base main --mode local-only --yolo off)
   assert_contains "$out" "records no delivery contract line" "a legacy brief did not warn about its missing contract"
   assert_not_contains "$out" "delivery mismatch" "a legacy brief was treated as a mismatch"
   pass "fm-spawn: the brief's recorded mode and the spawn's explicit mode must agree"
@@ -170,7 +170,7 @@ test_spawn_notices_a_rigor_downgrade_against_the_registry() {
 $rec
 EOF
     write_brief "$home" "delivery-dev-$n" "$mode"
-    out=$(run_spawn "$home" "$fakebin" "delivery-dev-$n" "$proj" claude --mode "$mode" --yolo off)
+    out=$(run_spawn "$home" "$fakebin" "delivery-dev-$n" "$proj" claude --base main --mode "$mode" --yolo off)
     case "$expect" in
       notice)
         assert_contains "$out" "less rigor than the captain's standing posture" \
@@ -201,7 +201,7 @@ test_scout_records_no_delivery_posture() {
 $rec
 EOF
   write_brief "$home" delivery-scoutmeta-c1
-  out=$(run_spawn "$home" "$fakebin" delivery-scoutmeta-c1 "$proj" claude --scout)
+  out=$(run_spawn "$home" "$fakebin" delivery-scoutmeta-c1 "$proj" claude --base main --scout)
   assert_not_contains "$out" "less rigor" "a scout spawn consulted the registered delivery posture"
   assert_not_contains "$out" "delivery mismatch" "a scout spawn checked a delivery contract it does not carry"
   pass "fm-spawn: a scout spawn resolves no delivery posture from the registry"

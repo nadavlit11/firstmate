@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
 # Review a crewmate branch against the authoritative base.
 #
-# Pooled project clones do not keep their local default branch current, so this
-# helper compares remote-backed projects against origin/<default> after fetching
-# the default branch, and local-only projects against the local default branch.
+# The base side is the ref the task was DISPATCHED from - state/<id>.meta's base=
+# - so a task shipped onto a production line or a release tag is reviewed against
+# that line rather than against a default branch it was never based on. A task
+# recorded before base= existed falls back to the project's default branch.
+# Pooled project clones do not keep their local base branch current, so this
+# helper compares remote-backed projects against origin/<base> after fetching
+# that ref, and local-only projects against the local ref.
 # When state/<id>.meta records pr= (URL or number) for an open PR, the compare
 # side is ALWAYS a freshly fetched refs/pull/<n>/head by default so review stays
 # current after no-mistakes fix rounds push to the PR. A recorded pr_head= is
@@ -65,7 +69,10 @@ default_branch() {
   return 1
 }
 
-DEFAULT=$(default_branch) || { echo "error: cannot determine default branch for $PROJ; expected origin/HEAD, main, or master" >&2; exit 1; }
+BASE_REF=$(sed -n 's/^base=//p' "$META" | head -n 1)
+if [ -z "$BASE_REF" ]; then
+  BASE_REF=$(default_branch) || { echo "error: task $ID records no base ref and the default branch for $PROJ cannot be determined; expected origin/HEAD, main, or master" >&2; exit 1; }
+fi
 
 BRANCH="fm/$ID"
 if ! git -C "$WT" rev-parse --verify --quiet "refs/heads/$BRANCH" >/dev/null; then
@@ -136,10 +143,12 @@ fi
 if git -C "$PROJ" remote get-url origin >/dev/null 2>&1; then
   # Update the remote-tracking ref itself; a bare single-branch fetch can leave
   # origin/<default> stale on some Git versions and only refresh FETCH_HEAD.
-  git -C "$WT" fetch origin "+refs/heads/$DEFAULT:refs/remotes/origin/$DEFAULT" --quiet
-  BASE="origin/$DEFAULT"
+  # A recorded base may be a tag or a full refname, so it is fetched by name and
+  # read back through a private ref rather than assumed to be a branch.
+  git -C "$WT" fetch origin "+$BASE_REF:refs/fm-review/base/$ID" --quiet
+  BASE="refs/fm-review/base/$ID"
 else
-  BASE="$DEFAULT"
+  BASE="$BASE_REF"
 fi
 
 git -C "$WT" rev-parse --verify --quiet "$BASE^{commit}" >/dev/null || { echo "error: base $BASE does not exist in $WT" >&2; exit 1; }
