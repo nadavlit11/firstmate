@@ -28,11 +28,11 @@ make_case() {
   for id in "$@"; do
     fm_test_spawn_brief "$home" "$id"
   done
-  printf '%s\n' "$case_dir|$home|$proj|$wt|$fakebin|$launchlog"
+  printf '%s\n' "$home|$proj|$wt|$fakebin|$launchlog"
 }
 
 read_case_record() {
-  IFS='|' read -r CASE_DIR HOME_DIR PROJ_DIR WT_DIR FAKEBIN_DIR LAUNCH_LOG <<REC
+  IFS='|' read -r HOME_DIR PROJ_DIR WT_DIR FAKEBIN_DIR LAUNCH_LOG <<REC
 $1
 REC
 }
