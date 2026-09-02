@@ -1452,6 +1452,10 @@ detect_local_config() {
   if [ "${FM_BOOTSTRAP_VERBOSE_FACTS:-0}" = 1 ] && [ -n "$crew" ] && [ "$crew" != "default" ]; then
     echo "BOOTSTRAP_INFO: crew harness override active: $crew"
   fi
+  crew_model=$("$FM_ROOT/bin/fm-harness.sh" crew-model 2>/dev/null || true)
+  if [ "${FM_BOOTSTRAP_VERBOSE_FACTS:-0}" = 1 ] && [ -n "$crew_model" ]; then
+    echo "BOOTSTRAP_INFO: crew model pin active: $crew_model"
+  fi
   # A configured cursor crew harness needs a cursor executable present, and
   # cursor ships under EITHER installed name. Resolution runs through the
   # verified owner rather than a bare `command -v`, so a home that merely has

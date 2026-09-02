@@ -3,6 +3,12 @@
 # Usage: fm-harness.sh                  print own harness: claude|codex|opencode|pi|pi-signed|grok|kimi|cursor|muse|unknown
 #        fm-harness.sh crew             print the effective CREWMATE harness
 #                                        (config/crew-harness; "default" resolves to own)
+#        fm-harness.sh crew-model       print the standing CREWMATE model from
+#                                        config/crew-model, or empty when that file is
+#                                        absent, blank, or holds "default". There is no
+#                                        model to mirror from firstmate's own session, so
+#                                        an absent file resolves to empty and the harness
+#                                        launches on its own default model.
 #        fm-harness.sh secondmate       print the harness the PRIMARY uses to launch
 #                                        SECONDMATE agents: config/secondmate-harness ->
 #                                        config/crew-harness -> own. "default" or absent
@@ -17,7 +23,8 @@
 # whitespace-separated. A bare "<harness>" (today's format) behaves exactly as before:
 # harness only, no model/effort. Only the first non-empty, non-comment line is parsed.
 # Model/effort come ONLY from this file - config/crew-harness stays a bare adapter
-# name and is never parsed for a model.
+# name and is never parsed for a model, and config/crew-model stays a bare model
+# name and is never parsed for a harness.
 # Detection layers: verified environment markers first, then process ancestry.
 # Record each newly verified env marker here.
 set -u
@@ -122,6 +129,18 @@ resolve_crew() {
   if [ -z "$crew" ] || [ "$crew" = "default" ]; then detect_own; else echo "$crew"; fi
 }
 
+# Resolve the standing crewmate model: config/crew-model (a bare model name)
+# wins; absent, blank, or "default" resolves to empty. Unlike the harness axis
+# there is nothing to mirror from firstmate's own session - a harness names its
+# model differently everywhere - so empty means "launch on the harness default"
+# rather than "copy the primary".
+resolve_crew_model() {
+  local model=
+  [ -f "$CONFIG/crew-model" ] && model=$(tr -d '[:space:]' < "$CONFIG/crew-model" || true)
+  [ "$model" = "default" ] && model=
+  [ -z "$model" ] || echo "$model"
+}
+
 # Print the first non-empty, non-comment line of config/secondmate-harness
 # (leading/trailing whitespace trimmed), or nothing when the file is absent or
 # holds only blank/comment lines.
@@ -188,6 +207,7 @@ resolve_secondmate_effort() {
 
 case "${1:-}" in
   crew) resolve_crew ;;
+  crew-model) resolve_crew_model ;;
   secondmate) resolve_secondmate ;;
   secondmate-model) resolve_secondmate_model ;;
   secondmate-effort) resolve_secondmate_effort ;;
