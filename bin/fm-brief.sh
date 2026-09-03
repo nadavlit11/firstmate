@@ -452,7 +452,12 @@ case "$MODE" in
     RULE1='1. Never push to the default branch. Never merge a PR.'
     ;;
 esac
-DOD=$(fm_dod_block "$MODE" "$ID" "$BASE") || exit 1
+# The project's local clone, when it exists, lets the block tell a tag base from
+# a branch base; a repo name without a clone here leaves the base value to speak
+# for itself.
+PROJ_DIR="${FM_PROJECTS_OVERRIDE:-$FM_HOME/projects}/$REPO"
+[ -d "$PROJ_DIR" ] || PROJ_DIR=
+DOD=$(fm_dod_block "$MODE" "$ID" "$BASE" "$PROJ_DIR") || exit 1
 
 cat > "$BRIEF" <<EOF
 You are a crewmate: an autonomous worker agent managed by firstmate. Work on your own; do not wait for a human.

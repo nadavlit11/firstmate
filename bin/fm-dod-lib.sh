@@ -5,8 +5,8 @@
 # receives. Both paths must hand the worker the same contract: a promoted
 # no-mistakes worker that never received the ask-user escalation rule or the
 # `--yes` ban is the exact delivery hole this single owner exists to close.
-# fm_dod_block <no-mistakes|direct-PR|local-only> <task-id> <base-ref> prints the
-# block on stdout with no trailing blank line. The caller validates the mode; an
+# fm_dod_block <no-mistakes|direct-PR|local-only> <task-id> <base-ref> [<project-dir>]
+# prints the block on stdout with no trailing blank line. The caller validates the mode; an
 # unknown mode is refused rather than silently rendered as the pipeline contract.
 # The base ref is the branch or tag the task was dispatched from. It is named in
 # the block so a PR targets that same line and a rebase has a line to fetch: a
@@ -17,6 +17,11 @@
 # itself and passes the flag, while a no-mistakes worker never raises one and is
 # told what the pipeline's PR must target instead. A legacy task record with no
 # recorded base passes an empty value and keeps the older unnamed wording.
+# A tag cannot be a pull-request target, so when the recorded base is a tag the
+# PR-raising modes are not told to target it: they are told to choose and state
+# the PR target deliberately instead of being handed a flag that cannot succeed.
+# Whether the base is a tag is read from the recorded base itself - its refname
+# prefix, then its resolution in <project-dir> when one is given.
 # The block opens with the fixed machine-readable "Delivery contract: mode=<mode>"
 # line that bin/fm-spawn.sh checks a ship brief against.
 # This file is the one owner of the no-mistakes `--intent` contract: only the
@@ -187,9 +192,28 @@ fm_brief_task_content_valid() {  # <file>
 # what counts as the same line, so "refs/heads/main" and "main" agree.
 fm_normalize_ref() {  # <dir> <ref>
   local dir=$1 ref=$2 full
-  full=$(git -C "$dir" rev-parse --symbolic-full-name "$ref" 2>/dev/null || true)
+  full=$(git -C "$dir" rev-parse --verify --quiet --symbolic-full-name --end-of-options "$ref" 2>/dev/null || true)
   [ -n "$full" ] || full=$ref
   printf '%s\n' "$full"
+}
+
+# Print "tag" when <ref> names a tag, else "branch". The recorded value decides:
+# a refs/tags/ prefix is a tag outright, a refs/heads/ or refs/remotes/ prefix a
+# branch, and a bare name is resolved in <dir> when one is given. A name that
+# resolves nowhere is treated as a branch, the ordinary case.
+fm_base_ref_kind() {  # <ref> [<dir>]
+  local ref=$1 dir=${2:-} full
+  case "$ref" in
+    refs/tags/*) echo tag; return 0 ;;
+    refs/heads/*|refs/remotes/*) echo branch; return 0 ;;
+  esac
+  if [ -n "$dir" ] && [ -d "$dir" ]; then
+    full=$(fm_normalize_ref "$dir" "$ref")
+    case "$full" in
+      refs/tags/*) echo tag; return 0 ;;
+    esac
+  fi
+  echo branch
 }
 
 # Return 0 when mode=local-only may ship from <base-ref>, else print the shared
@@ -206,10 +230,14 @@ fm_local_only_base_ok() {  # <base-ref> <project-dir>
   return 1
 }
 
-fm_dod_block() {  # <mode> <task-id> <base-ref>
-  local mode=$1 id=$2 base=${3:-}
+fm_dod_block() {  # <mode> <task-id> <base-ref> [<project-dir>]
+  local mode=$1 id=$2 base=${3:-} dir=${4:-}
   local pr_base_rule pipeline_pr_base_rule rebase_target
-  if [ -n "$base" ]; then
+  if [ -n "$base" ] && [ "$(fm_base_ref_kind "$base" "$dir")" = tag ]; then
+    pr_base_rule="Your base \`$base\` is a tag, and a tag cannot be a pull-request target, so the PR target must be chosen deliberately: pick the branch that carries the line this tag was cut from, state that choice and why in the PR description, and pass it explicitly (\`--base <branch>\`) rather than letting the PR default to the repository's default branch."
+    pipeline_pr_base_rule="Your base \`$base\` is a tag, and a tag cannot be a pull-request target, so the PR target must be chosen deliberately: pick the branch that carries the line this tag was cut from, state that choice and why when no-mistakes asks where to ship, and if a gate reports a PR base you did not choose, stop and report it rather than letting it merge."
+    rebase_target="Keep your branch a clean fast-forward onto \`$base\` - the base you were dispatched from - so fetch that ref and rebase onto it if it has advanced."
+  elif [ -n "$base" ]; then
     pr_base_rule="The PR MUST target \`$base\` - the base this task was dispatched from - so pass it explicitly (\`--base $base\`) rather than letting the PR default to the repository's default branch."
     pipeline_pr_base_rule="The PR the pipeline raises MUST target \`$base\` - the base this task was dispatched from - so tell no-mistakes that base when it asks where to ship, and if a gate reports a different PR base, stop and report it rather than letting it merge."
     rebase_target="Keep your branch a clean fast-forward onto \`$base\` - the base you were dispatched from - so fetch that ref and rebase onto it if it has advanced."

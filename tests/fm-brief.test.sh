@@ -871,6 +871,71 @@ test_ship_project_memory_wording
 test_herdr_lab_contract_is_explicit_and_complete
 test_herdr_lab_contract_quotes_foreign_firstmate_path
 test_herdr_lab_omission_is_loud_for_ship_and_scout
+# A tag is a supported base (a release tag is the original case) but GitHub
+# refuses a tag as a pull-request base, so a definition of done that tells the
+# worker to pass `--base <tag>` hands it an instruction that cannot succeed and
+# leaves the default branch as its only working fallback. The rendering must
+# read the recorded base: a branch keeps the PR-target rule, a tag gets the
+# deliberate-target wording and no impossible flag.
+test_dod_tells_a_tag_base_from_a_branch_base() {
+  local home proj id mode brief
+  home="$TMP_ROOT/base-kind-home"
+  proj="$home/projects/kind-proj"
+  mkdir -p "$home/data" "$home/projects"
+  git init -q -b main "$proj"
+  printf 'seed\n' > "$proj/seed.txt"
+  git -C "$proj" add seed.txt
+  git -C "$proj" -c user.email=t@t -c user.name=t commit -qm seed
+  git -C "$proj" branch -q release-2026-09
+  git -C "$proj" tag prod-2026-09-02
+
+  for mode in direct-PR no-mistakes; do
+    id="brief-kind-branch-$mode"
+    FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" kind-proj --base release-2026-09 --mode "$mode" >/dev/null 2>&1 \
+      || fail "base-kind: $mode brief from a branch did not scaffold"
+    brief="$home/data/$id/brief.md"
+    # shellcheck disable=SC2016  # single quotes are deliberate: the backticks must stay literal
+    assert_grep 'MUST target `release-2026-09`' "$brief" \
+      "base-kind: $mode brief from a branch lost the PR-target rule"
+    assert_no_grep 'cannot be a pull-request target' "$brief" \
+      "base-kind: $mode brief from a branch was rendered with the tag wording"
+  done
+
+  for mode in direct-PR no-mistakes; do
+    id="brief-kind-tag-$mode"
+    FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" kind-proj --base prod-2026-09-02 --mode "$mode" >/dev/null 2>&1 \
+      || fail "base-kind: $mode brief from a tag did not scaffold"
+    brief="$home/data/$id/brief.md"
+    # shellcheck disable=SC2016  # single quotes are deliberate: the backticks must stay literal
+    assert_grep 'Your base `prod-2026-09-02` is a tag, and a tag cannot be a pull-request target' "$brief" \
+      "base-kind: $mode brief from a tag did not say a tag cannot be a PR target"
+    assert_grep 'the PR target must be chosen deliberately' "$brief" \
+      "base-kind: $mode brief from a tag did not require a deliberate PR target"
+    # shellcheck disable=SC2016  # single quotes are deliberate: the backticks must stay literal
+    assert_no_grep 'MUST target `prod-2026-09-02`' "$brief" \
+      "base-kind: $mode brief from a tag still tells the worker to target the tag"
+    # shellcheck disable=SC2016  # single quotes are deliberate: the backticks must stay literal
+    assert_no_grep '`--base prod-2026-09-02`' "$brief" \
+      "base-kind: $mode brief from a tag still hands the worker a flag that cannot succeed"
+    grep -qx 'Base ref: prod-2026-09-02' "$brief" \
+      || fail "base-kind: $mode brief from a tag lost its machine-readable base ref line"
+  done
+  # shellcheck disable=SC2016  # single quotes are deliberate: the backticks must stay literal
+  assert_grep '`--base <branch>`' "$home/data/brief-kind-tag-direct-PR/brief.md" \
+    "base-kind: direct-PR worker from a tag was not told how to pass its chosen target"
+  # shellcheck disable=SC2016  # single quotes are deliberate: the backticks must stay literal
+  assert_no_grep '`--base <branch>`' "$home/data/brief-kind-tag-no-mistakes/brief.md" \
+    "base-kind: no-mistakes worker from a tag was told to pass a PR-creation flag it never uses"
+
+  # A full tag refname is a tag by its own spelling, with no clone to consult.
+  id='brief-kind-tagref'
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" no-such-clone --base refs/tags/v1.2.3 --mode direct-PR >/dev/null 2>&1 \
+    || fail "base-kind: brief from a full tag refname did not scaffold"
+  assert_grep 'cannot be a pull-request target' "$home/data/$id/brief.md" \
+    "base-kind: a refs/tags/ base was not recognised as a tag from its own spelling"
+  pass "fm-brief: definition of done tells a tag base from a branch base"
+}
+
 test_documented_global_replace_leaves_the_herdr_gate_intact
 test_herdr_lab_contract_applies_to_scouts_but_not_secondmates
 test_secondmate_no_projects_charter
@@ -879,3 +944,4 @@ test_secondmate_directory_paths_are_absolute_and_output_is_stable
 test_pause_verb_override_renders_all_brief_scaffolds
 test_scout_and_secondmate_load_decision_hold_policy
 test_scout_and_secondmate_scaffold
+test_dod_tells_a_tag_base_from_a_branch_base

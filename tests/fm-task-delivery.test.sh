@@ -355,6 +355,48 @@ test_promote_refuses_local_only_on_a_non_default_base() {
   pass "fm-promote: local-only promotion refuses a base the local landing could never fast-forward"
 }
 
+# A promoted worker's definition of done reads the recorded base the same way a
+# scaffolded brief does: a tag base must not be handed a PR-target flag that
+# GitHub would refuse.
+test_promotion_tells_a_tag_base_from_a_branch_base() {
+  local home proj out status brief
+  home="$TMP_ROOT/promote-base-kind/home"
+  proj="$TMP_ROOT/promote-base-kind/proj"
+  mkdir -p "$home/state"
+  make_git_project "$proj" main
+  git -C "$proj" tag prod-2026-09-02
+
+  write_brief "$home" promote-kind-t1 "" prod-2026-09-02
+  printf 'window=fm-promote-kind-t1\nkind=scout\nworktree=/tmp/wt\nproject=%s\nbase=prod-2026-09-02\n' "$proj" \
+    > "$home/state/promote-kind-t1.meta"
+  out=$(FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" \
+    "$PROMOTE" promote-kind-t1 --mode direct-PR --yolo off 2>&1)
+  status=$?
+  [ "$status" -eq 0 ] || fail "promotion to direct-PR from a tag base should succeed: $out"
+  brief="$home/data/promote-kind-t1/ship-instructions.md"
+  # shellcheck disable=SC2016  # single quotes are deliberate: the backticks must stay literal
+  assert_grep 'Your base `prod-2026-09-02` is a tag, and a tag cannot be a pull-request target' "$brief" \
+    "promotion from a tag did not say a tag cannot be a PR target"
+  # shellcheck disable=SC2016  # single quotes are deliberate: the backticks must stay literal
+  assert_no_grep '`--base prod-2026-09-02`' "$brief" \
+    "promotion from a tag still hands the worker a flag that cannot succeed"
+
+  write_brief "$home" promote-kind-b1 "" main
+  printf 'window=fm-promote-kind-b1\nkind=scout\nworktree=/tmp/wt\nproject=%s\nbase=main\n' "$proj" \
+    > "$home/state/promote-kind-b1.meta"
+  out=$(FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" \
+    "$PROMOTE" promote-kind-b1 --mode direct-PR --yolo off 2>&1)
+  status=$?
+  [ "$status" -eq 0 ] || fail "promotion to direct-PR from a branch base should succeed: $out"
+  brief="$home/data/promote-kind-b1/ship-instructions.md"
+  # shellcheck disable=SC2016  # single quotes are deliberate: the backticks must stay literal
+  assert_grep 'The PR MUST target `main`' "$brief" \
+    "promotion from a branch lost the PR-target rule"
+  assert_no_grep 'cannot be a pull-request target' "$brief" \
+    "promotion from a branch was rendered with the tag wording"
+  pass "fm-promote: definition of done tells a tag base from a branch base"
+}
+
 test_promote_requires_and_records_the_delivery_contract() {
   local home meta out status blocked_data instructions_path
   home="$TMP_ROOT/promote/home"
@@ -895,6 +937,7 @@ test_spawn_notices_a_rigor_downgrade_against_the_registry
 test_scout_records_no_delivery_posture
 test_promote_requires_and_records_the_delivery_contract
 test_promote_refuses_local_only_on_a_non_default_base
+test_promotion_tells_a_tag_base_from_a_branch_base
 test_promote_refuses_a_symlinked_task_record
 test_promotion_delivers_the_real_definition_of_done
 test_project_mode_maps_the_conditional_policy

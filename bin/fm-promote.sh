@@ -159,11 +159,11 @@ fi
 # the base is dispatch input instead of a lookup. A task recorded before base=
 # existed keeps the older generic wording rather than naming a base it never had.
 BASE=$(sed -n 's/^base=//p' "$META" | head -n 1)
+PROMOTE_PROJ=$(sed -n 's/^project=//p' "$META" | head -n 1)
 # Promotion is the second door where a delivery mode is decided, so it applies
 # the same local-only landing precondition the dispatch door does, before the
 # promoted worker starts work it could never land.
 if [ "$MODE" = local-only ]; then
-  PROMOTE_PROJ=$(sed -n 's/^project=//p' "$META" | head -n 1)
   if [ -n "$PROMOTE_PROJ" ]; then
     fm_local_only_base_ok "$BASE" "$PROMOTE_PROJ" || exit 1
   fi
@@ -203,7 +203,7 @@ EOF
 7. Treat the scout-time Firstmate spec and any unmarked legacy \`# Task\` text as investigation context, not captain intent or ship-time instructions.
 EOF
   printf '\n'
-  fm_dod_block "$MODE" "$ID" "$BASE"
+  fm_dod_block "$MODE" "$ID" "$BASE" "$PROMOTE_PROJ"
 } > "$TMP" || { echo "error: could not render ship instructions for mode=$MODE" >&2; exit 1; }
 mv "$TMP" "$INSTRUCTIONS"
 TMP=

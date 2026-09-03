@@ -2081,7 +2081,7 @@ freshen_spawn_worktree_base() {  # <worktree> <base-ref>
     echo "error: could not fetch origin for pooled worktree '$worktree'; refusing to launch from a potentially stale base" >&2
     return 1
   fi
-  if ! git -C "$worktree" fetch --quiet origin "$base"; then
+  if ! git -C "$worktree" fetch --quiet origin --end-of-options "$base"; then
     echo "error: could not fetch base ref '$base' from origin for pooled worktree '$worktree'; refusing to launch this task from any other base" >&2
     return 1
   fi
