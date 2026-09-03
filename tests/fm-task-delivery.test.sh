@@ -439,7 +439,7 @@ EOF
   id=delivery-unfilled-ship
   FM_HOME="$home" "$BRIEF" "$id" proj --mode no-mistakes >/dev/null 2>&1 \
     || fail "unfilled ship brief should still scaffold"
-  out=$(run_spawn "$home" "$fakebin" "$id" "$proj" claude --mode no-mistakes --yolo off)
+  out=$(run_spawn "$home" "$fakebin" "$id" "$proj" claude --base main --mode no-mistakes --yolo off)
   status=$?
   [ "$status" -ne 0 ] || fail "spawn of an unfilled ship brief should exit non-zero"
   assert_contains "$out" "still contains {TASK} or {FIRSTMATE_SPEC}" \
@@ -454,7 +454,7 @@ EOF
   fill_brief_subsections "$home/data/$id/brief.md" \
     "Fix replacement of \`{TASK}\` in Herdr briefs." \
     "Keep literal \`{FIRSTMATE_SPEC}\` examples intact."
-  out=$(run_spawn "$home" "$fakebin" "$id" "$proj" claude --mode direct-PR --yolo off)
+  out=$(run_spawn "$home" "$fakebin" "$id" "$proj" claude --base main --mode direct-PR --yolo off)
   assert_not_contains "$out" "still contains {TASK} or {FIRSTMATE_SPEC}" \
     "a filled ship brief mentioning placeholder tokens was refused as unfilled"
   assert_not_contains "$out" "must contain nonempty" \
@@ -478,7 +478,7 @@ Example specification
 # Definition of done
 Delivery contract: mode=direct-PR
 EOF
-  out=$(run_spawn "$home" "$fakebin" "$id" "$proj" claude --mode direct-PR --yolo off)
+  out=$(run_spawn "$home" "$fakebin" "$id" "$proj" claude --base main --mode direct-PR --yolo off)
   assert_not_contains "$out" "must contain nonempty" \
     "fenced example headings made a filled legacy Task fail validation"
   assert_not_contains "$out" "still contains {TASK} or {FIRSTMATE_SPEC}" \
@@ -495,7 +495,7 @@ Do not copy this Firstmate-authored constraint into intent.
 Delivery contract: mode=no-mistakes
 Pass the entire Task as --intent.
 EOF
-  out=$(run_spawn "$home" "$fakebin" "$id" "$proj" claude --mode no-mistakes --yolo off)
+  out=$(run_spawn "$home" "$fakebin" "$id" "$proj" claude --base main --mode no-mistakes --yolo off)
   assert_not_contains "$out" "has no provenance-marked captain words" \
     "legacy no-mistakes spawn rejected explicitly marked captain words"
   assert_present "$home/data/$id/launch-brief.md" \
@@ -526,7 +526,7 @@ Preserve the existing compatibility path.
 Delivery contract: mode=no-mistakes
 Pass the entire Task and every Firstmate requirement as --intent.
 EOF
-  out=$(run_spawn "$home" "$fakebin" "$id" "$proj" claude --mode no-mistakes --yolo off)
+  out=$(run_spawn "$home" "$fakebin" "$id" "$proj" claude --base main --mode no-mistakes --yolo off)
   assert_present "$home/data/$id/launch-brief.md" \
     "migrated subsection brief did not receive the current launch contract"
   authorized=$(awk '$0 == "## Captain intent authorized for --intent" { emit=1; next } emit && /^$/ { exit } emit { print }' "$home/data/$id/launch-brief.md")
@@ -557,7 +557,7 @@ Unrelated notes must not become task intent.
 ## Firstmate spec
 Unrelated notes must not satisfy task validation.
 EOF
-  out=$(run_spawn "$home" "$fakebin" "$id" "$proj" claude --mode no-mistakes --yolo off)
+  out=$(run_spawn "$home" "$fakebin" "$id" "$proj" claude --base main --mode no-mistakes --yolo off)
   status=$?
   [ "$status" -ne 0 ] || fail "unmarked legacy no-mistakes spawn should require provenance"
   assert_contains "$out" "has no provenance-marked captain words" \
@@ -567,7 +567,7 @@ EOF
   id=delivery-unfilled-scout
   FM_HOME="$home" "$BRIEF" "$id" proj --scout >/dev/null 2>&1 \
     || fail "unfilled scout brief should still scaffold"
-  out=$(run_spawn "$home" "$fakebin" "$id" "$proj" claude --scout)
+  out=$(run_spawn "$home" "$fakebin" "$id" "$proj" claude --base main --scout)
   status=$?
   [ "$status" -ne 0 ] || fail "spawn of an unfilled scout brief should exit non-zero"
   assert_contains "$out" "still contains {TASK} or {FIRSTMATE_SPEC}" \
@@ -578,7 +578,7 @@ EOF
   FM_HOME="$home" "$BRIEF" "$id" proj --mode direct-PR >/dev/null 2>&1 \
     || fail "empty-ship brief should scaffold"
   fill_brief_subsections "$home/data/$id/brief.md" "" ""
-  out=$(run_spawn "$home" "$fakebin" "$id" "$proj" claude --mode direct-PR --yolo off)
+  out=$(run_spawn "$home" "$fakebin" "$id" "$proj" claude --base main --mode direct-PR --yolo off)
   status=$?
   [ "$status" -ne 0 ] || fail "spawn of empty Task subsections should exit non-zero"
   assert_contains "$out" "must contain nonempty ## Captain's intent and ## Firstmate spec" \
