@@ -247,7 +247,7 @@ test_explicit_base_wins_over_default_branch() {
 
   id='pool-explicit-tag-r6'
   mkdir -p "$HOME_DIR/data/$id"
-  printf 'brief for %s\n' "$id" > "$HOME_DIR/data/$id/brief.md"
+  fm_test_spawn_brief "$HOME_DIR" "$id"
   out=$(run_spawn_raw "$id" --base prod-2026-09-02 --mode no-mistakes --yolo off)
   status=$?
   expect_code 0 "$status" "spawn should start from an explicitly named tag"
