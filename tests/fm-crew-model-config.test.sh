@@ -198,6 +198,46 @@ test_multiline_pin_reads_its_first_line_only() {
   pass "a multi-line config/crew-model yields a single-line model"
 }
 
+# The pin is read the way config/secondmate-harness is: blank and comment lines
+# are skipped before the value is taken. A leading blank line must not silently
+# drop the pin to the harness default, and a comment is never a model name.
+test_pin_skips_leading_blank_and_comment_lines() {
+  local rec id out status
+  id=crew-model-leading-blank-m8
+  rec=$(make_case leading-blank codex "$id" crew-model-leading-comment-m8 crew-model-only-comments-m8)
+  read_case_record "$rec"
+  printf '\n  \ngpt-5\n' > "$HOME_DIR/config/crew-model"
+
+  out=$(run_spawn "$id" --mode no-mistakes --yolo off)
+  status=$?
+  expect_code 0 "$status" "a spawn with a pin behind a leading blank line should succeed"
+  assert_grep "--model 'gpt-5'" "$LAUNCH_LOG" \
+    "a leading blank line silently dropped the standing model pin"
+  assert_grep 'model=gpt-5' "$HOME_DIR/state/$id.meta" \
+    "a leading blank line left the task record on the harness default"
+
+  id=crew-model-leading-comment-m8
+  printf '# the fleet model\ngpt-5\n' > "$HOME_DIR/config/crew-model"
+  out=$(run_spawn "$id" --mode no-mistakes --yolo off)
+  status=$?
+  expect_code 0 "$status" "a spawn with a pin behind a comment line should succeed"
+  assert_grep "--model 'gpt-5'" "$LAUNCH_LOG" \
+    "a leading comment line hid the standing model pin"
+  assert_no_grep '# the fleet model' "$LAUNCH_LOG" \
+    "a comment line was passed to the harness as the model name"
+
+  id=crew-model-only-comments-m8
+  printf '# nothing pinned yet\n\n' > "$HOME_DIR/config/crew-model"
+  out=$(run_spawn "$id" --mode no-mistakes --yolo off)
+  status=$?
+  expect_code 0 "$status" "a spawn with a comment-only pin file should succeed"
+  assert_no_grep '--model' "$LAUNCH_LOG" \
+    "a comment-only pin file still put a model flag on the launch"
+  assert_grep 'model=default' "$HOME_DIR/state/$id.meta" \
+    "a comment-only pin file did not leave the harness default"
+  pass "config/crew-model skips leading blank and comment lines before taking the pin"
+}
+
 test_standing_pin_reaches_the_launch
 test_scout_spawn_uses_the_same_pin
 test_explicit_model_wins_over_the_pin
@@ -205,3 +245,4 @@ test_absent_and_default_pin_leave_the_harness_default
 test_explicit_harness_skips_the_pin_out_loud
 test_pin_trims_only_surrounding_whitespace
 test_multiline_pin_reads_its_first_line_only
+test_pin_skips_leading_blank_and_comment_lines
