@@ -310,6 +310,45 @@ test_legacy_empty_base_local_only_task_still_relaunches() {
   pass "fm-spawn --relaunch: a local-only task with a legacy empty recorded base still relaunches"
 }
 
+# config/crew-model exists so the fleet's model no longer depends on remembering
+# it per spawn. A relaunch is a recovery, not a new decision, so bin/fm-spawn.sh
+# reuses the task's recorded model on its own - exactly as it reuses the recorded
+# harness that model was validated against - rather than relying on its caller to
+# re-supply it, and it must not downgrade the record to model=default.
+test_spawn_relaunch_preserves_the_recorded_model() {
+  local dir out
+  dir=$(new_case model-preserved rl-model)
+  add_ship_task "$dir" rl-model
+  sed -i.bak 's/^model=default$/model=gpt-5/' "$dir/home/state/rl-model.meta"
+  rm -f "$dir/home/state/rl-model.meta.bak"
+  printf 'zsh' > "$dir/fake/command"
+
+  out=$(run_spawn "$dir" rl-model --relaunch)
+
+  [ "$(meta_field "$dir" rl-model model)" = gpt-5 ] \
+    || fail "the relaunch downgraded the recorded model to '$(meta_field "$dir" rl-model model)'"
+  grep -q -- "--model 'gpt-5'" "$dir/fake/literal" \
+    || fail "the replacement agent did not launch on the task's recorded model: $(cat "$dir/fake/literal")"
+  pass "fm-spawn --relaunch: the task's recorded model survives the relaunch"
+}
+
+# A model belongs to the harness it was chosen for, so a relaunch that switches
+# harness must still leave it behind rather than carrying a foreign vendor name.
+test_spawn_relaunch_drops_the_recorded_model_on_a_harness_switch() {
+  local dir out
+  dir=$(new_case model-switch rl-model-sw)
+  add_ship_task "$dir" rl-model-sw claude
+  sed -i.bak 's/^model=default$/model=gpt-5/' "$dir/home/state/rl-model-sw.meta"
+  rm -f "$dir/home/state/rl-model-sw.meta.bak"
+  printf 'zsh' > "$dir/fake/command"
+
+  out=$(run_spawn "$dir" rl-model-sw --relaunch --harness codex)
+
+  [ "$(meta_field "$dir" rl-model-sw model)" = default ] \
+    || fail "a model chosen for the old harness carried onto a different one"
+  pass "fm-spawn --relaunch: a harness switch leaves the previous harness's model behind"
+}
+
 # --- 1. same-harness relaunch -----------------------------------------------
 
 test_same_harness_relaunch_keeps_identity_and_reuses_the_endpoint() {
@@ -1509,6 +1548,8 @@ test_relaunch_moves_a_drifted_item_back_in_flight() {
 
 test_same_harness_relaunch_keeps_identity_and_reuses_the_endpoint
 test_legacy_empty_base_local_only_task_still_relaunches
+test_spawn_relaunch_preserves_the_recorded_model
+test_spawn_relaunch_drops_the_recorded_model_on_a_harness_switch
 test_relaunch_preserves_durable_task_metadata
 test_relaunch_serializes_concurrent_durable_metadata_publication
 test_disabled_relaunch_clears_prior_trace_context

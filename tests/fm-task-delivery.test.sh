@@ -306,6 +306,55 @@ EOF
 
 # Promotion is where a scout's ship contract is finally decided, so it requires the
 # same explicit values and writes them into the task's durable record.
+# Promotion is the second door where a delivery mode is decided. A scout dispatched
+# from another line and promoted to local-only would finish its work and only then
+# hit bin/fm-merge-local.sh's refusal, which is exactly the dead end the dispatch
+# refusal closes - so the same rule has to hold here, in the same words.
+test_promote_refuses_local_only_on_a_non_default_base() {
+  local home proj meta out status
+  home="$TMP_ROOT/promote-local-base/home"
+  proj="$TMP_ROOT/promote-local-base/proj"
+  mkdir -p "$home/state"
+  make_git_project "$proj" main
+  git -C "$proj" branch -q prod
+
+  write_brief "$home" promote-base-f1 "" prod
+  printf 'window=fm-promote-base-f1\nkind=scout\nworktree=/tmp/wt\nproject=%s\nbase=prod\n' "$proj" \
+    > "$home/state/promote-base-f1.meta"
+  out=$(FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" \
+    "$PROMOTE" promote-base-f1 --mode local-only --yolo off 2>&1)
+  status=$?
+  [ "$status" -ne 0 ] || fail "promotion to local-only from a non-default base should exit non-zero"
+  assert_contains "$out" "mode=local-only cannot ship from base 'prod'" \
+    "the promotion refusal did not name the mode and the recorded base"
+  assert_contains "$out" "the default branch of $proj is 'main'" \
+    "the promotion refusal did not name the project's default branch"
+  assert_contains "$out" "fast-forwards the default branch only" \
+    "the promotion refusal did not state why local-only cannot land another line"
+  assert_grep 'kind=scout' "$home/state/promote-base-f1.meta" "the refused promotion still changed the task record"
+
+  # The supported combination still promotes.
+  write_brief "$home" promote-base-f2 "" main
+  printf 'window=fm-promote-base-f2\nkind=scout\nworktree=/tmp/wt\nproject=%s\nbase=main\n' "$proj" \
+    > "$home/state/promote-base-f2.meta"
+  out=$(FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" \
+    "$PROMOTE" promote-base-f2 --mode local-only --yolo off 2>&1)
+  status=$?
+  [ "$status" -eq 0 ] || fail "promotion to local-only from the default branch should succeed: $out"
+  grep -qx 'mode=local-only' "$home/state/promote-base-f2.meta" \
+    || fail "the accepted promotion did not record its mode"
+
+  # A task recorded before base= existed is a legacy record, not another line.
+  write_brief "$home" promote-base-f3
+  printf 'window=fm-promote-base-f3\nkind=scout\nworktree=/tmp/wt\nproject=%s\n' "$proj" \
+    > "$home/state/promote-base-f3.meta"
+  out=$(FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" \
+    "$PROMOTE" promote-base-f3 --mode local-only --yolo off 2>&1)
+  status=$?
+  [ "$status" -eq 0 ] || fail "promotion of a legacy record with no recorded base should succeed: $out"
+  pass "fm-promote: local-only promotion refuses a base the local landing could never fast-forward"
+}
+
 test_promote_requires_and_records_the_delivery_contract() {
   local home meta out status blocked_data instructions_path
   home="$TMP_ROOT/promote/home"
@@ -845,6 +894,7 @@ test_local_only_refuses_a_non_default_base
 test_spawn_notices_a_rigor_downgrade_against_the_registry
 test_scout_records_no_delivery_posture
 test_promote_requires_and_records_the_delivery_contract
+test_promote_refuses_local_only_on_a_non_default_base
 test_promote_refuses_a_symlinked_task_record
 test_promotion_delivers_the_real_definition_of_done
 test_project_mode_maps_the_conditional_policy

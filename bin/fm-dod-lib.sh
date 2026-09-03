@@ -28,6 +28,12 @@
 # Every heredoc here stays outside a command substitution: `VAR=$(cat <<EOF ...)`
 # breaks parsing of the whole file on Bash 3.2 (tests/fm-brief.test.sh).
 
+# fm_local_only_base_ok below resolves a project's default branch through the
+# shared helper that owns that lookup, so this lib stays usable wherever it is
+# sourced.
+# shellcheck source=bin/fm-tangle-lib.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/fm-tangle-lib.sh"
+
 # Return 0 when a Task subsection still consists only of its scaffold
 # placeholder. A missing file and legacy briefs carry no such placeholders.
 fm_brief_task_placeholders_present() {  # <file>
@@ -167,6 +173,37 @@ fm_brief_task_content_valid() {  # <file>
   fi
   task=$(fm_brief_heading_body "$file" "# Task")
   [ -n "$(printf '%s' "$task" | tr -d '[:space:]')" ]
+}
+
+# The one owner of mode=local-only's landing precondition, checked at BOTH doors
+# where a delivery mode is decided: bin/fm-spawn.sh at dispatch and
+# bin/fm-promote.sh at promotion. bin/fm-merge-local.sh fast-forwards the
+# project's DEFAULT branch and nothing else, so local-only work based on another
+# line has no landing path once it is finished; both doors must refuse it in the
+# same words, while the operator can still act on it.
+# A task recorded before base= existed carries an empty value, which is the legacy
+# record every other consumer falls back on rather than a base on another line.
+# The comparison is by NORMALIZED ref name, the way bin/fm-merge-local.sh decides
+# what counts as the same line, so "refs/heads/main" and "main" agree.
+fm_normalize_ref() {  # <dir> <ref>
+  local dir=$1 ref=$2 full
+  full=$(git -C "$dir" rev-parse --symbolic-full-name "$ref" 2>/dev/null || true)
+  [ -n "$full" ] || full=$ref
+  printf '%s\n' "$full"
+}
+
+# Return 0 when mode=local-only may ship from <base-ref>, else print the shared
+# refusal and return 1. An unresolvable default branch warns and allows.
+fm_local_only_base_ok() {  # <base-ref> <project-dir>
+  local base=$1 dir=$2 default
+  [ -n "$base" ] || return 0
+  default=$(fm_default_branch "$dir") || {
+    echo "warning: cannot resolve the default branch of $dir (expected origin/HEAD, main, or master), so mode=local-only cannot confirm base '$base' is the line bin/fm-merge-local.sh fast-forwards" >&2
+    return 0
+  }
+  [ "$(fm_normalize_ref "$dir" "$base")" = "$(fm_normalize_ref "$dir" "$default")" ] && return 0
+  echo "error: mode=local-only cannot ship from base '$base': the default branch of $dir is '$default', and the local landing (bin/fm-merge-local.sh) fast-forwards the default branch only, so this task would have no way to land. Put it on '$default' by dispatching it from that base, or ship base '$base' through --mode direct-PR or --mode no-mistakes so it lands on its own line's merge path." >&2
+  return 1
 }
 
 fm_dod_block() {  # <mode> <task-id> <base-ref>

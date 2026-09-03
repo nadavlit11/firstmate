@@ -1212,6 +1212,19 @@ if [ "$RELAUNCH" -eq 1 ]; then
   MODE=$(fm_meta_get "$RELAUNCH_META" mode)
   YOLO=$(fm_meta_get "$RELAUNCH_META" yolo)
   BASE=$(fm_meta_get "$RELAUNCH_META" base)
+  # The recorded model is reused exactly as the recorded harness, mode, yolo and
+  # base are: a standing model that silently dropped to the harness default on
+  # every recovery would put the fleet back on the per-spawn memory
+  # config/crew-model replaced. It is reused only while the harness stays the
+  # one that model was validated against; a switch still leaves it behind.
+  if [ "$MODEL_SET" -eq 0 ] \
+     && { [ -z "${HARNESS_ARG:-}" ] || [ "${HARNESS_ARG:-}" = "$RELAUNCH_PRIOR_HARNESS" ]; }; then
+    RELAUNCH_PRIOR_MODEL=$(fm_meta_get "$RELAUNCH_META" model)
+    case "$RELAUNCH_PRIOR_MODEL" in
+      ''|default) ;;
+      *) MODEL=$RELAUNCH_PRIOR_MODEL ;;
+    esac
+  fi
   RELAUNCH_WT=$(fm_meta_get "$RELAUNCH_META" worktree)
   [ -n "$RELAUNCH_WT" ] && [ -d "$RELAUNCH_WT" ] || {
     echo "error: task $ID's recorded worktree '${RELAUNCH_WT:-none}' is missing; refusing to relaunch without the local copy its work lives in" >&2
@@ -1424,7 +1437,7 @@ esac
 # own model token. An explicit --model always wins, and an explicit harness (or an
 # active dispatch profile, which already requires one) carries its own model rather
 # than borrowing another vendor's name; that skip is announced instead of silent.
-if [ "$KIND" != secondmate ] && [ "$MODEL_SET" -eq 0 ]; then
+if [ "$KIND" != secondmate ] && [ "$MODEL_SET" -eq 0 ] && [ -z "$MODEL" ]; then
   CREW_MODEL=$("$FM_ROOT/bin/fm-harness.sh" crew-model)
   if [ -n "$CREW_MODEL" ]; then
     if [ -z "$ARG3" ]; then
@@ -1933,30 +1946,10 @@ if [ "$KIND" = ship ] || [ "$KIND" = scout ]; then
   fi
 fi
 
-# Local-only landing (bin/fm-merge-local.sh) fast-forwards the project's DEFAULT
-# branch and nothing else, so local-only work dispatched from another line has no
-# landing path once it is done. Refuse that combination here, where the operator
-# can still act on it, rather than at the landing after the work is finished.
-# A task recorded before base= existed carries an empty value; that is the legacy
-# record every other consumer falls back on, not a base on another line, and a
-# relaunch cannot supply one. The comparison itself is by NORMALIZED ref name, the
-# same way bin/fm-merge-local.sh decides what counts as the same line, so the two
-# owners of this rule cannot disagree about "refs/heads/main" versus "main".
-normalize_project_ref() {  # <ref>
-  local ref=$1 full
-  full=$(git -C "$PROJ_ABS" rev-parse --symbolic-full-name "$ref" 2>/dev/null || true)
-  [ -n "$full" ] || full=$ref
-  printf '%s\n' "$full"
-}
-if [ "$KIND" = ship ] && [ "$MODE" = local-only ] && [ -n "$BASE" ]; then
-  if PROJ_DEFAULT=$(fm_default_branch "$PROJ_ABS"); then
-    if [ "$(normalize_project_ref "$BASE")" != "$(normalize_project_ref "$PROJ_DEFAULT")" ]; then
-      echo "error: mode=local-only cannot ship from base '$BASE': the default branch of $PROJ_ABS is '$PROJ_DEFAULT', and the local landing (bin/fm-merge-local.sh) fast-forwards the default branch only, so this task would have no way to land. Dispatch it with --base $PROJ_DEFAULT, or ship base '$BASE' through --mode direct-PR or --mode no-mistakes so it lands on its own line's merge path." >&2
-      exit 1
-    fi
-  else
-    echo "warning: cannot resolve the default branch of $PROJ_ABS (expected origin/HEAD, main, or master), so this local-only spawn cannot confirm base '$BASE' is the line bin/fm-merge-local.sh fast-forwards" >&2
-  fi
+# mode=local-only's landing precondition, owned by bin/fm-dod-lib.sh so this
+# dispatch door and bin/fm-promote.sh refuse the same thing in the same words.
+if [ "$KIND" = ship ] && [ "$MODE" = local-only ]; then
+  fm_local_only_base_ok "$BASE" "$PROJ_ABS" || exit 1
 fi
 
 # Brief/spawn delivery agreement, checked before any endpoint exists.
