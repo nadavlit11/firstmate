@@ -1407,6 +1407,8 @@ if [ "$KIND" != secondmate ] && [ "$MODEL_SET" -eq 0 ]; then
   if [ -n "$CREW_MODEL" ]; then
     if [ -z "$ARG3" ]; then
       MODEL=$CREW_MODEL
+    elif [ "$RELAUNCH" -eq 1 ]; then
+      echo "notice: config/crew-model pins '$CREW_MODEL', but this relaunch reuses the task's recorded harness and its default model; pass --model to choose one" >&2
     else
       echo "notice: config/crew-model pins '$CREW_MODEL', but this spawn selects the harness explicitly, so it launches on that harness's default model; pass --model to choose one" >&2
     fi

@@ -58,8 +58,18 @@ DEFAULT=$(default_branch) || { echo "error: cannot determine default branch for 
 # succeed and quietly carry the whole other line across with the task's own work.
 # The fast-forward check below cannot catch that case, so refuse on the recorded
 # base instead of on the shape of the history.
+# The recorded base is compared as a resolved ref, not as a raw name: a task
+# dispatched with "refs/heads/main" names the very line this landing targets and
+# must land normally, while a genuinely different line is still refused below.
 BASE_REF=$(sed -n 's/^base=//p' "$META" | head -n 1)
-if [ -n "$BASE_REF" ] && [ "$BASE_REF" != "$DEFAULT" ]; then
+same_line() {
+  local base_sha default_sha
+  [ "$BASE_REF" = "$DEFAULT" ] && return 0
+  base_sha=$(git -C "$PROJ" rev-parse --verify --quiet "$BASE_REF^{commit}" || true)
+  default_sha=$(git -C "$PROJ" rev-parse --verify --quiet "$DEFAULT^{commit}" || true)
+  [ -n "$base_sha" ] && [ "$base_sha" = "$default_sha" ]
+}
+if [ -n "$BASE_REF" ] && ! same_line; then
   echo "REFUSED: task $ID was dispatched from base '$BASE_REF', but this landing only fast-forwards the default branch '$DEFAULT' of $PROJ." >&2
   echo "Land work based on another line through that line's own review and merge path." >&2
   exit 1

@@ -147,6 +147,9 @@ if git -C "$PROJ" remote get-url origin >/dev/null 2>&1; then
   # read back through a private ref rather than assumed to be a branch.
   git -C "$WT" fetch origin "+$BASE_REF:refs/fm-review/base/$ID" --quiet
   BASE="refs/fm-review/base/$ID"
+  # The fetched ref is scratch space for this one diff; leaving it behind would
+  # pin one base commit against gc for every task ever reviewed.
+  trap 'git -C "$WT" update-ref -d "refs/fm-review/base/$ID" 2>/dev/null || true' EXIT
 else
   BASE="$BASE_REF"
 fi
