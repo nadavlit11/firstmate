@@ -287,6 +287,29 @@ SH
   chmod +x "$dir/fakebin/tasks-axi"
 }
 
+# A task recorded before base= existed carries no base at all. That legacy value
+# is not a base on another line, and --base is refused on a relaunch, so a
+# local-only task in flight when the base ref requirement landed must still be
+# able to replace its agent rather than becoming unrelaunchable.
+test_legacy_empty_base_local_only_task_still_relaunches() {
+  local dir out rc
+  dir=$(new_case legacy-base rl-legacy-base)
+  add_ship_task "$dir" rl-legacy-base
+  sed -i.bak 's/^mode=no-mistakes$/mode=local-only/' "$dir/home/state/rl-legacy-base.meta"
+  rm -f "$dir/home/state/rl-legacy-base.meta.bak"
+  grep -q '^base=' "$dir/home/state/rl-legacy-base.meta" \
+    && fail "fixture must record no base, the legacy shape this guards"
+
+  out=$(run_control "$dir" rl-legacy-base relaunch --note "stopped mid-refactor"); rc=$?
+
+  assert_not_contains "$out" "cannot ship from base" \
+    "a legacy local-only task with no recorded base was refused by the base guard"
+  expect_code 0 "$rc" "a local-only relaunch with a legacy empty base should succeed: $out"
+  [ "$(meta_field "$dir" rl-legacy-base mode)" = local-only ] \
+    || fail "the relaunch must preserve the recorded local-only mode"
+  pass "fm-spawn --relaunch: a local-only task with a legacy empty recorded base still relaunches"
+}
+
 # --- 1. same-harness relaunch -----------------------------------------------
 
 test_same_harness_relaunch_keeps_identity_and_reuses_the_endpoint() {
@@ -1485,6 +1508,7 @@ test_relaunch_moves_a_drifted_item_back_in_flight() {
 }
 
 test_same_harness_relaunch_keeps_identity_and_reuses_the_endpoint
+test_legacy_empty_base_local_only_task_still_relaunches
 test_relaunch_preserves_durable_task_metadata
 test_relaunch_serializes_concurrent_durable_metadata_publication
 test_disabled_relaunch_clears_prior_trace_context

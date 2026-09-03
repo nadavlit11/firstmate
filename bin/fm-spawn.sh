@@ -1937,9 +1937,20 @@ fi
 # branch and nothing else, so local-only work dispatched from another line has no
 # landing path once it is done. Refuse that combination here, where the operator
 # can still act on it, rather than at the landing after the work is finished.
-if [ "$KIND" = ship ] && [ "$MODE" = local-only ]; then
+# A task recorded before base= existed carries an empty value; that is the legacy
+# record every other consumer falls back on, not a base on another line, and a
+# relaunch cannot supply one. The comparison itself is by NORMALIZED ref name, the
+# same way bin/fm-merge-local.sh decides what counts as the same line, so the two
+# owners of this rule cannot disagree about "refs/heads/main" versus "main".
+normalize_project_ref() {  # <ref>
+  local ref=$1 full
+  full=$(git -C "$PROJ_ABS" rev-parse --symbolic-full-name "$ref" 2>/dev/null || true)
+  [ -n "$full" ] || full=$ref
+  printf '%s\n' "$full"
+}
+if [ "$KIND" = ship ] && [ "$MODE" = local-only ] && [ -n "$BASE" ]; then
   if PROJ_DEFAULT=$(fm_default_branch "$PROJ_ABS"); then
-    if [ "$BASE" != "$PROJ_DEFAULT" ]; then
+    if [ "$(normalize_project_ref "$BASE")" != "$(normalize_project_ref "$PROJ_DEFAULT")" ]; then
       echo "error: mode=local-only cannot ship from base '$BASE': the default branch of $PROJ_ABS is '$PROJ_DEFAULT', and the local landing (bin/fm-merge-local.sh) fast-forwards the default branch only, so this task would have no way to land. Dispatch it with --base $PROJ_DEFAULT, or ship base '$BASE' through --mode direct-PR or --mode no-mistakes so it lands on its own line's merge path." >&2
       exit 1
     fi

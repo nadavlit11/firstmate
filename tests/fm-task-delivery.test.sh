@@ -237,6 +237,13 @@ EOF
   assert_not_contains "$out" "cannot ship from base" \
     "a local-only spawn from the default branch was refused"
 
+  # The landing this guard protects compares normalized ref names, so a different
+  # spelling of the default branch is the same line here too.
+  write_brief "$home" local-base-e4 local-only refs/heads/main
+  out=$(run_spawn "$home" "$fakebin" local-base-e4 "$proj" claude --base refs/heads/main --mode local-only --yolo off)
+  assert_not_contains "$out" "cannot ship from base" \
+    "a local-only spawn named the default branch by full refname and was refused anyway"
+
   # Another line stays shippable through a path that can actually land it.
   write_brief "$home" local-base-e3 direct-PR develop
   out=$(run_spawn "$home" "$fakebin" local-base-e3 "$proj" claude --base develop --mode direct-PR --yolo off)

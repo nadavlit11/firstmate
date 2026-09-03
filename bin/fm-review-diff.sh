@@ -145,9 +145,10 @@ if git -C "$PROJ" remote get-url origin >/dev/null 2>&1; then
   # origin/<default> stale on some Git versions and only refresh FETCH_HEAD.
   # A recorded base may be a tag or a full refname, so it is fetched by name and
   # read back through a private ref rather than assumed to be a branch.
-  git -C "$WT" fetch origin "+$BASE_REF:refs/fm-review/base/$ID" --quiet
-  BASE="refs/fm-review/base/$ID"
   BASE_LABEL="$BASE_REF"
+  git -C "$WT" fetch origin "+$BASE_REF:refs/fm-review/base/$ID" --quiet \
+    || { echo "error: could not fetch base ref $BASE_LABEL from origin for $WT; the task's recorded base must resolve on origin for this diff to mean anything" >&2; exit 1; }
+  BASE="refs/fm-review/base/$ID"
   # The fetched ref is scratch space for this one diff; leaving it behind would
   # pin one base commit against gc for every task ever reviewed.
   trap 'git -C "$WT" update-ref -d "refs/fm-review/base/$ID" 2>/dev/null || true' EXIT
@@ -156,7 +157,7 @@ else
   BASE_LABEL="$BASE_REF"
 fi
 
-git -C "$WT" rev-parse --verify --quiet --end-of-options "$BASE^{commit}" >/dev/null || { echo "error: base $BASE does not exist in $WT" >&2; exit 1; }
+git -C "$WT" rev-parse --verify --quiet --end-of-options "$BASE^{commit}" >/dev/null || { echo "error: base $BASE_LABEL does not exist in $WT" >&2; exit 1; }
 git -C "$WT" rev-parse --verify --quiet "$COMPARE_REF^{commit}" >/dev/null || { echo "error: compare ref $COMPARE_REF does not resolve in $WT" >&2; exit 1; }
 
 echo "diff base: $BASE_LABEL"

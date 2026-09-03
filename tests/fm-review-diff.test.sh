@@ -210,8 +210,30 @@ test_recorded_base_ref_is_the_diff_base() {
   pass "fm-review-diff reviews against the base ref the task was dispatched from"
 }
 
+# When the recorded base cannot be resolved on origin, the failure must name the
+# ref the task was dispatched from. The private fetch destination is an internal
+# operand and is deleted on exit, so naming it tells the reviewer nothing.
+test_unfetchable_base_names_the_recorded_ref() {
+  local case_dir out status
+  case_dir=$(make_case unfetchable-base)
+  write_task_meta "$case_dir" "base=no-such-release"
+
+  set +e
+  out=$(run_review_diff "$case_dir" task-x1 2>&1)
+  status=$?
+  set -e
+
+  [ "$status" -ne 0 ] || fail "unfetchable-base: a base that does not resolve on origin should exit non-zero"
+  assert_contains "$out" 'no-such-release' \
+    "unfetchable-base: the failure did not name the base ref the task was dispatched from"
+  assert_not_contains "$out" 'refs/fm-review/base' \
+    "unfetchable-base: the failure named the private fetch destination instead of the base ref"
+  pass "fm-review-diff names the recorded base ref when it cannot be resolved on origin"
+}
+
 test_pr_meta_uses_pr_head_not_stale_local
 test_recorded_base_ref_is_the_diff_base
+test_unfetchable_base_names_the_recorded_ref
 test_pr_meta_fetches_pull_head_without_recorded_sha
 test_stale_recorded_pr_head_loses_to_fetched_pull_head
 test_no_pr_meta_uses_local_branch
