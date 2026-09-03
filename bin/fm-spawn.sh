@@ -1936,7 +1936,12 @@ delivery_rigor_rank() {  # <mode> -> 3 (most rigor) .. 1 (least); 0 = not a task
 # and definition-of-done prose. A spawn that disagrees resets the worktree to one
 # line and hands the worker instructions naming another, which is the wrong-line
 # delivery the explicit base exists to prevent.
-if [ "$KIND" = ship ] || [ "$KIND" = scout ]; then
+# A relaunch reuses the record rather than deciding a base, and a task recorded
+# before base= existed carries an empty value: that is the legacy record, not a
+# disagreement, so it is passed through the way the local-only guard passes it,
+# or the task could never be relaunched since --base is refused on a relaunch.
+if { [ "$KIND" = ship ] || [ "$KIND" = scout ]; } \
+   && ! { [ "$RELAUNCH" -eq 1 ] && [ -z "$BASE" ]; }; then
   BRIEF_BASE=$(sed -n 's/^Base ref: \(.*\)$/\1/p' "$BRIEF" | head -n 1)
   if [ -z "$BRIEF_BASE" ]; then
     echo "warning: $BRIEF records no base ref line (scaffolded before briefs recorded one); launching on the explicit --base $BASE - confirm the worker's setup and definition of done name that base" >&2

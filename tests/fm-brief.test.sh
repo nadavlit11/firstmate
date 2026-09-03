@@ -975,6 +975,41 @@ test_dod_tells_a_tag_base_from_a_branch_base() {
   pass "fm-brief: definition of done tells a tag base from a branch base against origin"
 }
 
+# An origin that accepts the connection and never answers is the failure case
+# the kind-neutral fallback exists for, so the one origin lookup is bounded: the
+# brief scaffolds within the bound with the unconfirmed wording instead of
+# hanging or assuming a branch. The hang is a real git remote helper that
+# sleeps, so `git ls-remote` itself blocks the way a dead transport does.
+test_dod_base_kind_lookup_that_never_answers_falls_back() {
+  local home proj fakebin id brief started elapsed
+  home="$TMP_ROOT/base-kind-hang-home"
+  proj="$home/projects/hang-proj"
+  fakebin="$TMP_ROOT/base-kind-hang-bin"
+  mkdir -p "$home/data" "$home/projects" "$fakebin"
+  git init -q -b main "$proj"
+  git -C "$proj" remote add origin 'hang::never-answers'
+  printf '#!/bin/sh\nsleep 120\n' > "$fakebin/git-remote-hang"
+  chmod +x "$fakebin/git-remote-hang"
+  id='brief-kind-hang'
+  started=$(date +%s)
+  PATH="$fakebin:$PATH" FM_HOME="$home" FM_BASE_KIND_PROBE_SECS=1 \
+    "$ROOT/bin/fm-brief.sh" "$id" hang-proj --base release-2026-09 --mode direct-PR >/dev/null 2>&1 \
+    || fail "base-kind: brief with an origin that never answers did not scaffold"
+  elapsed=$(( $(date +%s) - started ))
+  [ "$elapsed" -lt 30 ] \
+    || fail "base-kind: the origin lookup was not bounded (took ${elapsed}s)"
+  brief="$home/data/$id/brief.md"
+  # shellcheck disable=SC2016  # single quotes are deliberate: the backticks must stay literal
+  assert_grep 'Whether your base `release-2026-09` is a branch or a tag was not confirmed against origin' "$brief" \
+    "base-kind: an origin that never answers did not state that the base kind was not confirmed"
+  assert_grep 'the PR target must be chosen deliberately' "$brief" \
+    "base-kind: an origin that never answers did not fall back to the deliberate-target wording"
+  # shellcheck disable=SC2016  # single quotes are deliberate: the backticks must stay literal
+  assert_no_grep 'MUST target `release-2026-09`' "$brief" \
+    "base-kind: an origin that never answers still emitted the branch instruction"
+  pass "fm-brief: a base-kind lookup that never answers is bounded and falls back to unconfirmed"
+}
+
 test_documented_global_replace_leaves_the_herdr_gate_intact
 test_herdr_lab_contract_applies_to_scouts_but_not_secondmates
 test_secondmate_no_projects_charter
@@ -984,3 +1019,4 @@ test_pause_verb_override_renders_all_brief_scaffolds
 test_scout_and_secondmate_load_decision_hold_policy
 test_scout_and_secondmate_scaffold
 test_dod_tells_a_tag_base_from_a_branch_base
+test_dod_base_kind_lookup_that_never_answers_falls_back

@@ -40,6 +40,11 @@
 # sourced.
 # shellcheck source=bin/fm-tangle-lib.sh
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/fm-tangle-lib.sh"
+# fm_base_ref_kind's one origin lookup is bounded through the shared runner, so an
+# origin that accepts the connection and never answers falls back instead of
+# hanging the brief or the promotion.
+# shellcheck source=bin/fm-timeout-lib.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/fm-timeout-lib.sh"
 
 # Return 0 when a Task subsection still consists only of its scaffold
 # placeholder. A missing file and legacy briefs carry no such placeholders.
@@ -204,8 +209,20 @@ fm_normalize_ref() {  # <dir> <ref>
 # classified against ORIGIN through one ls-remote call from <dir>, never against
 # the local clone: a stale clone is the premise of the explicit base, so a
 # release tag cut on origin that the clone has not fetched must still be a tag.
-# When that call fails, or origin carries the name as both a branch and a tag,
-# the kind is unknown, and the caller must not assume a branch.
+# When that call fails, does not answer within FM_BASE_KIND_PROBE_SECS (default
+# 5, valid 1..60), or origin carries the name as both a branch and a tag, the
+# kind is unknown, and the caller must not assume a branch. The lookup never
+# waits on a credential or host-key prompt: terminal prompts are disabled and
+# the askpass helper answers nothing, so an unauthenticated origin fails fast.
+fm_base_kind_probe_secs() {
+  local secs=${FM_BASE_KIND_PROBE_SECS:-5}
+  case "$secs" in
+    ''|*[!0-9]*) secs=5 ;;
+  esac
+  [ "$secs" -ge 1 ] && [ "$secs" -le 60 ] || secs=5
+  printf '%s\n' "$secs"
+}
+
 fm_base_ref_kind() {  # <ref> [<dir>]
   local ref=$1 dir=${2:-} listing heads tags
   case "$ref" in
@@ -216,7 +233,9 @@ fm_base_ref_kind() {  # <ref> [<dir>]
     echo unknown
     return 0
   fi
-  listing=$(git -C "$dir" ls-remote --end-of-options origin "$ref" 2>/dev/null) || {
+  listing=$(GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=true \
+    fm_run_timed "$(fm_base_kind_probe_secs)" \
+    git -C "$dir" ls-remote --end-of-options origin "$ref" 2>/dev/null </dev/null) || {
     echo unknown
     return 0
   }

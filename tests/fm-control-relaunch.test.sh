@@ -310,6 +310,40 @@ test_legacy_empty_base_local_only_task_still_relaunches() {
   pass "fm-spawn --relaunch: a local-only task with a legacy empty recorded base still relaunches"
 }
 
+# The brief/spawn base agreement check has nothing to agree on for a legacy
+# record: its base is empty and --base is refused on a relaunch, so a brief
+# re-scaffolded with a "Base ref:" line would otherwise make the task
+# unrelaunchable. The check stays in force for a relaunch whose record does
+# carry a base that disagrees with the brief.
+test_legacy_empty_base_relaunches_past_a_rescaffolded_brief_base_line() {
+  local dir out rc
+  dir=$(new_case legacy-brief-base rl-legacy-brief)
+  add_ship_task "$dir" rl-legacy-brief
+  grep -q '^base=' "$dir/home/state/rl-legacy-brief.meta" \
+    && fail "fixture must record no base, the legacy shape this guards"
+  printf 'Base ref: develop\n\n%s\n' "$(cat "$dir/home/data/rl-legacy-brief/brief.md")" \
+    > "$dir/home/data/rl-legacy-brief/brief.md"
+
+  out=$(run_control "$dir" rl-legacy-brief relaunch --note "stopped mid-refactor"); rc=$?
+
+  assert_not_contains "$out" "base mismatch" \
+    "a legacy task with no recorded base was refused against its re-scaffolded brief base line"
+  expect_code 0 "$rc" "a relaunch of a legacy task whose brief names a base should succeed: $out"
+
+  dir=$(new_case recorded-brief-base rl-recorded-brief)
+  add_ship_task "$dir" rl-recorded-brief
+  echo "base=develop" >> "$dir/home/state/rl-recorded-brief.meta"
+  printf 'Base ref: main\n\n%s\n' "$(cat "$dir/home/data/rl-recorded-brief/brief.md")" \
+    > "$dir/home/data/rl-recorded-brief/brief.md"
+
+  out=$(run_control "$dir" rl-recorded-brief relaunch --note "stopped mid-refactor"); rc=$?
+
+  assert_contains "$out" "base mismatch for rl-recorded-brief" \
+    "a relaunch whose recorded base disagrees with the brief was not refused"
+  [ "$rc" -ne 0 ] || fail "a relaunch whose recorded base disagrees with the brief should fail"
+  pass "fm-spawn --relaunch: a legacy empty base skips the brief agreement check, a recorded one does not"
+}
+
 # config/crew-model exists so the fleet's model no longer depends on remembering
 # it per spawn. A relaunch is a recovery, not a new decision, so bin/fm-spawn.sh
 # reuses the task's recorded model on its own - exactly as it reuses the recorded
@@ -1548,6 +1582,7 @@ test_relaunch_moves_a_drifted_item_back_in_flight() {
 
 test_same_harness_relaunch_keeps_identity_and_reuses_the_endpoint
 test_legacy_empty_base_local_only_task_still_relaunches
+test_legacy_empty_base_relaunches_past_a_rescaffolded_brief_base_line
 test_spawn_relaunch_preserves_the_recorded_model
 test_spawn_relaunch_drops_the_recorded_model_on_a_harness_switch
 test_relaunch_preserves_durable_task_metadata

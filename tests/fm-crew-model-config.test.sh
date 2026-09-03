@@ -144,8 +144,38 @@ test_explicit_harness_skips_the_pin_out_loud() {
   pass "an explicitly selected harness skips the standing pin and says so"
 }
 
+# The pin is a bare model name. Surrounding whitespace is noise, but internal
+# whitespace is a malformed value (a secondmate-style "<model> <effort>" line),
+# which must reach the harness as written so it is refused there, not be
+# collapsed into a plausible name that was never configured.
+test_pin_trims_only_surrounding_whitespace() {
+  local rec id out status
+  id=crew-model-padded-m6
+  rec=$(make_case padded codex "$id" crew-model-malformed-m6)
+  read_case_record "$rec"
+  printf '  gpt-5  \n\n' > "$HOME_DIR/config/crew-model"
+
+  out=$(run_spawn "$id" --mode no-mistakes --yolo off)
+  status=$?
+  expect_code 0 "$status" "a spawn with a whitespace-padded model pin should succeed"
+  assert_grep "--model 'gpt-5'" "$LAUNCH_LOG" \
+    "surrounding whitespace was not trimmed from the standing model pin"
+
+  id=crew-model-malformed-m6
+  printf 'claude-opus-5 high\n' > "$HOME_DIR/config/crew-model"
+  out=$(run_spawn "$id" --mode no-mistakes --yolo off)
+  status=$?
+  expect_code 0 "$status" "a spawn with a malformed model pin should still reach the launch"
+  assert_grep "--model 'claude-opus-5 high'" "$LAUNCH_LOG" \
+    "a malformed model pin did not reach the harness as written"
+  assert_no_grep 'claude-opus-5high' "$LAUNCH_LOG" \
+    "internal whitespace in the model pin was collapsed into a name that was never configured"
+  pass "config/crew-model trims surrounding whitespace only and passes a malformed value through"
+}
+
 test_standing_pin_reaches_the_launch
 test_scout_spawn_uses_the_same_pin
 test_explicit_model_wins_over_the_pin
 test_absent_and_default_pin_leave_the_harness_default
 test_explicit_harness_skips_the_pin_out_loud
+test_pin_trims_only_surrounding_whitespace
