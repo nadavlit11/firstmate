@@ -194,6 +194,10 @@ test_recorded_base_ref_is_the_diff_base() {
 
   write_task_meta "$case_dir" "base=prod"
   out=$(run_review_diff "$case_dir" task-x1)
+  assert_contains "$out" 'diff base: prod' \
+    "recorded-base: the reported diff base must name the line reviewed against, not a private fetch ref"
+  assert_not_contains "$out" 'refs/fm-review/base' \
+    "recorded-base: the reported diff base leaked the internal fetch ref"
   assert_contains "$out" '+the change under review' "recorded-base: the task's own change is missing from the diff"
   assert_not_contains "$out" 'prod.txt' \
     "recorded-base: the diff base was the default branch, so the prod line leaked into this task's review"

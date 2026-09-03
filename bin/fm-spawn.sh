@@ -31,6 +31,12 @@
 #   cannot be fetched and resolved on origin refuses the spawn rather than
 #   launching from whatever the slot happened to hold. The resolved value is
 #   recorded as base= in the task's metadata, and --relaunch reuses that record.
+#   The brief records the same base as a fixed "Base ref: <ref>" line, and a spawn
+#   whose --base disagrees with it is refused, exactly as a --mode disagreement is.
+#   mode=local-only additionally requires --base to be the project's DEFAULT
+#   branch, because bin/fm-merge-local.sh fast-forwards that branch alone; another
+#   line ships through --mode direct-PR or --mode no-mistakes, which land on their
+#   own line's merge path.
 #        fm-spawn.sh <task-id> --relaunch [--harness <name>] [--model <name>] [--effort <level>]
 #   --relaunch launches a replacement agent for an EXISTING task into that
 #   task's own recorded endpoint and worktree instead of creating either. It is
@@ -317,6 +323,8 @@ fm_backlog_directory_present "$STATE" "state directory" || {
 . "$SCRIPT_DIR/fm-pr-lib.sh"
 # shellcheck source=bin/fm-dod-lib.sh
 . "$SCRIPT_DIR/fm-dod-lib.sh"
+# shellcheck source=bin/fm-tangle-lib.sh
+. "$SCRIPT_DIR/fm-tangle-lib.sh"
 # shellcheck source=bin/fm-trace-context-lib.sh
 . "$SCRIPT_DIR/fm-trace-context-lib.sh"
 # shellcheck source=bin/fm-remote-readiness-lib.sh
@@ -1908,6 +1916,37 @@ delivery_rigor_rank() {  # <mode> -> 3 (most rigor) .. 1 (least); 0 = not a task
     *) echo 0 ;;
   esac
 }
+
+# Brief/spawn base agreement, checked before any endpoint exists, on the same
+# footing as the delivery-contract check below. fm-brief.sh records a ship or
+# scout brief's base as a fixed "Base ref: <ref>" line and names it in the Setup
+# and definition-of-done prose. A spawn that disagrees resets the worktree to one
+# line and hands the worker instructions naming another, which is the wrong-line
+# delivery the explicit base exists to prevent.
+if [ "$KIND" = ship ] || [ "$KIND" = scout ]; then
+  BRIEF_BASE=$(sed -n 's/^Base ref: \(.*\)$/\1/p' "$BRIEF" | head -n 1)
+  if [ -z "$BRIEF_BASE" ]; then
+    echo "warning: $BRIEF records no base ref line (scaffolded before briefs recorded one); launching on the explicit --base $BASE - confirm the worker's setup and definition of done name that base" >&2
+  elif [ "$BRIEF_BASE" != "$BASE" ]; then
+    echo "error: base mismatch for $ID: the brief says base=$BRIEF_BASE but this spawn passed --base $BASE; correct the flag or re-scaffold the brief so the worker's instructions and the task record agree" >&2
+    exit 1
+  fi
+fi
+
+# Local-only landing (bin/fm-merge-local.sh) fast-forwards the project's DEFAULT
+# branch and nothing else, so local-only work dispatched from another line has no
+# landing path once it is done. Refuse that combination here, where the operator
+# can still act on it, rather than at the landing after the work is finished.
+if [ "$KIND" = ship ] && [ "$MODE" = local-only ]; then
+  if PROJ_DEFAULT=$(fm_default_branch "$PROJ_ABS"); then
+    if [ "$BASE" != "$PROJ_DEFAULT" ]; then
+      echo "error: mode=local-only cannot ship from base '$BASE': the default branch of $PROJ_ABS is '$PROJ_DEFAULT', and the local landing (bin/fm-merge-local.sh) fast-forwards the default branch only, so this task would have no way to land. Dispatch it with --base $PROJ_DEFAULT, or ship base '$BASE' through --mode direct-PR or --mode no-mistakes so it lands on its own line's merge path." >&2
+      exit 1
+    fi
+  else
+    echo "warning: cannot resolve the default branch of $PROJ_ABS (expected origin/HEAD, main, or master), so this local-only spawn cannot confirm base '$BASE' is the line bin/fm-merge-local.sh fast-forwards" >&2
+  fi
+fi
 
 # Brief/spawn delivery agreement, checked before any endpoint exists.
 # fm-brief.sh records a ship brief's mode as a fixed "Delivery contract: mode=<mode>"

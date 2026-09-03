@@ -41,13 +41,25 @@ make_home() {  # <name> [<registry-line>...]
   printf '%s\n' "$home|$projects/proj|$fakebin"
 }
 
-write_brief() {  # <home> <id> [<recorded-mode>]
-  local home=$1 id=$2 mode=${3:-}
+write_brief() {  # <home> <id> [<recorded-mode>] [<recorded-base>]
+  local home=$1 id=$2 mode=${3:-} base=${4:-}
   mkdir -p "$home/data/$id"
   {
-    printf 'You are a crewmate.\n\n# Task\n## Captain'\''s intent\nExercise the delivery contract.\n\n## Firstmate spec\nVerify the selected delivery behavior.\n\n# Definition of done\n'
+    printf 'You are a crewmate.\n\n# Setup\n'
+    [ -z "$base" ] || printf 'Base ref: %s\n' "$base"
+    printf '\n# Task\n## Captain'\''s intent\nExercise the delivery contract.\n\n## Firstmate spec\nVerify the selected delivery behavior.\n\n# Definition of done\n'
     [ -z "$mode" ] || printf 'Delivery contract: mode=%s\n' "$mode"
   } > "$home/data/$id/brief.md"
+}
+
+# A project directory that is a real git repo on a named default branch, so the
+# checks that resolve a project's default branch have something real to read.
+make_git_project() {  # <dir> <default-branch>
+  local dir=$1 branch=$2
+  git init -q -b "$branch" "$dir"
+  printf 'seed\n' > "$dir/seed.txt"
+  git -C "$dir" add seed.txt
+  git -C "$dir" -c user.email=t@t -c user.name=t commit -qm seed
 }
 
 fill_brief_subsections() {  # <file> <intent> <spec>
@@ -153,6 +165,84 @@ EOF
   assert_contains "$out" "records no delivery contract line" "a legacy brief did not warn about its missing contract"
   assert_not_contains "$out" "delivery mismatch" "a legacy brief was treated as a mismatch"
   pass "fm-spawn: the brief's recorded mode and the spawn's explicit mode must agree"
+}
+
+# The brief is what the worker follows and --base is what the worktree is reset
+# to, so a disagreement launches a worker whose setup and definition of done name
+# a different line than the one it is actually sitting on - the wrong-line
+# delivery the explicit base exists to prevent, produced by a typo.
+test_spawn_refuses_a_brief_base_mismatch() {
+  local rec home proj fakebin out status
+  rec=$(make_home base-agreement)
+  IFS='|' read -r home proj fakebin <<EOF
+$rec
+EOF
+  write_brief "$home" base-mismatch-d1 direct-PR prod
+  out=$(run_spawn "$home" "$fakebin" base-mismatch-d1 "$proj" claude --base main --mode direct-PR --yolo off)
+  status=$?
+  [ "$status" -ne 0 ] || fail "a brief/spawn base mismatch should exit non-zero"
+  assert_contains "$out" "base mismatch for base-mismatch-d1" "base mismatch refusal did not name the task"
+  assert_contains "$out" "the brief says base=prod but this spawn passed --base main" \
+    "base mismatch refusal did not show both sides of the disagreement"
+  assert_absent "$home/state/base-mismatch-d1.meta" "mismatched spawn wrote task metadata"
+
+  # The agreeing case clears the check and only fails later, at the refusing tmux.
+  write_brief "$home" base-agree-d2 direct-PR prod
+  out=$(run_spawn "$home" "$fakebin" base-agree-d2 "$proj" claude --base prod --mode direct-PR --yolo off)
+  assert_not_contains "$out" "base mismatch" "an agreeing base was reported as a mismatch"
+
+  # A scout carries a base too, and its brief is checked on the same footing.
+  write_brief "$home" base-scout-d3 "" prod
+  out=$(run_spawn "$home" "$fakebin" base-scout-d3 "$proj" claude --base main --scout)
+  status=$?
+  [ "$status" -ne 0 ] || fail "a scout brief/spawn base mismatch should exit non-zero"
+  assert_contains "$out" "the brief says base=prod but this spawn passed --base main" \
+    "a scout spawn did not check the base its brief records"
+
+  # A brief scaffolded before the base line existed warns once and continues.
+  write_brief "$home" base-legacy-d4 direct-PR
+  out=$(run_spawn "$home" "$fakebin" base-legacy-d4 "$proj" claude --base main --mode direct-PR --yolo off)
+  assert_contains "$out" "records no base ref line" "a legacy brief did not warn about its missing base line"
+  assert_not_contains "$out" "base mismatch" "a legacy brief was treated as a mismatch"
+  pass "fm-spawn: the brief's recorded base and the spawn's explicit base must agree"
+}
+
+# bin/fm-merge-local.sh fast-forwards the project's default branch and nothing
+# else, so local-only work dispatched from another line would finish with nowhere
+# to land. The dead end is refused at dispatch, while the operator can still act.
+test_local_only_refuses_a_non_default_base() {
+  local rec home proj fakebin out status
+  rec=$(make_home local-only-base)
+  IFS='|' read -r home proj fakebin <<EOF
+$rec
+EOF
+  rm -rf "$proj"
+  make_git_project "$proj" main
+
+  write_brief "$home" local-base-e1 local-only develop
+  out=$(run_spawn "$home" "$fakebin" local-base-e1 "$proj" claude --base develop --mode local-only --yolo off)
+  status=$?
+  [ "$status" -ne 0 ] || fail "a local-only spawn from a non-default base should exit non-zero"
+  assert_contains "$out" "mode=local-only cannot ship from base 'develop'" \
+    "the refusal did not name the mode and the recorded base"
+  assert_contains "$out" "the default branch of $proj is 'main'" \
+    "the refusal did not name the project's default branch"
+  assert_contains "$out" "fast-forwards the default branch only" \
+    "the refusal did not state why local-only cannot land another line"
+  assert_absent "$home/state/local-base-e1.meta" "the refused spawn wrote task metadata"
+
+  # The supported combination still dispatches and only fails later, at the tmux.
+  write_brief "$home" local-base-e2 local-only main
+  out=$(run_spawn "$home" "$fakebin" local-base-e2 "$proj" claude --base main --mode local-only --yolo off)
+  assert_not_contains "$out" "cannot ship from base" \
+    "a local-only spawn from the default branch was refused"
+
+  # Another line stays shippable through a path that can actually land it.
+  write_brief "$home" local-base-e3 direct-PR develop
+  out=$(run_spawn "$home" "$fakebin" local-base-e3 "$proj" claude --base develop --mode direct-PR --yolo off)
+  assert_not_contains "$out" "cannot ship from base" \
+    "a direct-PR spawn from a non-default base was refused"
+  pass "fm-spawn: local-only refuses a base the local landing could never fast-forward"
 }
 
 # The registry is the captain's standing posture, so dropping below its rigor is
@@ -743,6 +833,8 @@ EOF
 test_ship_spawn_requires_a_valid_delivery_contract
 test_scout_and_secondmate_refuse_delivery_flags
 test_spawn_refuses_a_brief_mode_mismatch
+test_spawn_refuses_a_brief_base_mismatch
+test_local_only_refuses_a_non_default_base
 test_spawn_notices_a_rigor_downgrade_against_the_registry
 test_scout_records_no_delivery_posture
 test_promote_requires_and_records_the_delivery_contract

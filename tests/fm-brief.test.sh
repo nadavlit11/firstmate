@@ -803,11 +803,27 @@ test_base_ref_is_named_in_brief_and_dod() {
     assert_no_grep 'the clean base commit firstmate dispatched this task from' "$brief" \
       "base-named: $mode brief still uses the unnamed base wording"
   done
-  for mode in no-mistakes direct-PR; do
-    # shellcheck disable=SC2016  # single quotes are deliberate: the backticks must stay literal
-    assert_grep 'The PR MUST target `prod-2026-09`' "$home/data/brief-base-$mode/brief.md" \
-      "base-named: $mode definition of done does not require the PR to target the dispatched base"
+  # The fixed machine-readable line bin/fm-spawn.sh checks its own --base against.
+  for mode in no-mistakes direct-PR local-only; do
+    grep -qx 'Base ref: prod-2026-09' "$home/data/brief-base-$mode/brief.md" \
+      || fail "base-named: $mode brief carries no machine-readable base ref line"
   done
+  # shellcheck disable=SC2016  # single quotes are deliberate: the backticks must stay literal
+  assert_grep 'The PR MUST target `prod-2026-09`' "$home/data/brief-base-direct-PR/brief.md" \
+    "base-named: direct-PR definition of done does not require the PR to target the dispatched base"
+  # A direct-PR worker raises the PR itself, so it is told the flag to pass. A
+  # no-mistakes worker never raises one - the pipeline does - so it must be told
+  # what that PR has to target instead of a flag it has no command to run.
+  # shellcheck disable=SC2016  # single quotes are deliberate: the backticks must stay literal
+  assert_grep '`--base prod-2026-09`' "$home/data/brief-base-direct-PR/brief.md" \
+    "base-named: direct-PR definition of done dropped the PR-creation flag its worker passes"
+  # shellcheck disable=SC2016  # single quotes are deliberate: the backticks must stay literal
+  assert_grep 'The PR the pipeline raises MUST target `prod-2026-09`' \
+    "$home/data/brief-base-no-mistakes/brief.md" \
+    "base-named: no-mistakes definition of done does not require the pipeline PR to target the base"
+  # shellcheck disable=SC2016  # single quotes are deliberate: the backticks must stay literal
+  assert_no_grep '`--base prod-2026-09`' "$home/data/brief-base-no-mistakes/brief.md" \
+    "base-named: no-mistakes worker was told to pass a PR-creation flag it never uses"
   # shellcheck disable=SC2016  # single quotes are deliberate: the backticks must stay literal
   assert_grep 'Keep your branch a clean fast-forward onto `prod-2026-09`' \
     "$home/data/brief-base-local-only/brief.md" \

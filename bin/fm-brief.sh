@@ -36,7 +36,10 @@
 # For ship and scout tasks, --base is REQUIRED and names the branch or tag on
 # origin the worker starts from, the same ref bin/fm-spawn.sh requires and records.
 # It is named in the generated brief and, for ship briefs, in the definition of
-# done, so the PR targets that line and a rebase has a line to fetch. It is never
+# done, so the PR targets that line and a rebase has a line to fetch. The brief
+# also records it as a fixed machine-readable "Base ref: <ref>" line, which
+# bin/fm-spawn.sh checks its own --base against, exactly as it checks the
+# "Delivery contract: mode=<mode>" line. It is never
 # inferred: the right base differs by task and a default branch can be stale.
 # It is refused on a secondmate charter, whose home follows the primary's own
 # default-branch commit rather than a project base ref.
@@ -387,6 +390,7 @@ $HERDR_SECTION
 
 # Setup
 You are in a disposable git worktree of $REPO, at a detached HEAD on the clean commit of \`$BASE\` - the base ref firstmate dispatched this task from.
+Base ref: $BASE
 This is a SCOUT task: the deliverable is a written report, not a PR.
 The worktree is your laboratory - install, run, edit, and make scratch commits freely; all of it is discarded at teardown.
 The report is the only thing that survives, so anything worth keeping must be in it.
@@ -459,6 +463,7 @@ $HERDR_SECTION
 
 # Setup
 You are in a disposable git worktree of $REPO, at a detached HEAD on the clean commit of \`$BASE\` - the base ref firstmate dispatched this task from.
+Base ref: $BASE
 
 **Verify isolation before anything else.** Run \`pwd -P\` and \`git rev-parse --show-toplevel\`; both must resolve to the disposable task worktree you were launched in, such as a treehouse pool path or an Orca-managed worktree, not the primary checkout firstmate operates from.
 The path check is authoritative: \`git rev-parse --git-dir\` and \`git rev-parse --git-common-dir\` can help inspect the repo, but they do not prove you are outside the primary checkout.

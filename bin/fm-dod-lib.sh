@@ -12,7 +12,10 @@
 # the block so a PR targets that same line and a rebase has a line to fetch: a
 # worker that correctly branches from a production line and then lets `gh pr
 # create` default to the repository default branch is the silent default-branch
-# fallback the explicit base exists to prevent. A legacy task record with no
+# fallback the explicit base exists to prevent. Each mode states that requirement
+# in terms of what that worker actually does: a direct-PR worker raises the PR
+# itself and passes the flag, while a no-mistakes worker never raises one and is
+# told what the pipeline's PR must target instead. A legacy task record with no
 # recorded base passes an empty value and keeps the older unnamed wording.
 # The block opens with the fixed machine-readable "Delivery contract: mode=<mode>"
 # line that bin/fm-spawn.sh checks a ship brief against.
@@ -168,12 +171,14 @@ fm_brief_task_content_valid() {  # <file>
 
 fm_dod_block() {  # <mode> <task-id> <base-ref>
   local mode=$1 id=$2 base=${3:-}
-  local pr_base_rule rebase_target
+  local pr_base_rule pipeline_pr_base_rule rebase_target
   if [ -n "$base" ]; then
     pr_base_rule="The PR MUST target \`$base\` - the base this task was dispatched from - so pass it explicitly (\`--base $base\`) rather than letting the PR default to the repository's default branch."
+    pipeline_pr_base_rule="The PR the pipeline raises MUST target \`$base\` - the base this task was dispatched from - so tell no-mistakes that base when it asks where to ship, and if a gate reports a different PR base, stop and report it rather than letting it merge."
     rebase_target="Keep your branch a clean fast-forward onto \`$base\` - the base you were dispatched from - so fetch that ref and rebase onto it if it has advanced."
   else
     pr_base_rule="The PR MUST target the base this task was dispatched from; pass it explicitly rather than letting the PR default to the repository's default branch."
+    pipeline_pr_base_rule="The PR the pipeline raises MUST target the base this task was dispatched from; if a gate reports a different PR base, stop and report it rather than letting it merge."
     rebase_target="Keep your branch a clean fast-forward onto the base you were dispatched from - if that base has advanced, rebase onto it so the eventual merge stays a fast-forward."
   fi
   case "$mode" in
@@ -206,7 +211,7 @@ Delivery contract: mode=no-mistakes
 The task is complete only when committed on your branch.
 When you believe it is complete, append \`done: {summary}\` to the status file and stop.
 Firstmate will then instruct you to run /no-mistakes to validate and ship a PR.
-$pr_base_rule
+$pipeline_pr_base_rule
 
 You drive no-mistakes by responding to its gates, not by implementing fixes.
 Follow the guidance no-mistakes itself provides for the mechanics: it loads when you invoke /no-mistakes, and \`no-mistakes axi run --help\` plus the \`help\` lines in each \`axi\` response are authoritative and version-matched to the installed binary.

@@ -147,19 +147,21 @@ if git -C "$PROJ" remote get-url origin >/dev/null 2>&1; then
   # read back through a private ref rather than assumed to be a branch.
   git -C "$WT" fetch origin "+$BASE_REF:refs/fm-review/base/$ID" --quiet
   BASE="refs/fm-review/base/$ID"
+  BASE_LABEL="$BASE_REF"
   # The fetched ref is scratch space for this one diff; leaving it behind would
   # pin one base commit against gc for every task ever reviewed.
   trap 'git -C "$WT" update-ref -d "refs/fm-review/base/$ID" 2>/dev/null || true' EXIT
 else
   BASE="$BASE_REF"
+  BASE_LABEL="$BASE_REF"
 fi
 
 git -C "$WT" rev-parse --verify --quiet --end-of-options "$BASE^{commit}" >/dev/null || { echo "error: base $BASE does not exist in $WT" >&2; exit 1; }
 git -C "$WT" rev-parse --verify --quiet "$COMPARE_REF^{commit}" >/dev/null || { echo "error: compare ref $COMPARE_REF does not resolve in $WT" >&2; exit 1; }
 
-echo "diff base: $BASE"
+echo "diff base: $BASE_LABEL"
 if git -C "$WT" diff --quiet "$BASE...$COMPARE_REF" --; then
-  echo "no changes vs $BASE"
+  echo "no changes vs $BASE_LABEL"
   exit 0
 fi
 
