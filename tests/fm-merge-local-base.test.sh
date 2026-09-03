@@ -90,5 +90,32 @@ test_other_line_is_still_refused() {
   pass "fm-merge-local still refuses a task dispatched from a genuinely different line"
 }
 
+# Two DISTINCT ref names that happen to sit on the same commit are still two
+# lines: a release branch cut at the default branch's tip and dispatched as
+# --base release must never be fast-forwarded into the default branch, or work
+# aimed at the release line lands where it was not aimed.
+test_coincident_second_line_is_still_refused() {
+  local case_dir out before
+  case_dir=$(make_case coincident-line)
+  git -C "$case_dir/project" branch -q release main
+  write_meta "$case_dir" "base=release"
+  before=$(git -C "$case_dir/project" rev-parse main)
+  [ "$(git -C "$case_dir/project" rev-parse release)" = "$before" ] \
+    || fail "coincident-line: fixture did not put release and main on the same commit"
+
+  set +e
+  out=$(run_merge_local "$case_dir" 2>&1)
+  local rc=$?
+  set -e
+
+  [ "$rc" -ne 0 ] || fail "coincident-line: landing accepted release work because release happened to equal main"
+  assert_contains "$out" "REFUSED: task task-b1 was dispatched from base 'release'" \
+    "coincident-line: expected the loud base refusal"
+  [ "$(git -C "$case_dir/project" rev-parse main)" = "$before" ] \
+    || fail "coincident-line: default branch moved despite the refusal"
+  pass "fm-merge-local refuses a distinct base line even when it currently points at the default branch's commit"
+}
+
 test_equivalent_base_name_lands
 test_other_line_is_still_refused
+test_coincident_second_line_is_still_refused

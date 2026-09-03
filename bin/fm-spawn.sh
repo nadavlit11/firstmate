@@ -398,6 +398,20 @@ done
 [ "$MODE_SET" -eq 0 ] || [ -n "$MODE" ] || { echo "error: --mode requires a non-empty value" >&2; exit 1; }
 [ "$YOLO_SET" -eq 0 ] || [ -n "$YOLO" ] || { echo "error: --yolo requires a non-empty value" >&2; exit 1; }
 [ "$BASE_SET" -eq 0 ] || [ -n "$BASE" ] || { echo "error: --base requires a non-empty value" >&2; exit 1; }
+# The base ref is written verbatim into the task record and handed to git by this
+# script and by every later reader, so it is closed to plain ref names here. A
+# leading dash would be parsed by git as an option (--upload-pack=<cmd> runs a
+# command), and whitespace cannot name a ref at all.
+if [ "$BASE_SET" -eq 1 ]; then
+  case "$BASE" in
+    -*)
+      echo "error: --base '$BASE' starts with '-'; a base ref must be a plain branch or tag name that git can never read as an option" >&2
+      exit 1 ;;
+    *[[:space:]]*)
+      echo "error: --base '$BASE' contains whitespace; a base ref must be a plain branch or tag name" >&2
+      exit 1 ;;
+  esac
+fi
 [ "$TRACEPARENT_SET" -eq 0 ] || [ -n "$TRACEPARENT_ARG" ] || { echo "error: --traceparent requires a non-empty value" >&2; exit 1; }
 # A parent-delivered carrier replaces this home's own resolution, so it is
 # refused unless it is a secondmate spawn carrying a strictly valid W3C value.

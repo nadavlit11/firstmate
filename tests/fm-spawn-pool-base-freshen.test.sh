@@ -503,11 +503,36 @@ test_stale_pin_beside_other_dirt_reports_one_verdict() {
   pass "a stale pin beside other dirt yields the conservative refusal alone, with no stale-pin line"
 }
 
+# The base value is written verbatim into the task record and handed to git by
+# this spawn and by every later reader. git parses options anywhere before the
+# refspec, so a leading-dash value such as --upload-pack=<cmd> would run a command
+# during the fetch instead of naming a ref. It must be refused at validation,
+# before the pooled worktree is touched or the record is written.
+test_option_looking_base_is_refused_before_git_sees_it() {
+  local rec id out status before marker
+  id='pool-dash-base-r5'
+  rec=$(make_case dash-base "$id")
+  read_case_record "$rec"
+  before=$(git -C "$POOL_DIR" rev-parse HEAD)
+  marker="$TMP_ROOT/dash-base-upload-pack-ran"
+
+  out=$(run_spawn_raw "$id" "--base=--upload-pack=touch $marker" --mode no-mistakes --yolo off)
+  status=$?
+  [ "$status" -ne 0 ] || fail "spawn accepted a base value git would read as an option"
+  assert_contains "$out" "starts with '-'" \
+    "spawn did not clearly refuse an option-looking base ref"
+  [ ! -e "$marker" ] || fail "the option-looking base ref reached git and ran a command"
+  [ "$(git -C "$POOL_DIR" rev-parse HEAD)" = "$before" ] \
+    || fail "spawn touched the pooled worktree while refusing an option-looking base"
+  pass "a base ref git could reparse as an option is refused before any git invocation"
+}
+
 test_stale_pool_base_refreshes_before_branching
 test_non_main_base_ref_refreshes_before_branching
 test_direct_pr_and_scout_refresh_before_launch
 test_dirty_pool_refuses_without_discarding_work
 test_missing_base_refuses_before_any_endpoint
+test_option_looking_base_is_refused_before_git_sees_it
 test_explicit_base_wins_over_default_branch
 test_unknown_base_ref_refuses_pool
 test_unreachable_origin_refuses_stale_pool_base

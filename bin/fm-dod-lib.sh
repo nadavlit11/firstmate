@@ -5,9 +5,15 @@
 # receives. Both paths must hand the worker the same contract: a promoted
 # no-mistakes worker that never received the ask-user escalation rule or the
 # `--yes` ban is the exact delivery hole this single owner exists to close.
-# fm_dod_block <no-mistakes|direct-PR|local-only> <task-id> prints the block on
-# stdout with no trailing blank line. The caller validates the mode; an unknown
-# mode is refused rather than silently rendered as the pipeline contract.
+# fm_dod_block <no-mistakes|direct-PR|local-only> <task-id> <base-ref> prints the
+# block on stdout with no trailing blank line. The caller validates the mode; an
+# unknown mode is refused rather than silently rendered as the pipeline contract.
+# The base ref is the branch or tag the task was dispatched from. It is named in
+# the block so a PR targets that same line and a rebase has a line to fetch: a
+# worker that correctly branches from a production line and then lets `gh pr
+# create` default to the repository default branch is the silent default-branch
+# fallback the explicit base exists to prevent. A legacy task record with no
+# recorded base passes an empty value and keeps the older unnamed wording.
 # The block opens with the fixed machine-readable "Delivery contract: mode=<mode>"
 # line that bin/fm-spawn.sh checks a ship brief against.
 # This file is the one owner of the no-mistakes `--intent` contract: only the
@@ -160,8 +166,16 @@ fm_brief_task_content_valid() {  # <file>
   [ -n "$(printf '%s' "$task" | tr -d '[:space:]')" ]
 }
 
-fm_dod_block() {  # <mode> <task-id>
-  local mode=$1 id=$2
+fm_dod_block() {  # <mode> <task-id> <base-ref>
+  local mode=$1 id=$2 base=${3:-}
+  local pr_base_rule rebase_target
+  if [ -n "$base" ]; then
+    pr_base_rule="The PR MUST target \`$base\` - the base this task was dispatched from - so pass it explicitly (\`--base $base\`) rather than letting the PR default to the repository's default branch."
+    rebase_target="Keep your branch a clean fast-forward onto \`$base\` - the base you were dispatched from - so fetch that ref and rebase onto it if it has advanced."
+  else
+    pr_base_rule="The PR MUST target the base this task was dispatched from; pass it explicitly rather than letting the PR default to the repository's default branch."
+    rebase_target="Keep your branch a clean fast-forward onto the base you were dispatched from - if that base has advanced, rebase onto it so the eventual merge stays a fast-forward."
+  fi
   case "$mode" in
     direct-PR)
       cat <<EOF
@@ -170,6 +184,7 @@ Delivery contract: mode=direct-PR
 This task ships **direct-PR**: you raise the PR yourself, without the no-mistakes pipeline.
 The task is complete only when committed on your branch.
 When it is implemented and committed, push your branch and open a PR with \`gh-axi\`, then append \`done: PR {url}\` to the status file and stop.
+$pr_base_rule
 Do NOT run /no-mistakes. The configured merge authority decides whether to merge the PR; firstmate relays the outcome.
 EOF
       ;;
@@ -179,7 +194,7 @@ EOF
 Delivery contract: mode=local-only
 This task ships **local-only**: no remote, no PR, no pipeline.
 The task is complete only when committed on your branch \`fm/$id\`. Do NOT push, do NOT open a PR, do NOT merge.
-Keep your branch a clean fast-forward onto the base you were dispatched from - if that base has advanced, rebase onto it so the eventual merge stays a fast-forward.
+$rebase_target
 When it is implemented and committed, append \`done: ready in branch fm/$id\` to the status file and stop.
 The configured merge authority approves the ready branch, then firstmate merges it into local \`main\` through the guarded fast-forward path.
 EOF
@@ -191,6 +206,7 @@ Delivery contract: mode=no-mistakes
 The task is complete only when committed on your branch.
 When you believe it is complete, append \`done: {summary}\` to the status file and stop.
 Firstmate will then instruct you to run /no-mistakes to validate and ship a PR.
+$pr_base_rule
 
 You drive no-mistakes by responding to its gates, not by implementing fixes.
 Follow the guidance no-mistakes itself provides for the mechanics: it loads when you invoke /no-mistakes, and \`no-mistakes axi run --help\` plus the \`help\` lines in each \`axi\` response are authoritative and version-matched to the installed binary.

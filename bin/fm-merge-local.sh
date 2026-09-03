@@ -58,16 +58,26 @@ DEFAULT=$(default_branch) || { echo "error: cannot determine default branch for 
 # succeed and quietly carry the whole other line across with the task's own work.
 # The fast-forward check below cannot catch that case, so refuse on the recorded
 # base instead of on the shape of the history.
-# The recorded base is compared as a resolved ref, not as a raw name: a task
-# dispatched with "refs/heads/main" names the very line this landing targets and
-# must land normally, while a genuinely different line is still refused below.
+# The recorded base is compared by NORMALIZED REF NAME, never by the commit it
+# happens to point at: "refs/heads/main" and "main" name the very line this
+# landing targets and must land normally, while a release branch cut at the
+# default branch's tip is a different line even while the two are coincident,
+# and landing its work here would be exactly the silent default-branch fallback
+# this base ref exists to prevent.
 BASE_REF=$(sed -n 's/^base=//p' "$META" | head -n 1)
+normalize_ref() {  # <ref>
+  local ref=$1 full
+  case "$ref" in -*) return 1 ;; esac
+  full=$(git -C "$PROJ" rev-parse --symbolic-full-name "$ref" 2>/dev/null || true)
+  [ -n "$full" ] || full=$ref
+  printf '%s\n' "$full"
+}
 same_line() {
-  local base_sha default_sha
+  local base_name default_name
   [ "$BASE_REF" = "$DEFAULT" ] && return 0
-  base_sha=$(git -C "$PROJ" rev-parse --verify --quiet "$BASE_REF^{commit}" || true)
-  default_sha=$(git -C "$PROJ" rev-parse --verify --quiet "$DEFAULT^{commit}" || true)
-  [ -n "$base_sha" ] && [ "$base_sha" = "$default_sha" ]
+  base_name=$(normalize_ref "$BASE_REF") || return 1
+  default_name=$(normalize_ref "$DEFAULT") || return 1
+  [ "$base_name" = "$default_name" ]
 }
 if [ -n "$BASE_REF" ] && ! same_line; then
   echo "REFUSED: task $ID was dispatched from base '$BASE_REF', but this landing only fast-forwards the default branch '$DEFAULT' of $PROJ." >&2
