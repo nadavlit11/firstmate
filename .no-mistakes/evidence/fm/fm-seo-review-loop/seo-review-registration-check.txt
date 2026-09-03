@@ -1,0 +1,34 @@
+== positive: target commit ae9ec91 ==
+fm-doc-audience-check: ok surfaces=92 local_links=311
+exit=0
+
+== negative A: inventory entry for seo-review removed (skill file present) ==
+fm-doc-audience-check: unclassified: .agents/skills/seo-review/SKILL.md
+exit=1
+
+== negative B: inventory entry present, skill file removed from index (stale registration) ==
+fm-doc-audience-check: not tracked/in scope: .agents/skills/seo-review/SKILL.md
+exit=1
+
+== AGENTS.md section 13 load trigger ==
+561:- `seo-review` - load before filing, dispatching, running, or relaying a recurring Search Console review for click-bateva or bateva-shelanu, when one comes due on its time gate, and before answering any question about its cadence, its pull, or where its target-term lists live.
+
+== skill frontmatter ==
+---
+name: seo-review
+description: >-
+  Agent-only procedure for the recurring Search Console review firstmate runs for click-bateva and bateva-shelanu, whose only captain-facing output is a set of decisions.
+  Load before filing, dispatching, running, or relaying one of those reviews, when its backlog time gate comes due, and before answering any question about SEO cadence, the Search Console pull, or where the target-term lists live.
+user-invocable: false
+metadata:
+  internal: true
+---
+
+== em-dash count in the change's tracked markdown ==
+0
+
+== tests/fm-documentation-audiences.test.sh ==
+ok - documentation inventory classifies every maintained prose surface exactly once
+ok - classification, setup routing, and maintained-prose scope fail safely
+ok - required documentation owner pointers cannot silently disappear
+ok - local links resolve while dates, versions, commands, and incident prose remain semantically reviewed
