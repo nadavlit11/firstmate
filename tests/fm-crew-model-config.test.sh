@@ -173,9 +173,35 @@ test_pin_trims_only_surrounding_whitespace() {
   pass "config/crew-model trims surrounding whitespace only and passes a malformed value through"
 }
 
+# A second line in the pin must never become an embedded newline: that would
+# write a stray bare line into the task record and split the launch command.
+test_multiline_pin_reads_its_first_line_only() {
+  local rec id out status
+  id=crew-model-multiline-m7
+  rec=$(make_case multiline codex "$id")
+  read_case_record "$rec"
+  printf 'gpt-5\nhigh\n' > "$HOME_DIR/config/crew-model"
+
+  out=$(run_spawn "$id" --mode no-mistakes --yolo off)
+  status=$?
+  expect_code 0 "$status" "a spawn with a multi-line model pin should succeed"
+  assert_grep "--model 'gpt-5'" "$LAUNCH_LOG" \
+    "the first line of a multi-line pin did not reach the launch as the model"
+  grep -qx 'high' "$LAUNCH_LOG" \
+    && fail "the second line of the pin split the launch command"
+  [ "$(wc -l < "$LAUNCH_LOG" | tr -d ' ')" -eq 1 ] \
+    || fail "the launch command was split across lines: $(cat "$LAUNCH_LOG")"
+  assert_grep 'model=gpt-5' "$HOME_DIR/state/$id.meta" \
+    "the task record did not keep the first line of the pin as the model"
+  grep -qx 'high' "$HOME_DIR/state/$id.meta" \
+    && fail "the second line of the pin was written into the task record as a stray line"
+  pass "a multi-line config/crew-model yields a single-line model"
+}
+
 test_standing_pin_reaches_the_launch
 test_scout_spawn_uses_the_same_pin
 test_explicit_model_wins_over_the_pin
 test_absent_and_default_pin_leave_the_harness_default
 test_explicit_harness_skips_the_pin_out_loud
 test_pin_trims_only_surrounding_whitespace
+test_multiline_pin_reads_its_first_line_only

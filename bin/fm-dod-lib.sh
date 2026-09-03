@@ -211,9 +211,10 @@ fm_normalize_ref() {  # <dir> <ref>
 # release tag cut on origin that the clone has not fetched must still be a tag.
 # When that call fails, does not answer within FM_BASE_KIND_PROBE_SECS (default
 # 5, valid 1..60), or origin carries the name as both a branch and a tag, the
-# kind is unknown, and the caller must not assume a branch. The lookup never
-# waits on a credential or host-key prompt: terminal prompts are disabled and
-# the askpass helper answers nothing, so an unauthenticated origin fails fast.
+# kind is unknown, and the caller must not assume a branch. Git's own prompts
+# are disabled (terminal prompts off, an askpass helper that answers nothing),
+# so an unauthenticated origin fails fast; an ssh host-key prompt goes to the
+# controlling terminal instead and is only bounded by the probe timeout.
 fm_base_kind_probe_secs() {
   local secs=${FM_BASE_KIND_PROBE_SECS:-5}
   case "$secs" in

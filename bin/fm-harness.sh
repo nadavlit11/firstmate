@@ -133,13 +133,16 @@ resolve_crew() {
 # wins; absent, blank, or "default" resolves to empty. Unlike the harness axis
 # there is nothing to mirror from firstmate's own session - a harness names its
 # model differently everywhere - so empty means "launch on the harness default"
-# rather than "copy the primary". Only surrounding whitespace is trimmed: a
-# value with internal whitespace (a secondmate-style "<model> <effort>" line)
-# is passed through as written so the harness refuses it, rather than being
-# collapsed into a plausible-looking name that was never configured.
+# rather than "copy the primary". Only the first line is read, as
+# resolve_secondmate reads its own file, and only surrounding whitespace is
+# trimmed: a value with internal whitespace (a secondmate-style
+# "<model> <effort>" line) is passed through as written so the harness refuses
+# it, rather than being collapsed into a plausible-looking name that was never
+# configured, and a second line can never reach the task record or the launch
+# command as an embedded newline.
 resolve_crew_model() {
   local model=
-  [ -f "$CONFIG/crew-model" ] && model=$(cat "$CONFIG/crew-model" 2>/dev/null || true)
+  [ -f "$CONFIG/crew-model" ] && model=$(head -n 1 "$CONFIG/crew-model" 2>/dev/null || true)
   model="${model#"${model%%[![:space:]]*}"}"
   model="${model%"${model##*[![:space:]]}"}"
   [ "$model" = "default" ] && model=
