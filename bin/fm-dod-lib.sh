@@ -21,7 +21,9 @@
 # PR-raising modes are not told to target it: they are told to choose and state
 # the PR target deliberately instead of being handed a flag that cannot succeed.
 # Whether the base is a tag is read from the recorded base itself - its refname
-# prefix, then its resolution in <project-dir> when one is given.
+# prefix, then its listing on origin from <project-dir> when one is given.
+# A kind that cannot be confirmed is rendered with the same deliberate-target
+# wording and says so, because the branch instruction is only safe once proven.
 # The block opens with the fixed machine-readable "Delivery contract: mode=<mode>"
 # line that bin/fm-spawn.sh checks a ship brief against.
 # This file is the one owner of the no-mistakes `--intent` contract: only the
@@ -197,23 +199,36 @@ fm_normalize_ref() {  # <dir> <ref>
   printf '%s\n' "$full"
 }
 
-# Print "tag" when <ref> names a tag, else "branch". The recorded value decides:
-# a refs/tags/ prefix is a tag outright, a refs/heads/ or refs/remotes/ prefix a
-# branch, and a bare name is resolved in <dir> when one is given. A name that
-# resolves nowhere is treated as a branch, the ordinary case.
+# Print "tag", "branch", or "unknown" for <ref>. A refs/tags/ prefix is a tag
+# outright and a refs/heads/ or refs/remotes/ prefix a branch. A bare name is
+# classified against ORIGIN through one ls-remote call from <dir>, never against
+# the local clone: a stale clone is the premise of the explicit base, so a
+# release tag cut on origin that the clone has not fetched must still be a tag.
+# When that call fails, or origin carries the name as both a branch and a tag,
+# the kind is unknown, and the caller must not assume a branch.
 fm_base_ref_kind() {  # <ref> [<dir>]
-  local ref=$1 dir=${2:-} full
+  local ref=$1 dir=${2:-} listing heads tags
   case "$ref" in
     refs/tags/*) echo tag; return 0 ;;
     refs/heads/*|refs/remotes/*) echo branch; return 0 ;;
   esac
-  if [ -n "$dir" ] && [ -d "$dir" ]; then
-    full=$(fm_normalize_ref "$dir" "$ref")
-    case "$full" in
-      refs/tags/*) echo tag; return 0 ;;
-    esac
+  if [ -z "$dir" ] || [ ! -d "$dir" ]; then
+    echo unknown
+    return 0
   fi
-  echo branch
+  listing=$(git -C "$dir" ls-remote --end-of-options origin "$ref" 2>/dev/null) || {
+    echo unknown
+    return 0
+  }
+  heads=$(printf '%s\n' "$listing" | awk -v want="refs/heads/$ref" '$2 == want' | wc -l | tr -d ' ')
+  tags=$(printf '%s\n' "$listing" | awk -v want="refs/tags/$ref" '$2 == want' | wc -l | tr -d ' ')
+  if [ "$tags" -gt 0 ] && [ "$heads" -eq 0 ]; then
+    echo tag
+  elif [ "$heads" -gt 0 ] && [ "$tags" -eq 0 ]; then
+    echo branch
+  else
+    echo unknown
+  fi
 }
 
 # Return 0 when mode=local-only may ship from <base-ref>, else print the shared
@@ -232,10 +247,17 @@ fm_local_only_base_ok() {  # <base-ref> <project-dir>
 
 fm_dod_block() {  # <mode> <task-id> <base-ref> [<project-dir>]
   local mode=$1 id=$2 base=${3:-} dir=${4:-}
-  local pr_base_rule pipeline_pr_base_rule rebase_target
-  if [ -n "$base" ] && [ "$(fm_base_ref_kind "$base" "$dir")" = tag ]; then
-    pr_base_rule="Your base \`$base\` is a tag, and a tag cannot be a pull-request target, so the PR target must be chosen deliberately: pick the branch that carries the line this tag was cut from, state that choice and why in the PR description, and pass it explicitly (\`--base <branch>\`) rather than letting the PR default to the repository's default branch."
-    pipeline_pr_base_rule="Your base \`$base\` is a tag, and a tag cannot be a pull-request target, so the PR target must be chosen deliberately: pick the branch that carries the line this tag was cut from, state that choice and why when no-mistakes asks where to ship, and if a gate reports a PR base you did not choose, stop and report it rather than letting it merge."
+  local pr_base_rule pipeline_pr_base_rule rebase_target kind why
+  kind=
+  [ -z "$base" ] || kind=$(fm_base_ref_kind "$base" "$dir")
+  if [ -n "$base" ] && [ "$kind" != branch ]; then
+    if [ "$kind" = tag ]; then
+      why="Your base \`$base\` is a tag, and a tag cannot be a pull-request target"
+    else
+      why="Whether your base \`$base\` is a branch or a tag was not confirmed against origin, and a tag cannot be a pull-request target"
+    fi
+    pr_base_rule="$why, so the PR target must be chosen deliberately: pick the branch that carries the line this base belongs to, state that choice and why in the PR description, and pass it explicitly (\`--base <branch>\`) rather than letting the PR default to the repository's default branch."
+    pipeline_pr_base_rule="$why, so the PR target must be chosen deliberately: pick the branch that carries the line this base belongs to, state that choice and why when no-mistakes asks where to ship, and if a gate reports a PR base you did not choose, stop and report it rather than letting it merge."
     rebase_target="Keep your branch a clean fast-forward onto \`$base\` - the base you were dispatched from - so fetch that ref and rebase onto it if it has advanced."
   elif [ -n "$base" ]; then
     pr_base_rule="The PR MUST target \`$base\` - the base this task was dispatched from - so pass it explicitly (\`--base $base\`) rather than letting the PR default to the repository's default branch."

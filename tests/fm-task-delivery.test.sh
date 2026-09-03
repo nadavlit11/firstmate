@@ -359,12 +359,17 @@ test_promote_refuses_local_only_on_a_non_default_base() {
 # scaffolded brief does: a tag base must not be handed a PR-target flag that
 # GitHub would refuse.
 test_promotion_tells_a_tag_base_from_a_branch_base() {
-  local home proj out status brief
+  local home proj origin publisher out status brief
   home="$TMP_ROOT/promote-base-kind/home"
   proj="$TMP_ROOT/promote-base-kind/proj"
+  origin="$TMP_ROOT/promote-base-kind/origin.git"
+  publisher="$TMP_ROOT/promote-base-kind/publisher"
   mkdir -p "$home/state"
-  make_git_project "$proj" main
-  git -C "$proj" tag prod-2026-09-02
+  make_git_project "$publisher" main
+  git clone -q --bare "$publisher" "$origin"
+  git clone -q "$origin" "$proj"
+  git -C "$publisher" tag prod-2026-09-02
+  git -C "$publisher" push -q "$origin" prod-2026-09-02
 
   write_brief "$home" promote-kind-t1 "" prod-2026-09-02
   printf 'window=fm-promote-kind-t1\nkind=scout\nworktree=/tmp/wt\nproject=%s\nbase=prod-2026-09-02\n' "$proj" \
@@ -376,7 +381,7 @@ test_promotion_tells_a_tag_base_from_a_branch_base() {
   brief="$home/data/promote-kind-t1/ship-instructions.md"
   # shellcheck disable=SC2016  # single quotes are deliberate: the backticks must stay literal
   assert_grep 'Your base `prod-2026-09-02` is a tag, and a tag cannot be a pull-request target' "$brief" \
-    "promotion from a tag did not say a tag cannot be a PR target"
+    "promotion from an origin-only tag did not say a tag cannot be a PR target"
   # shellcheck disable=SC2016  # single quotes are deliberate: the backticks must stay literal
   assert_no_grep '`--base prod-2026-09-02`' "$brief" \
     "promotion from a tag still hands the worker a flag that cannot succeed"

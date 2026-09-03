@@ -788,9 +788,18 @@ test_scout_and_secondmate_scaffold() {
 # repository default branch - the same silent default-branch fallback the
 # explicit --base at dispatch exists to prevent.
 test_base_ref_is_named_in_brief_and_dod() {
-  local home id brief mode
+  local home id brief mode origin publisher
   home="$TMP_ROOT/base-named-home"
-  mkdir -p "$home/data"
+  origin="$TMP_ROOT/base-named-origin.git"
+  publisher="$TMP_ROOT/base-named-publisher"
+  mkdir -p "$home/data" "$home/projects"
+  git init -q -b main "$publisher"
+  printf 'seed\n' > "$publisher/seed.txt"
+  git -C "$publisher" add seed.txt
+  git -C "$publisher" -c user.email=t@t -c user.name=t commit -qm seed
+  git -C "$publisher" branch -q prod-2026-09
+  git clone -q --bare "$publisher" "$origin"
+  git clone -q "$origin" "$home/projects/some-proj"
   for mode in no-mistakes direct-PR local-only; do
     id="brief-base-$mode"
     FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" some-proj --base prod-2026-09 --mode "$mode" >/dev/null 2>&1 \
@@ -878,16 +887,25 @@ test_herdr_lab_omission_is_loud_for_ship_and_scout
 # read the recorded base: a branch keeps the PR-target rule, a tag gets the
 # deliberate-target wording and no impossible flag.
 test_dod_tells_a_tag_base_from_a_branch_base() {
-  local home proj id mode brief
+  local home proj origin publisher id mode brief
   home="$TMP_ROOT/base-kind-home"
   proj="$home/projects/kind-proj"
+  origin="$TMP_ROOT/base-kind-origin.git"
+  publisher="$TMP_ROOT/base-kind-publisher"
   mkdir -p "$home/data" "$home/projects"
-  git init -q -b main "$proj"
-  printf 'seed\n' > "$proj/seed.txt"
-  git -C "$proj" add seed.txt
-  git -C "$proj" -c user.email=t@t -c user.name=t commit -qm seed
-  git -C "$proj" branch -q release-2026-09
-  git -C "$proj" tag prod-2026-09-02
+  git init -q -b main "$publisher"
+  printf 'seed\n' > "$publisher/seed.txt"
+  git -C "$publisher" add seed.txt
+  git -C "$publisher" -c user.email=t@t -c user.name=t commit -qm seed
+  git -C "$publisher" branch -q release-2026-09
+  git clone -q --bare "$publisher" "$origin"
+  git clone -q "$origin" "$proj"
+  # The release tag is cut on origin AFTER the clone, so the clone has never
+  # fetched it: the stale clone is the premise of the explicit base.
+  git -C "$publisher" tag prod-2026-09-02
+  git -C "$publisher" push -q "$origin" prod-2026-09-02
+  git -C "$proj" rev-parse --verify --quiet prod-2026-09-02 >/dev/null \
+    && fail "base-kind: test setup leaked the origin-only tag into the local clone"
 
   for mode in direct-PR no-mistakes; do
     id="brief-kind-branch-$mode"
@@ -908,9 +926,11 @@ test_dod_tells_a_tag_base_from_a_branch_base() {
     brief="$home/data/$id/brief.md"
     # shellcheck disable=SC2016  # single quotes are deliberate: the backticks must stay literal
     assert_grep 'Your base `prod-2026-09-02` is a tag, and a tag cannot be a pull-request target' "$brief" \
-      "base-kind: $mode brief from a tag did not say a tag cannot be a PR target"
+      "base-kind: $mode brief from an origin-only tag did not say a tag cannot be a PR target"
     assert_grep 'the PR target must be chosen deliberately' "$brief" \
       "base-kind: $mode brief from a tag did not require a deliberate PR target"
+    assert_no_grep 'was not confirmed against origin' "$brief" \
+      "base-kind: $mode brief from an origin-only tag was rendered as unconfirmed"
     # shellcheck disable=SC2016  # single quotes are deliberate: the backticks must stay literal
     assert_no_grep 'MUST target `prod-2026-09-02`' "$brief" \
       "base-kind: $mode brief from a tag still tells the worker to target the tag"
@@ -933,7 +953,26 @@ test_dod_tells_a_tag_base_from_a_branch_base() {
     || fail "base-kind: brief from a full tag refname did not scaffold"
   assert_grep 'cannot be a pull-request target' "$home/data/$id/brief.md" \
     "base-kind: a refs/tags/ base was not recognised as a tag from its own spelling"
-  pass "fm-brief: definition of done tells a tag base from a branch base"
+
+  # When origin cannot be reached the kind is unconfirmed: the worker gets the
+  # deliberate-target wording and is told so, never the branch instruction.
+  rm -rf "$origin"
+  id='brief-kind-unreachable'
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" kind-proj --base release-2026-09 --mode direct-PR >/dev/null 2>&1 \
+    || fail "base-kind: brief with an unreachable origin did not scaffold"
+  brief="$home/data/$id/brief.md"
+  # shellcheck disable=SC2016  # single quotes are deliberate: the backticks must stay literal
+  assert_grep 'Whether your base `release-2026-09` is a branch or a tag was not confirmed against origin' "$brief" \
+    "base-kind: an unreachable origin did not state that the base kind was not confirmed"
+  assert_grep 'the PR target must be chosen deliberately' "$brief" \
+    "base-kind: an unreachable origin did not fall back to the deliberate-target wording"
+  # shellcheck disable=SC2016  # single quotes are deliberate: the backticks must stay literal
+  assert_no_grep 'MUST target `release-2026-09`' "$brief" \
+    "base-kind: an unreachable origin still emitted the branch instruction on an unconfirmed kind"
+  # shellcheck disable=SC2016  # single quotes are deliberate: the backticks must stay literal
+  assert_no_grep '`--base release-2026-09`' "$brief" \
+    "base-kind: an unreachable origin still handed the worker an unconfirmed PR-creation flag"
+  pass "fm-brief: definition of done tells a tag base from a branch base against origin"
 }
 
 test_documented_global_replace_leaves_the_herdr_gate_intact
