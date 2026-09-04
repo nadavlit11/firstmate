@@ -7,8 +7,11 @@
 # its body carries one `last-run: <YYYY-MM-DD|never>` line, and its next due
 # date is its dated hold (`tasks-axi hold <id> --until <date>`). An unheld row
 # is due now. A job is RUNNING when a task with a state/<id>.meta record either
-# has an id that starts with the job id (fm-social-inbound-pass-2026-09-05 runs
-# fm-social-inbound-daily) or names `job: <job-id>` in its backlog body.
+# names `job: <job-id>` in its backlog body or has an id that is the job id
+# followed by a dash (fm-social-inbound-daily-2026-09-05 runs
+# fm-social-inbound-daily). The body line wins over the id; among ids, the
+# longest job id wins, so fm-seo-weekly-recommendations-2026-09-05 runs
+# fm-seo-weekly-recommendations, not fm-seo-weekly.
 #
 # Usage:
 #   fm-jobs.sh [list]
@@ -214,27 +217,27 @@ body_job() {  # <body>
 }
 
 # Print "<job-id>\t<task-id>" for every live task (state/<id>.meta) that runs
-# a recurring job, by id prefix or by a `job:` body line in its own row.
+# a recurring job: an exact `job:` body line in its own row decides first, then
+# the longest job id that equals the task id or prefixes it up to a dash.
 running_tasks() {  # <all rows> <job-ids (one per line)>
-  local rows=$1 jobs=$2 meta id job body named
+  local rows=$1 jobs=$2 meta id job body named best
   for meta in "$STATE"/*.meta; do
     [ -f "$meta" ] || continue
     id=$(basename "$meta" .meta)
+    body=$(printf '%s\n' "$rows" | awk -F'\t' -v t="$id" '$1 == t { print $6; exit }')
+    named=$(body_job "$body")
+    best=
     while IFS= read -r job; do
       [ -n "$job" ] || continue
+      if [ "$job" = "$named" ]; then
+        best=$job
+        break
+      fi
       case "$id" in
-        "$job"|"$job"-*) printf '%s\t%s\n' "$job" "$id"; continue 2 ;;
+        "$job"|"$job"-*) [ ${#job} -gt ${#best} ] && best=$job ;;
       esac
     done <<< "$jobs"
-    body=$(printf '%s\n' "$rows" | awk -F'\t' -v t="$id" '$1 == t { print $6; exit }')
-    [ -n "$body" ] || continue
-    named=$(body_job "$body")
-    [ -n "$named" ] || continue
-    while IFS= read -r job; do
-      [ "$job" = "$named" ] || continue
-      printf '%s\t%s\n' "$job" "$id"
-      break
-    done <<< "$jobs"
+    [ -n "$best" ] && printf '%s\t%s\n' "$best" "$id"
   done
 }
 

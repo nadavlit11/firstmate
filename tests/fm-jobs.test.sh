@@ -7,7 +7,8 @@
 # can answer": a fake would only confirm the column order written into the fake.
 #
 # Coverage:
-#   - list: running (by id prefix and by a `job:` body line) sorts first, then
+#   - list: running (by id prefix, the longest job id winning, and by a `job:`
+#     body line) sorts first, then
 #     due (most overdue first, `DUE now` for an unheld row), then upcoming by
 #     most recent last-run, then an undated hold; non-recurring rows and rows
 #     with a running task but no live record are never RUNNING
@@ -102,12 +103,19 @@ test_list_orders_running_due_upcoming_and_held() {
   add_job "$home" seo-run-42 'SEO measurement' $'job: fm-seo-weekly\nmore'
   axi "$home" start seo-run-42
   fm_write_meta "$home/state/seo-run-42.meta" window=fm-x:2 kind=scout
+  # A job id that is a prefix of another: the task belongs to the longer one.
+  add_job "$home" fm-seo-weekly-recommendations 'recurring: SEO recommendations' 'last-run: 2026-08-29'
+  axi "$home" hold fm-seo-weekly-recommendations --reason 'next run' --until 2026-09-11 --kind future
+  add_job "$home" fm-seo-weekly-recommendations-2026-09-04 'SEO recommendations pass' ''
+  axi "$home" start fm-seo-weekly-recommendations-2026-09-04
+  fm_write_meta "$home/state/fm-seo-weekly-recommendations-2026-09-04.meta" window=fm-x:3 kind=ship
   # A task that names a job but has no live record is not running.
   add_job "$home" fm-meta-posts-pass-2026-08-20 'old meta pass' ''
 
   out=$(jobs "$home" 2026-09-04)
   expected='fm-inbound-daily  RUNNING as fm-inbound-daily-pass-2026-09-04  last-run 2026-09-03  recurring: meta DMs and comments
 fm-seo-weekly  RUNNING as seo-run-42  last-run 2026-08-28  recurring: SEO weekly
+fm-seo-weekly-recommendations  RUNNING as fm-seo-weekly-recommendations-2026-09-04  last-run 2026-08-29  recurring: SEO recommendations
 fm-linkedin-posts  DUE 2026-09-01 (overdue 3 d)  last-run 2026-08-30  recurring: linkedin posts
 fm-weekly-report  DUE now  last-run never  recurring: weekly report
 fm-alerts-daily  due 2026-09-06  last-run 2026-09-02  recurring: sentry and gcp alerts
