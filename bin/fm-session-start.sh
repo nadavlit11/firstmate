@@ -47,6 +47,10 @@
 #                       every state/*.meta, a bounded state/*.status tail,
 #                       state/.afk, and a cheap per-task endpoint-liveness read:
 #                       read-only, always runs.
+#   6b. recurring jobs - one bounded line per `recurring: ` backlog job with its
+#      running/due/upcoming state, from bin/fm-jobs.sh (the convention owner is
+#      docs/configuration.md "Recurring jobs"); local reads only, capped at
+#      FM_SESSION_START_JOBS_LIMIT lines (default 30) with a disclosed remainder.
 #   7. network checks - the result of the deferred network stage started back at
 #                       step 1, harvested WITHOUT waiting for it.
 #   8. context digest - data/projects.md, data/secondmates.md, data/captain.md,
@@ -259,7 +263,7 @@ done
 # The ordered stage list is the contract behind the truncation banner: the child
 # names the stage it is entering, and the parent reports every stage at or after
 # that one as never emitted. Keep it in the exact order the digest prints.
-SESSION_START_STAGES='lock bootstrap wake-queue supervision-instructions read-once fleet-state network-checks context next-step'
+SESSION_START_STAGES='lock bootstrap wake-queue supervision-instructions read-once fleet-state recurring-jobs network-checks context next-step'
 
 stage() {  # <stage-name>: breadcrumb for the parent's truncation banner
   [ -n "${FM_SESSION_START_STAGE_FILE:-}" ] || return 0
@@ -876,6 +880,27 @@ if fm_pf_relay_active "$FM_HOME" \
     printf '%s/bin/fm-public-followup.sh retire <id> --reason "...". Load fmx-respond for the procedure.\n' "$FM_ROOT"
   fi
 fi
+
+# --- 6b. recurring jobs -----------------------------------------------------
+# After the live-task inventory it cross-references (a job is RUNNING when one
+# of those tasks runs it) and before the network section, so the captain's
+# "which job is running, ran, or is about to run" answer is part of the local,
+# bounded digest. fm-jobs.sh always exits 0 and prints one explanatory line
+# when the backlog or tasks-axi cannot answer, so this section can never break
+# the digest; the cap here only bounds an unusually long job list.
+stage recurring-jobs
+subsection "RECURRING JOBS"
+JOBS_LIMIT=${FM_SESSION_START_JOBS_LIMIT:-30}
+case "$JOBS_LIMIT" in ''|*[!0-9]*|0) JOBS_LIMIT=30 ;; esac
+JOBS_OUT=$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" FM_DATA_OVERRIDE="$DATA" \
+  FM_CONFIG_OVERRIDE="$CONFIG" FM_TASKS_AXI_COMPATIBLE="$TASKS_AXI_COMPATIBLE" \
+  "$SCRIPT_DIR/fm-jobs.sh" list 2>&1) || JOBS_OUT="recurring jobs unavailable: fm-jobs.sh failed: $(printf '%s\n' "$JOBS_OUT" | head -1)"
+JOBS_TOTAL=$(printf '%s\n' "$JOBS_OUT" | grep -c .)
+printf '%s\n' "$JOBS_OUT" | head -n "$JOBS_LIMIT"
+if [ "$JOBS_TOTAL" -gt "$JOBS_LIMIT" ]; then
+  printf '(%d more recurring jobs - %s/bin/fm-jobs.sh)\n' $((JOBS_TOTAL - JOBS_LIMIT)) "$FM_ROOT"
+fi
+printf 'Record a finished job with %s/bin/fm-jobs.sh mark <job-id> --ran <date> --next <date>.\n' "$FM_ROOT"
 
 # --- 7. network checks ------------------------------------------------------
 # Deliberately here and not later: these lines are actionable (a stuck clone, a

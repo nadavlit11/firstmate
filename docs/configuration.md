@@ -107,6 +107,15 @@ A `manual` home owns its backlog file outright: the lifecycle transitions above 
 Absent or `tasks-axi` selects the default tasks-axi backend.
 The file format is unchanged in both modes; tasks-axi and manual edits produce the same `## In flight`, `## Queued`, and `## Done` sections.
 
+## Recurring jobs (bin/fm-jobs.sh)
+
+A recurring job is an ordinary backlog work item whose title starts with `recurring: ` and whose body carries one `last-run: <YYYY-MM-DD|never>` line.
+Its next due date is its dated hold (`tasks-axi hold <id> --until <date>`), an unheld row is due now, and a row held without a date waits on that hold.
+A job is running while a task with a `state/<id>.meta` record either has an id that starts with the job id or names `job: <job-id>` in its backlog body.
+[`bin/fm-jobs.sh`](../bin/fm-jobs.sh) renders every job in that order - running, due with the most overdue first, then upcoming - and the session-start digest prints that view in its `RECURRING JOBS` section, bounded by `FM_SESSION_START_JOBS_LIMIT` (default 30).
+`bin/fm-jobs.sh mark <job-id> --ran <date> --next <date>` records one completion by rewriting the `last-run:` line and re-holding the row in one step, and refuses a row that is not a recurring job.
+Every read and write goes through `tasks-axi`, so a `manual` home (above) records completions by hand and the listing still reads the file through compatible `tasks-axi` when it is on `PATH`.
+
 ## Runtime backend (config/backend / FM_BACKEND)
 
 For spawn-capable adapters, the runtime session-provider backend controls where task windows/endpoints are created, captured, sent to, watched, and killed.

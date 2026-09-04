@@ -110,10 +110,13 @@ SH
 
 # make_fake_tasks_axi_compact <fakebin>: a tasks-axi boundary that answers the
 # four group filters the startup listing composes (in-flight, held, blocked
-# queued, and the dispatchable ready set) and REFUSES anything the recovery
-# listing must never ask for: a body field, an unfiltered whole-backlog listing,
-# or done rows. FM_FAKE_TASKS_AXI_READY sizes the ready set so the queued bound
-# can be driven past its limit.
+# queued, and the dispatchable ready set) plus the two bodied state listings
+# the RECURRING JOBS section reads through bin/fm-jobs.sh (recognized by that
+# script's exact field set), and REFUSES anything the recovery listing must
+# never ask for: a body field on any other listing, an unfiltered
+# whole-backlog listing, or done rows.
+# FM_FAKE_TASKS_AXI_READY sizes the ready set so the queued bound can be driven
+# past its limit.
 make_fake_tasks_axi_compact() {
   local fakebin=$1
   cat > "$fakebin/tasks-axi" <<'SH'
@@ -168,6 +171,22 @@ case "${1:-}" in
     ;;
   list)
     case "$*" in
+      *'--state queued --fields held,hold_until,hold_kind,body'*)
+        require_file "$@"
+        printf 'count: 1\n'
+        printf 'tasks[1]{id,state,kind,repo,title,held,hold_until,hold_kind,body}:\n'
+        printf '%s\n' '  recurring-daily,queued,task,firstmate,"recurring: daily sweep",yes,2026-01-01,future,"last-run: 2025-12-25\nnotes"'
+        list_help
+        exit 0
+        ;;
+      *'--state in_flight --fields held,hold_until,hold_kind,body'*)
+        require_file "$@"
+        printf 'count: 1\n'
+        printf 'tasks[1]{id,state,kind,repo,title,held,hold_until,hold_kind,body}:\n'
+        printf '%s\n' '  compact-startup,in_flight,ship,firstmate,Compact startup digest,no,"-","-",""'
+        list_help
+        exit 0
+        ;;
       *'--fields '*'body'*|*'--fields='*'body'*)
         printf '%s\n' 'unexpected body field requested' >&2
         exit 9
@@ -2593,11 +2612,54 @@ test_runtime_bound_truncates_loudly_and_exits_zero
 test_portable_timeout_escalates_term_resistant_process
 test_runtime_bound_leaves_a_healthy_digest_untouched
 test_runtime_bound_leaves_harness_ancestry_headroom
+# The RECURRING JOBS section answers "which job is running, ran, or is about
+# to run" from bin/fm-jobs.sh, between the live-task inventory it cross-checks
+# and the network section, bounded and never fatal.
+test_recurring_jobs_section_sits_between_fleet_state_and_network_checks() {
+  local rec root home fakebin out fleet_line jobs_line network_line
+  rec=$(new_world recurring-jobs)
+  IFS='|' read -r root home fakebin <<EOF
+$rec
+EOF
+  make_fake_toolchain "$fakebin"
+  make_fake_tasks_axi_compact "$fakebin"
+  make_fake_ps_claude "$fakebin"
+  printf '# Backlog\n\n## Queued\n\n## In flight\n\n## Done\n' > "$home/data/backlog.md"
+  cp "$ROOT/.tasks.toml" "$home/.tasks.toml"
+
+  out=$(run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
+
+  fleet_line=$(printf '%s\n' "$out" | grep -n '^FLEET STATE$' | head -1 | cut -d: -f1)
+  jobs_line=$(printf '%s\n' "$out" | grep -n '^RECURRING JOBS$' | head -1 | cut -d: -f1)
+  network_line=$(printf '%s\n' "$out" | grep -n '^NETWORK CHECKS$' | head -1 | cut -d: -f1)
+  [ -n "$jobs_line" ] || fail "the digest has no RECURRING JOBS section:"$'\n'"$out"
+  [ "$fleet_line" -lt "$jobs_line" ] || fail "RECURRING JOBS did not follow FLEET STATE"
+  [ "$jobs_line" -lt "$network_line" ] || fail "RECURRING JOBS did not precede NETWORK CHECKS"
+  assert_contains "$out" "recurring-daily  DUE 2026-01-01 (overdue " \
+    "the section did not render the recurring job with its due state"
+  assert_contains "$out" "last-run 2025-12-25  recurring: daily sweep" \
+    "the section did not render the job's last run and title"
+  assert_contains "$out" "bin/fm-jobs.sh mark <job-id> --ran <date> --next <date>" \
+    "the section did not point at the completion command"
+
+  # Never fatal: with an incompatible tasks-axi the section explains itself
+  # and the digest continues to the network section. The fake is replaced
+  # rather than removed so a real tasks-axi further down PATH cannot answer.
+  printf '#!/usr/bin/env bash\nexit 1\n' > "$fakebin/tasks-axi"
+  chmod +x "$fakebin/tasks-axi"
+  out=$(run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
+  assert_contains "$out" "recurring jobs unavailable: compatible tasks-axi" \
+    "an absent tasks-axi should be named in the section"
+  assert_contains "$out" "NETWORK CHECKS" "the digest stopped at the recurring-jobs section"
+  pass "session start: RECURRING JOBS sits between FLEET STATE and NETWORK CHECKS and is never fatal"
+}
+
 test_reemit_skips_startup_sweeps_but_keeps_the_wake_drain
 test_agents_baseline_stays_at_true_start_and_reemits_on_every_drifted_pi_compact
 test_read_only_pi_compact_refreshes_against_its_own_session_identity
 test_codex_unreachable_reset_sources_do_not_claim_instruction_refresh
 test_agents_baseline_requires_sha256_and_successful_completion
 test_reemit_keeps_repair_ownership_with_the_lock_holder
+test_recurring_jobs_section_sits_between_fleet_state_and_network_checks
 
 echo "# fm-session-start.test.sh: all assertions passed"
