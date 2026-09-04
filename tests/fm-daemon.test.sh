@@ -1441,6 +1441,21 @@ test_inject_skip_forces_self() {
   pass "INJECT_SKIP forces self-handle, bypassing captain-relevant classification"
 }
 
+test_heartbeat_self_handles_regardless_of_inject_skip() {
+  # overnight-watch pre-flight item 6 rests on this: an away-mode heartbeat
+  # never reaches firstmate even with FM_INJECT_SKIP cleared, so a night with
+  # ready queue items cannot rely on heartbeats for the queue re-check.
+  local dir state
+  dir=$(make_supercase heartbeat-no-skip)
+  state="$dir/state"
+  printf 'done: PR 1\n' > "$state/s1.status"
+  FM_STATE_OVERRIDE="$state" FM_INJECT_SKIP="" handle_wake "heartbeat" "$state"
+  [ -s "$state/.subsuper-escalations" ] && fail "heartbeat escalated with FM_INJECT_SKIP cleared"
+  FM_STATE_OVERRIDE="$state" FM_INJECT_SKIP="signal" handle_wake "heartbeat: tick" "$state"
+  [ -s "$state/.subsuper-escalations" ] && fail "heartbeat escalated with FM_INJECT_SKIP=signal"
+  pass "heartbeat wakes self-handle regardless of FM_INJECT_SKIP"
+}
+
 test_is_wake_reason_distinguishes_status_stdout() {
   # Real wake reasons are recognized; watcher status lines (singleton collision)
   # are not, so the main loop can idle them without flooding escalations.
@@ -2655,6 +2670,7 @@ test_escalate_batch_age_uses_first_append
 test_heartbeat_scan_dedup
 test_handle_wake_routes_self_and_escalate
 test_inject_skip_forces_self
+test_heartbeat_self_handles_regardless_of_inject_skip
 test_is_wake_reason_distinguishes_status_stdout
 test_terminal_stale_escalate_leaves_no_marker
 test_signal_escalate_marks_seen_no_catchall_refire

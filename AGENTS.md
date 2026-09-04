@@ -563,6 +563,7 @@ These skills are not captain-invocable; load them only at their precise triggers
 - `fmx-respond` - load on an `x-mention <request_id>` `check:` wake to handle the mention, on an `x-mode-error ...` `check:` wake to report the Relay configuration blocker, on a `public-followup ...` `check:` wake or a startup-surfaced public commitment, and on any milestone or terminal wake for a Relay-linked task before posting its completion follow-up; relevant only when Relay is on.
 - `seo-review` - load before filing, dispatching, running, or relaying a recurring Search Console review for click-bateva or bateva-shelanu, when one comes due on its time gate, and before answering any question about its cadence, its pull, or where its target-term lists live.
 - `firstmate-codexapp` - load before coordinating a visible Codex Desktop thread, evaluating a Codex App backend request, or reconciling Codex Desktop host-tool smoke evidence for Firstmate work.
+- `overnight-watch` - load when the captain announces a sleep stretch and hands over the queue ("I'm going to sleep", "move forward, make decisions, don't wait for me", "update me in the morning"); it owns the awake-time pre-flight, the night's authority envelope, dispatch pacing, queue continuity through the whole night, the recurring night incidents, and the mandatory morning-report shape.
 - `firstmate-coding-guidelines` - load before changing firstmate's shared, tracked material, as defined by section 1's list, whether editing directly or briefing a crewmate for a firstmate-repo task.
 
 ## 14. Relay
