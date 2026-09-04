@@ -1,0 +1,24 @@
+# Home: seven captain-listed recurring jobs; two live tasks (one by id prefix, one by job: body line); today=2026-09-04
+$ FM_HOME=/tmp/fm-jobs-e2e.xr6v FM_JOBS_TODAY=2026-09-04 bin/fm-jobs.sh list
+fm-meta-inbound  RUNNING as fm-meta-inbound-2026-09-04  last-run 2026-09-03  recurring: meta DMs/comments pass
+fm-seo-weekly-recommendations  RUNNING as fm-seo-weekly-recommendations-2026-09-04  last-run 2026-08-28  recurring: SEO weekly recommendations
+fm-linkedin-posts  DUE 2026-09-02 (overdue 2 d)  last-run 2026-09-02  recurring: LinkedIn posts making and scheduling
+fm-alerts-daily  DUE 2026-09-04  last-run 2026-09-03  recurring: daily Sentry and GCP alerts scan
+fm-seo-weekly  DUE 2026-09-04  last-run 2026-08-28  recurring: SEO weekly measurement
+fm-linkedin-connections  due 2026-09-08  last-run 2026-09-01  recurring: LinkedIn connection requests
+fm-meta-posts  due 2026-09-06  last-run 2026-08-30  recurring: meta posts making and scheduling
+fm-weekly-report  held (captain)  last-run 2026-09-04  recurring: weekly report
+
+$ bin/fm-jobs.sh mark fm-linkedin-posts --ran 2026-09-04 --next 2026-09-07
+ok: fm-linkedin-posts last-run 2026-09-04, next due 2026-09-07
+(exit 0)
+
+$ bin/fm-jobs.sh list   # after mark
+fm-meta-inbound  RUNNING as fm-meta-inbound-2026-09-04  last-run 2026-09-03  recurring: meta DMs/comments pass
+fm-seo-weekly-recommendations  RUNNING as fm-seo-weekly-recommendations-2026-09-04  last-run 2026-08-28  recurring: SEO weekly recommendations
+fm-alerts-daily  DUE 2026-09-04  last-run 2026-09-03  recurring: daily Sentry and GCP alerts scan
+fm-seo-weekly  DUE 2026-09-04  last-run 2026-08-28  recurring: SEO weekly measurement
+fm-linkedin-posts  due 2026-09-07  last-run 2026-09-04  recurring: LinkedIn posts making and scheduling
+fm-linkedin-connections  due 2026-09-08  last-run 2026-09-01  recurring: LinkedIn connection requests
+fm-meta-posts  due 2026-09-06  last-run 2026-08-30  recurring: meta posts making and scheduling
+fm-weekly-report  held (captain)  last-run 2026-09-04  recurring: weekly report

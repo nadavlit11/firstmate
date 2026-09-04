@@ -1,0 +1,71 @@
+FLEET STATE
+================================================================================
+
+data/backlog.md
+--------------------------------------------------------------------------------
+compact backlog listing (tasks-axi; done rows omitted; every in-flight, held, and blocked row shown in full; ready queued bounded to 20; task bodies omitted)
+
+in flight:
+count: 2
+tasks[2]{id,state,kind,repo,title,blocked_by,hold_kind,hold_reason}:
+  fm-meta-inbound-2026-09-04,in_flight,task,"-",meta inbound run,none,"-","-"
+  fm-seo-weekly-recommendations-2026-09-04,in_flight,task,"-",SEO recommendations run,none,"-","-"
+
+held (captain- or time-gated; an in-flight item that is also held appears in both groups):
+count: 4
+tasks[4]{id,state,kind,repo,title,blocked_by,hold_kind,hold_reason}:
+  fm-linkedin-connections,queued,task,"-","recurring: LinkedIn connection requests",none,future,next run
+  fm-meta-posts,queued,task,"-","recurring: meta posts making and scheduling",none,future,next run
+  fm-linkedin-posts,queued,task,"-","recurring: LinkedIn posts making and scheduling",none,future,next run
+  fm-weekly-report,queued,task,"-","recurring: weekly report",none,captain,captain decides cadence
+
+blocked queued:
+count: 0
+tasks: 0 blocked queued tasks in this backlog
+
+ready queued (dispatchable now):
+count: 4
+ready[4]{id,state,kind,repo,title}:
+  fm-meta-inbound,queued,task,"-","recurring: meta DMs/comments pass"
+  fm-seo-weekly,queued,task,"-","recurring: SEO weekly measurement"
+  fm-seo-weekly-recommendations,queued,task,"-","recurring: SEO weekly recommendations"
+  fm-alerts-daily,queued,task,"-","recurring: daily Sentry and GCP alerts scan"
+ready_public_followups: 0 delivery-ready obligations
+(shown 4 of 4 ready queued item(s))
+Full task bodies remain available on demand: tasks-axi show <id> --full when compatible tasks-axi is available, or data/backlog.md.
+
+Work under way (state/*.meta)
+--------------------------------------------------------------------------------
+
+--- fm-meta-inbound-2026-09-04 ---
+id=fm-meta-inbound-2026-09-04
+endpoint: unknown (no window recorded)
+status tail: (no status file yet: /tmp/fm-jobs-e2e.xr6v/state/fm-meta-inbound-2026-09-04.status)
+
+--- fm-seo-weekly-recommendations-2026-09-04 ---
+id=fm-seo-weekly-recommendations-2026-09-04
+endpoint: unknown (no window recorded)
+status tail: (no status file yet: /tmp/fm-jobs-e2e.xr6v/state/fm-seo-weekly-recommendations-2026-09-04.status)
+
+Orphan status logs (state/*.status without matching .meta)
+--------------------------------------------------------------------------------
+(none)
+
+AFK
+--------------------------------------------------------------------------------
+absent
+
+RECURRING JOBS
+--------------------------------------------------------------------------------
+fm-meta-inbound  RUNNING as fm-meta-inbound-2026-09-04  last-run 2026-09-03  recurring: meta DMs/comments pass
+fm-seo-weekly-recommendations  RUNNING as fm-seo-weekly-recommendations-2026-09-04  last-run 2026-08-28  recurring: SEO weekly recommendations
+fm-alerts-daily  DUE 2026-09-04  last-run 2026-09-03  recurring: daily Sentry and GCP alerts scan
+fm-seo-weekly  DUE 2026-09-04  last-run 2026-08-28  recurring: SEO weekly measurement
+fm-linkedin-posts  due 2026-09-07  last-run 2026-09-04  recurring: LinkedIn posts making and scheduling
+fm-linkedin-connections  due 2026-09-08  last-run 2026-09-01  recurring: LinkedIn connection requests
+fm-meta-posts  due 2026-09-06  last-run 2026-08-30  recurring: meta posts making and scheduling
+fm-weekly-report  held (captain)  last-run 2026-09-04  recurring: weekly report
+Record a finished job with /Users/nadavlitvak/.no-mistakes/worktrees/c4ebdacd560e/01M1P5MAQRQB447GARS6N9EVS9/bin/fm-jobs.sh mark <job-id> --ran <date> --next <date>.
+
+================================================================================
+NETWORK CHECKS
