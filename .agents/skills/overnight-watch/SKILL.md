@@ -24,6 +24,7 @@ Before saying goodnight, prove every command the night will need actually runs i
    On this 4-CPU, 8 GB machine about eight concurrent Claude workers is the ceiling; below ~500 MB unused or above ~2 GB swap, stop dispatching.
 4. Read the live queue with `tasks-axi list` and keep that listing: the morning report must show the queue before and after.
 5. Ask the captain the two authority questions in section 2 in one sentence each if the answers are not already explicit.
+6. Keep away mode off for the night, or start the away-mode daemon with `FM_INJECT_SKIP` cleared of `heartbeat`, so heartbeats reach firstmate.
 
 ## 2. Authority envelope for the night
 
@@ -47,7 +48,7 @@ The queue re-check is a fixed step after every worker completion, every stand-do
 The night's work is finished only when the ready queue is empty, or headroom is gone, or every remaining ready item is blocked by the section 2 envelope; in the last two cases the hold message names each remaining item and its blocker.
 A hold message that says nothing needs doing while ready items exist is forbidden; every hourly hold line states the ready count and the headroom reading.
 A usage-limit stop is a paused wait with a known reset time; the first turn after the reset runs the queue re-check before anything else.
-When away mode is on, overnight-watch composes with the `afk` skill, and the away-mode daemon's self-handled heartbeat wakes still trigger this section's queue re-check.
+When away mode is on, overnight-watch composes with the `afk` skill, but away-mode heartbeats do not reach firstmate, so through the night the queue re-check rides on escalated completions, stand-downs, cleanups, and the hourly hold.
 
 ## 5. Wake handling habits that keep the night moving
 
