@@ -1,0 +1,7 @@
+ok - INJECT_SKIP forces self-handle, bypassing captain-relevant classification
+ok - check + unknown escalate; heartbeat self-handles
+ok - heartbeat wakes self-handle regardless of FM_INJECT_SKIP
+--- daemon log lines for the heartbeat wakes:
+[2026-09-04T11:44:05+0300] wake force-self (FM_INJECT_SKIP): signal: /private/var/folders/x0/m_0bk2pj1lg8bvp8ft5kzhcw0000gn/T/fm-hb-only.5FWPHd/skip/state/s1.status
+[2026-09-04T11:44:06+0300] wake force-self (FM_INJECT_SKIP): heartbeat
+[2026-09-04T11:44:06+0300] self-handle: heartbeat: tick -> heartbeat (catch-all scan runs in housekeeping)
