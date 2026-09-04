@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # Regression tests for fm-spawn's pooled-worktree base refresh.
 #
-# A treehouse pool can return a clean detached worktree whose origin/main was
+# A treehouse pool can return a clean detached worktree whose base branch was
 # advanced after the worktree was allocated.
-# These tests drive the real spawn path with a fake terminal, then prove it
-# starts the worker from the fetched origin/main tip or stops when origin is
-# unreachable.
+# The base ref is required dispatch input rather than a lookup, so these tests
+# drive the real spawn path with a fake terminal and prove it starts the worker
+# from the fetched tip of the ref it was GIVEN - including a non-default branch
+# and a tag - and stops when the base is missing, unnamed, or unreachable.
 set -u
 
 # shellcheck source=tests/fixtures.sh
@@ -50,9 +51,18 @@ read_case_record() {
   IFS='|' read -r CASE_DIR HOME_DIR PROJECT_DIR POOL_DIR FAKEBIN_DIR INITIAL_SHA DEFAULT_BRANCH <<EOF
 $1
 EOF
+  BASE_REF=$DEFAULT_BRANCH
 }
 
+# Every spawn needs an explicit base, so the wrapper supplies this case's own
+# base ref. Cases that exercise the base input itself call run_spawn_raw instead.
 run_spawn() {
+  local id=$1
+  shift
+  run_spawn_raw "$id" --base "$BASE_REF" "$@"
+}
+
+run_spawn_raw() {
   local id=$1
   shift
   fm_test_run_spawn "$HOME_DIR" "$POOL_DIR" "$FAKEBIN_DIR" \
@@ -92,10 +102,10 @@ test_stale_pool_base_refreshes_before_branching() {
     || fail "a branch created after spawn differs from current origin/main"
   assert_grep 'must survive a newly spawned branch' "$POOL_DIR/advanced-main.txt" \
     "the branch created after spawn omitted advanced-main content"
-  pass "a stale pooled worktree refreshes to current origin/main before a crew branch is created"
+  pass "a stale pooled worktree refreshes to the fetched tip of its base ref before a crew branch is created"
 }
 
-test_non_main_default_branch_refreshes_before_branching() {
+test_non_main_base_ref_refreshes_before_branching() {
   local rec id out status current branch_head
   id='pool-current-trunk-r2'
   rec=$(make_case current-trunk "$id" trunk)
@@ -108,7 +118,7 @@ test_non_main_default_branch_refreshes_before_branching() {
   branch_head=$(git -C "$POOL_DIR" rev-parse HEAD)
   [ "$branch_head" = "$current" ] || fail "spawn did not refresh to current origin/$DEFAULT_BRANCH"
   [ "$branch_head" != "$INITIAL_SHA" ] || fail "fixture did not prove origin/$DEFAULT_BRANCH advanced past the pool base"
-  pass "a stale pooled worktree resolves and refreshes a non-main default branch"
+  pass "a stale pooled worktree resolves and refreshes a non-main base ref"
 }
 
 test_unreachable_origin_refuses_stale_pool_base() {
@@ -180,25 +190,94 @@ test_dirty_pool_refuses_without_discarding_work() {
   pass "a dirty pooled worktree is refused without discarding its local work"
 }
 
-test_unresolved_remote_default_refuses_pool() {
+test_missing_base_refuses_before_any_endpoint() {
   local rec id out status before
-  id='pool-unresolved-default-r5'
-  rec=$(make_case unresolved-default "$id")
+  id='pool-missing-base-r5'
+  rec=$(make_case missing-base "$id")
   read_case_record "$rec"
-  git --git-dir="$CASE_DIR/origin.git" symbolic-ref HEAD refs/heads/missing-default
   before=$(git -C "$POOL_DIR" rev-parse HEAD)
 
-  out=$(run_spawn "$id" --mode no-mistakes --yolo off)
+  out=$(run_spawn_raw "$id" --mode no-mistakes --yolo off)
   status=$?
-  [ "$status" -ne 0 ] || fail "spawn succeeded despite an unresolved remote default branch"
-  assert_contains "$out" "could not resolve origin's current default branch" \
-    "spawn did not clearly refuse an unresolved remote default branch"
+  [ "$status" -ne 0 ] || fail "spawn launched a ship task with no base ref"
+  assert_contains "$out" "ship spawns require --base" \
+    "spawn did not clearly refuse a ship dispatch with no base ref"
   [ "$(git -C "$POOL_DIR" rev-parse HEAD)" = "$before" ] \
-    || fail "spawn moved HEAD after failing to resolve the remote default branch"
+    || fail "spawn touched the pooled worktree while refusing a dispatch with no base"
+
+  out=$(run_spawn_raw "$id" --scout)
+  status=$?
+  [ "$status" -ne 0 ] || fail "spawn launched a scout task with no base ref"
+  assert_contains "$out" "scout spawns require --base" \
+    "spawn did not clearly refuse a scout dispatch with no base ref"
   if [ "${FM_TEST_EVIDENCE:-0}" = 1 ]; then
-    printf '# observed unresolved-default refusal: %s\n' "$(printf '%s\n' "$out" | tail -n 1)"
+    printf '# observed missing-base refusal: %s\n' "$(printf '%s\n' "$out" | tail -n 1)"
   fi
-  pass "an unresolved remote default branch refuses the pooled worktree"
+  pass "a dispatch that names no base ref is refused instead of assuming the default branch"
+}
+
+test_explicit_base_wins_over_default_branch() {
+  local rec id out status prod_sha default_sha
+  id='pool-explicit-base-r6'
+  rec=$(make_case explicit-base "$id")
+  read_case_record "$rec"
+  # A second line on origin, exactly the shape the default branch cannot express:
+  # a release branch and a tag that the default branch is behind.
+  git -C "$CASE_DIR/publisher" checkout --quiet -b prod
+  printf 'the line this task actually needs\n' > "$CASE_DIR/publisher/prod.txt"
+  git -C "$CASE_DIR/publisher" add prod.txt
+  git -C "$CASE_DIR/publisher" -c user.name='Firstmate Tests' -c user.email='tests@example.invalid' \
+    commit -qm prod-line
+  git -C "$CASE_DIR/publisher" tag prod-2026-09-02
+  git -C "$CASE_DIR/publisher" push --quiet origin prod prod-2026-09-02
+  prod_sha=$(git -C "$CASE_DIR/publisher" rev-parse HEAD)
+  default_sha=$(git -C "$CASE_DIR/publisher" rev-parse "$DEFAULT_BRANCH")
+  [ "$prod_sha" != "$default_sha" ] || fail "fixture did not diverge the prod line from the default branch"
+
+  out=$(run_spawn_raw "$id" --base prod --mode no-mistakes --yolo off)
+  status=$?
+  expect_code 0 "$status" "spawn should start from the explicitly named branch"
+  assert_contains "$out" "spawned $id" "spawn did not report success"
+  [ "$(git -C "$POOL_DIR" rev-parse HEAD)" = "$prod_sha" ] \
+    || fail "spawn did not start the worker from the named base branch"
+  assert_grep 'the line this task actually needs' "$POOL_DIR/prod.txt" \
+    "the named base branch content is missing from the launched worktree"
+  assert_grep "base=prod" "$HOME_DIR/state/$id.meta" \
+    "the task record did not keep the base ref this dispatch chose"
+
+  id='pool-explicit-tag-r6'
+  mkdir -p "$HOME_DIR/data/$id"
+  fm_test_spawn_brief "$HOME_DIR" "$id"
+  out=$(run_spawn_raw "$id" --base prod-2026-09-02 --mode no-mistakes --yolo off)
+  status=$?
+  expect_code 0 "$status" "spawn should start from an explicitly named tag"
+  [ "$(git -C "$POOL_DIR" rev-parse HEAD)" = "$prod_sha" ] \
+    || fail "spawn did not start the worker from the named base tag"
+  if [ "${FM_TEST_EVIDENCE:-0}" = 1 ]; then
+    printf '# observed explicit base: HEAD=%s prod=%s default=%s\n' \
+      "$(git -C "$POOL_DIR" rev-parse HEAD)" "$prod_sha" "$default_sha"
+  fi
+  pass "an explicitly named branch or tag is the base, even when the default branch is elsewhere"
+}
+
+test_unknown_base_ref_refuses_pool() {
+  local rec id out status before
+  id='pool-unknown-base-r5'
+  rec=$(make_case unknown-base "$id")
+  read_case_record "$rec"
+  before=$(git -C "$POOL_DIR" rev-parse HEAD)
+
+  out=$(run_spawn_raw "$id" --base no-such-release --mode no-mistakes --yolo off)
+  status=$?
+  [ "$status" -ne 0 ] || fail "spawn succeeded despite a base ref that does not exist on origin"
+  assert_contains "$out" "could not fetch base ref 'no-such-release'" \
+    "spawn did not clearly refuse an unknown base ref"
+  [ "$(git -C "$POOL_DIR" rev-parse HEAD)" = "$before" ] \
+    || fail "spawn moved HEAD after failing to fetch the named base ref"
+  if [ "${FM_TEST_EVIDENCE:-0}" = 1 ]; then
+    printf '# observed unknown-base refusal: %s\n' "$(printf '%s\n' "$out" | tail -n 1)"
+  fi
+  pass "a base ref that does not exist on origin refuses the pooled worktree"
 }
 
 # A slot left on a stale submodule pin is the field failure this diagnosis exists
@@ -259,6 +338,7 @@ read_submodule_case() {
   IFS='|' read -r CASE_DIR HOME_DIR PROJECT_DIR POOL_DIR FAKEBIN_DIR SUBPIN1 SUBPIN2 ADVANCED_SHA <<EOF
 $1
 EOF
+  BASE_REF=main
 }
 
 # The first of two consecutive spawns: it succeeds, resets the superproject onto
@@ -423,11 +503,38 @@ test_stale_pin_beside_other_dirt_reports_one_verdict() {
   pass "a stale pin beside other dirt yields the conservative refusal alone, with no stale-pin line"
 }
 
+# The base value is written verbatim into the task record and handed to git by
+# this spawn and by every later reader. git parses options anywhere before the
+# refspec, so a leading-dash value such as --upload-pack=<cmd> would run a command
+# during the fetch instead of naming a ref. It must be refused at validation,
+# before the pooled worktree is touched or the record is written.
+test_option_looking_base_is_refused_before_git_sees_it() {
+  local rec id out status before marker
+  id='pool-dash-base-r5'
+  rec=$(make_case dash-base "$id")
+  read_case_record "$rec"
+  before=$(git -C "$POOL_DIR" rev-parse HEAD)
+  marker="$TMP_ROOT/dash-base-upload-pack-ran"
+
+  out=$(run_spawn_raw "$id" "--base=--upload-pack=touch $marker" --mode no-mistakes --yolo off)
+  status=$?
+  [ "$status" -ne 0 ] || fail "spawn accepted a base value git would read as an option"
+  assert_contains "$out" "starts with '-'" \
+    "spawn did not clearly refuse an option-looking base ref"
+  [ ! -e "$marker" ] || fail "the option-looking base ref reached git and ran a command"
+  [ "$(git -C "$POOL_DIR" rev-parse HEAD)" = "$before" ] \
+    || fail "spawn touched the pooled worktree while refusing an option-looking base"
+  pass "a base ref git could reparse as an option is refused before any git invocation"
+}
+
 test_stale_pool_base_refreshes_before_branching
-test_non_main_default_branch_refreshes_before_branching
+test_non_main_base_ref_refreshes_before_branching
 test_direct_pr_and_scout_refresh_before_launch
 test_dirty_pool_refuses_without_discarding_work
-test_unresolved_remote_default_refuses_pool
+test_missing_base_refuses_before_any_endpoint
+test_option_looking_base_is_refused_before_git_sees_it
+test_explicit_base_wins_over_default_branch
+test_unknown_base_ref_refuses_pool
 test_unreachable_origin_refuses_stale_pool_base
 test_stale_submodule_pin_explains_itself
 test_unpushed_submodule_commit_is_still_uncommitted_work

@@ -11,8 +11,8 @@
 # charters still use a single `{TASK}` charter fill. Firstmate may adjust other
 # sections when the task genuinely deviates (e.g. working an existing external
 # PR instead of shipping a new one).
-# Usage: fm-brief.sh <task-id> <repo-name> --mode <no-mistakes|direct-PR|local-only> [--herdr-lab]
-#        fm-brief.sh <task-id> <repo-name> --scout [--herdr-lab]
+# Usage: fm-brief.sh <task-id> <repo-name> --base <ref> --mode <no-mistakes|direct-PR|local-only> [--herdr-lab]
+#        fm-brief.sh <task-id> <repo-name> --base <ref> --scout [--herdr-lab]
 #        fm-brief.sh <task-id> --secondmate {<project>...|--no-projects}
 #   --scout writes the scout contract instead: the deliverable is a report at
 #   data/<task-id>/report.md (no branch, no push, no PR) and the worktree is scratch.
@@ -33,6 +33,16 @@
 #   after scaffolding and the caller-supplied repo string cannot reliably
 #   identify this repo. Briefs made without it carry a loud declaration so an
 #   omitted contract cannot be silent.
+# For ship and scout tasks, --base is REQUIRED and names the branch or tag on
+# origin the worker starts from, the same ref bin/fm-spawn.sh requires and records.
+# It is named in the generated brief and, for ship briefs, in the definition of
+# done, so the PR targets that line and a rebase has a line to fetch. The brief
+# also records it as a fixed machine-readable "Base ref: <ref>" line, which
+# bin/fm-spawn.sh checks its own --base against, exactly as it checks the
+# "Delivery contract: mode=<mode>" line. It is never
+# inferred: the right base differs by task and a default branch can be stale.
+# It is refused on a secondmate charter, whose home follows the primary's own
+# default-branch commit rather than a project base ref.
 # For ship tasks, --mode is REQUIRED and shapes the definition of done. Firstmate
 # resolves it per task at intake (AGENTS.md section 7); data/projects.md holds the
 # captain's standing posture as context, and this script never reads it:
@@ -117,6 +127,8 @@ HERDR_LAB=0
 NO_PROJECTS=0
 MODE=
 MODE_SET=0
+BASE=
+BASE_SET=0
 POS=()
 want_value=
 for a in "$@"; do
@@ -126,6 +138,7 @@ for a in "$@"; do
     esac
     case "$want_value" in
       mode) MODE=$a; MODE_SET=1 ;;
+      base) BASE=$a; BASE_SET=1 ;;
       *) echo "error: internal parser state for --$want_value" >&2; exit 1 ;;
     esac
     want_value=
@@ -138,6 +151,8 @@ for a in "$@"; do
     --no-projects) NO_PROJECTS=1 ;;
     --mode) want_value=mode ;;
     --mode=*) MODE=${a#--mode=}; MODE_SET=1 ;;
+    --base) want_value=base ;;
+    --base=*) BASE=${a#--base=}; BASE_SET=1 ;;
     # yolo never reaches the worker: it is firstmate's merge authority, not a
     # brief input. Refuse it loudly so it is never silently dropped here and then
     # believed to have been recorded.
@@ -164,6 +179,28 @@ if [ "$KIND" = ship ]; then
 elif [ "$MODE_SET" -eq 1 ]; then
   echo "error: --mode applies only to ship briefs; a scout delivers a report and a secondmate charter is not a delivery contract" >&2
   exit 1
+fi
+
+# Base ref (AGENTS.md section 7), required exactly where bin/fm-spawn.sh requires
+# it, so the brief names the same line the spawn starts the worker from.
+if [ "$KIND" = secondmate ]; then
+  [ "$BASE_SET" -eq 0 ] || {
+    echo "error: --base applies only to ship and scout briefs; a secondmate home follows the primary's default-branch commit, not a project base ref" >&2
+    exit 1
+  }
+else
+  [ "$BASE_SET" -eq 1 ] && [ -n "$BASE" ] || {
+    echo "error: $KIND briefs require --base <ref>; name the branch or tag on origin this task must start from (a project's default branch is not assumed - it can be stale, and the right base differs by task)" >&2
+    exit 1
+  }
+  case "$BASE" in
+    -*)
+      echo "error: --base '$BASE' starts with '-'; a base ref must be a plain branch or tag name that git can never read as an option" >&2
+      exit 1 ;;
+    *[[:space:]]*)
+      echo "error: --base '$BASE' contains whitespace; a base ref must be a plain branch or tag name" >&2
+      exit 1 ;;
+  esac
 fi
 ID=${POS[0]}
 
@@ -352,7 +389,8 @@ $TASK_SECTION
 $HERDR_SECTION
 
 # Setup
-You are in a disposable git worktree of $REPO, at a detached HEAD on a clean default branch.
+You are in a disposable git worktree of $REPO, at a detached HEAD on the clean commit of \`$BASE\` - the base ref firstmate dispatched this task from.
+Base ref: $BASE
 This is a SCOUT task: the deliverable is a written report, not a PR.
 The worktree is your laboratory - install, run, edit, and make scratch commits freely; all of it is discarded at teardown.
 The report is the only thing that survives, so anything worth keeping must be in it.
@@ -414,7 +452,12 @@ case "$MODE" in
     RULE1='1. Never push to the default branch. Never merge a PR.'
     ;;
 esac
-DOD=$(fm_dod_block "$MODE" "$ID") || exit 1
+# The project's local clone, when it exists, lets the block tell a tag base from
+# a branch base; a repo name without a clone here leaves the base value to speak
+# for itself.
+PROJ_DIR="${FM_PROJECTS_OVERRIDE:-$FM_HOME/projects}/$REPO"
+[ -d "$PROJ_DIR" ] || PROJ_DIR=
+DOD=$(fm_dod_block "$MODE" "$ID" "$BASE" "$PROJ_DIR") || exit 1
 
 cat > "$BRIEF" <<EOF
 You are a crewmate: an autonomous worker agent managed by firstmate. Work on your own; do not wait for a human.
@@ -424,7 +467,8 @@ $TASK_SECTION
 $HERDR_SECTION
 
 # Setup
-You are in a disposable git worktree of $REPO, at a detached HEAD on a clean default branch.
+You are in a disposable git worktree of $REPO, at a detached HEAD on the clean commit of \`$BASE\` - the base ref firstmate dispatched this task from.
+Base ref: $BASE
 
 **Verify isolation before anything else.** Run \`pwd -P\` and \`git rev-parse --show-toplevel\`; both must resolve to the disposable task worktree you were launched in, such as a treehouse pool path or an Orca-managed worktree, not the primary checkout firstmate operates from.
 The path check is authoritative: \`git rev-parse --git-dir\` and \`git rev-parse --git-common-dir\` can help inspect the repo, but they do not prove you are outside the primary checkout.

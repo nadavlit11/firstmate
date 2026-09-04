@@ -41,13 +41,25 @@ make_home() {  # <name> [<registry-line>...]
   printf '%s\n' "$home|$projects/proj|$fakebin"
 }
 
-write_brief() {  # <home> <id> [<recorded-mode>]
-  local home=$1 id=$2 mode=${3:-}
+write_brief() {  # <home> <id> [<recorded-mode>] [<recorded-base>]
+  local home=$1 id=$2 mode=${3:-} base=${4:-}
   mkdir -p "$home/data/$id"
   {
-    printf 'You are a crewmate.\n\n# Task\n## Captain'\''s intent\nExercise the delivery contract.\n\n## Firstmate spec\nVerify the selected delivery behavior.\n\n# Definition of done\n'
+    printf 'You are a crewmate.\n\n# Setup\n'
+    [ -z "$base" ] || printf 'Base ref: %s\n' "$base"
+    printf '\n# Task\n## Captain'\''s intent\nExercise the delivery contract.\n\n## Firstmate spec\nVerify the selected delivery behavior.\n\n# Definition of done\n'
     [ -z "$mode" ] || printf 'Delivery contract: mode=%s\n' "$mode"
   } > "$home/data/$id/brief.md"
+}
+
+# A project directory that is a real git repo on a named default branch, so the
+# checks that resolve a project's default branch have something real to read.
+make_git_project() {  # <dir> <default-branch>
+  local dir=$1 branch=$2
+  git init -q -b "$branch" "$dir"
+  printf 'seed\n' > "$dir/seed.txt"
+  git -C "$dir" add seed.txt
+  git -C "$dir" -c user.email=t@t -c user.name=t commit -qm seed
 }
 
 fill_brief_subsections() {  # <file> <intent> <spec>
@@ -107,17 +119,17 @@ $rec
 EOF
   write_brief "$home" delivery-scout-a1
 
-  out=$(run_spawn "$home" "$fakebin" delivery-scout-a1 "$proj" claude --scout --mode direct-PR)
+  out=$(run_spawn "$home" "$fakebin" delivery-scout-a1 "$proj" claude --base main --scout --mode direct-PR)
   status=$?
   [ "$status" -ne 0 ] || fail "a scout spawn carrying --mode should exit non-zero"
   assert_contains "$out" "--mode applies only to ship spawns" "scout spawn did not refuse --mode"
 
-  out=$(run_spawn "$home" "$fakebin" delivery-scout-a1 "$proj" claude --scout --yolo on)
+  out=$(run_spawn "$home" "$fakebin" delivery-scout-a1 "$proj" claude --base main --scout --yolo on)
   status=$?
   [ "$status" -ne 0 ] || fail "a scout spawn carrying --yolo should exit non-zero"
   assert_contains "$out" "--yolo applies only to ship spawns" "scout spawn did not refuse --yolo"
 
-  out=$(run_spawn "$home" "$fakebin" delivery-sm-a2 "$home" --secondmate --mode no-mistakes --yolo off)
+  out=$(run_spawn "$home" "$fakebin" delivery-sm-a2 "$home" --secondmate --base main --mode no-mistakes --yolo off)
   status=$?
   [ "$status" -ne 0 ] || fail "a secondmate spawn carrying delivery flags should exit non-zero"
   assert_contains "$out" "applies only to ship spawns" "secondmate spawn did not refuse the delivery flags"
@@ -134,7 +146,7 @@ test_spawn_refuses_a_brief_mode_mismatch() {
 $rec
 EOF
   write_brief "$home" delivery-mismatch-b1 no-mistakes
-  out=$(run_spawn "$home" "$fakebin" delivery-mismatch-b1 "$proj" claude --mode direct-PR --yolo off)
+  out=$(run_spawn "$home" "$fakebin" delivery-mismatch-b1 "$proj" claude --base main --mode direct-PR --yolo off)
   status=$?
   [ "$status" -ne 0 ] || fail "a brief/spawn mode mismatch should exit non-zero"
   assert_contains "$out" "delivery mismatch for delivery-mismatch-b1" "mismatch refusal did not name the task"
@@ -144,15 +156,100 @@ EOF
 
   # The agreeing case clears the check and only fails later, at the refusing tmux.
   write_brief "$home" delivery-agree-b2 direct-PR
-  out=$(run_spawn "$home" "$fakebin" delivery-agree-b2 "$proj" claude --mode direct-PR --yolo off)
+  out=$(run_spawn "$home" "$fakebin" delivery-agree-b2 "$proj" claude --base main --mode direct-PR --yolo off)
   assert_not_contains "$out" "delivery mismatch" "an agreeing mode was reported as a mismatch"
 
   # A brief scaffolded before the contract line existed warns once and continues.
   write_brief "$home" delivery-legacy-b3
-  out=$(run_spawn "$home" "$fakebin" delivery-legacy-b3 "$proj" claude --mode local-only --yolo off)
+  out=$(run_spawn "$home" "$fakebin" delivery-legacy-b3 "$proj" claude --base main --mode local-only --yolo off)
   assert_contains "$out" "records no delivery contract line" "a legacy brief did not warn about its missing contract"
   assert_not_contains "$out" "delivery mismatch" "a legacy brief was treated as a mismatch"
   pass "fm-spawn: the brief's recorded mode and the spawn's explicit mode must agree"
+}
+
+# The brief is what the worker follows and --base is what the worktree is reset
+# to, so a disagreement launches a worker whose setup and definition of done name
+# a different line than the one it is actually sitting on - the wrong-line
+# delivery the explicit base exists to prevent, produced by a typo.
+test_spawn_refuses_a_brief_base_mismatch() {
+  local rec home proj fakebin out status
+  rec=$(make_home base-agreement)
+  IFS='|' read -r home proj fakebin <<EOF
+$rec
+EOF
+  write_brief "$home" base-mismatch-d1 direct-PR prod
+  out=$(run_spawn "$home" "$fakebin" base-mismatch-d1 "$proj" claude --base main --mode direct-PR --yolo off)
+  status=$?
+  [ "$status" -ne 0 ] || fail "a brief/spawn base mismatch should exit non-zero"
+  assert_contains "$out" "base mismatch for base-mismatch-d1" "base mismatch refusal did not name the task"
+  assert_contains "$out" "the brief says base=prod but this spawn passed --base main" \
+    "base mismatch refusal did not show both sides of the disagreement"
+  assert_absent "$home/state/base-mismatch-d1.meta" "mismatched spawn wrote task metadata"
+
+  # The agreeing case clears the check and only fails later, at the refusing tmux.
+  write_brief "$home" base-agree-d2 direct-PR prod
+  out=$(run_spawn "$home" "$fakebin" base-agree-d2 "$proj" claude --base prod --mode direct-PR --yolo off)
+  assert_not_contains "$out" "base mismatch" "an agreeing base was reported as a mismatch"
+
+  # A scout carries a base too, and its brief is checked on the same footing.
+  write_brief "$home" base-scout-d3 "" prod
+  out=$(run_spawn "$home" "$fakebin" base-scout-d3 "$proj" claude --base main --scout)
+  status=$?
+  [ "$status" -ne 0 ] || fail "a scout brief/spawn base mismatch should exit non-zero"
+  assert_contains "$out" "the brief says base=prod but this spawn passed --base main" \
+    "a scout spawn did not check the base its brief records"
+
+  # A brief scaffolded before the base line existed warns once and continues.
+  write_brief "$home" base-legacy-d4 direct-PR
+  out=$(run_spawn "$home" "$fakebin" base-legacy-d4 "$proj" claude --base main --mode direct-PR --yolo off)
+  assert_contains "$out" "records no base ref line" "a legacy brief did not warn about its missing base line"
+  assert_not_contains "$out" "base mismatch" "a legacy brief was treated as a mismatch"
+  pass "fm-spawn: the brief's recorded base and the spawn's explicit base must agree"
+}
+
+# bin/fm-merge-local.sh fast-forwards the project's default branch and nothing
+# else, so local-only work dispatched from another line would finish with nowhere
+# to land. The dead end is refused at dispatch, while the operator can still act.
+test_local_only_refuses_a_non_default_base() {
+  local rec home proj fakebin out status
+  rec=$(make_home local-only-base)
+  IFS='|' read -r home proj fakebin <<EOF
+$rec
+EOF
+  rm -rf "$proj"
+  make_git_project "$proj" main
+
+  write_brief "$home" local-base-e1 local-only develop
+  out=$(run_spawn "$home" "$fakebin" local-base-e1 "$proj" claude --base develop --mode local-only --yolo off)
+  status=$?
+  [ "$status" -ne 0 ] || fail "a local-only spawn from a non-default base should exit non-zero"
+  assert_contains "$out" "mode=local-only cannot ship from base 'develop'" \
+    "the refusal did not name the mode and the recorded base"
+  assert_contains "$out" "the default branch of $proj is 'main'" \
+    "the refusal did not name the project's default branch"
+  assert_contains "$out" "fast-forwards the default branch only" \
+    "the refusal did not state why local-only cannot land another line"
+  assert_absent "$home/state/local-base-e1.meta" "the refused spawn wrote task metadata"
+
+  # The supported combination still dispatches and only fails later, at the tmux.
+  write_brief "$home" local-base-e2 local-only main
+  out=$(run_spawn "$home" "$fakebin" local-base-e2 "$proj" claude --base main --mode local-only --yolo off)
+  assert_not_contains "$out" "cannot ship from base" \
+    "a local-only spawn from the default branch was refused"
+
+  # The landing this guard protects compares normalized ref names, so a different
+  # spelling of the default branch is the same line here too.
+  write_brief "$home" local-base-e4 local-only refs/heads/main
+  out=$(run_spawn "$home" "$fakebin" local-base-e4 "$proj" claude --base refs/heads/main --mode local-only --yolo off)
+  assert_not_contains "$out" "cannot ship from base" \
+    "a local-only spawn named the default branch by full refname and was refused anyway"
+
+  # Another line stays shippable through a path that can actually land it.
+  write_brief "$home" local-base-e3 direct-PR develop
+  out=$(run_spawn "$home" "$fakebin" local-base-e3 "$proj" claude --base develop --mode direct-PR --yolo off)
+  assert_not_contains "$out" "cannot ship from base" \
+    "a direct-PR spawn from a non-default base was refused"
+  pass "fm-spawn: local-only refuses a base the local landing could never fast-forward"
 }
 
 # The registry is the captain's standing posture, so dropping below its rigor is
@@ -170,7 +267,7 @@ test_spawn_notices_a_rigor_downgrade_against_the_registry() {
 $rec
 EOF
     write_brief "$home" "delivery-dev-$n" "$mode"
-    out=$(run_spawn "$home" "$fakebin" "delivery-dev-$n" "$proj" claude --mode "$mode" --yolo off)
+    out=$(run_spawn "$home" "$fakebin" "delivery-dev-$n" "$proj" claude --base main --mode "$mode" --yolo off)
     case "$expect" in
       notice)
         assert_contains "$out" "less rigor than the captain's standing posture" \
@@ -201,7 +298,7 @@ test_scout_records_no_delivery_posture() {
 $rec
 EOF
   write_brief "$home" delivery-scoutmeta-c1
-  out=$(run_spawn "$home" "$fakebin" delivery-scoutmeta-c1 "$proj" claude --scout)
+  out=$(run_spawn "$home" "$fakebin" delivery-scoutmeta-c1 "$proj" claude --base main --scout)
   assert_not_contains "$out" "less rigor" "a scout spawn consulted the registered delivery posture"
   assert_not_contains "$out" "delivery mismatch" "a scout spawn checked a delivery contract it does not carry"
   pass "fm-spawn: a scout spawn resolves no delivery posture from the registry"
@@ -209,6 +306,102 @@ EOF
 
 # Promotion is where a scout's ship contract is finally decided, so it requires the
 # same explicit values and writes them into the task's durable record.
+# Promotion is the second door where a delivery mode is decided. A scout dispatched
+# from another line and promoted to local-only would finish its work and only then
+# hit bin/fm-merge-local.sh's refusal, which is exactly the dead end the dispatch
+# refusal closes - so the same rule has to hold here, in the same words.
+test_promote_refuses_local_only_on_a_non_default_base() {
+  local home proj meta out status
+  home="$TMP_ROOT/promote-local-base/home"
+  proj="$TMP_ROOT/promote-local-base/proj"
+  mkdir -p "$home/state"
+  make_git_project "$proj" main
+  git -C "$proj" branch -q prod
+
+  write_brief "$home" promote-base-f1 "" prod
+  printf 'window=fm-promote-base-f1\nkind=scout\nworktree=/tmp/wt\nproject=%s\nbase=prod\n' "$proj" \
+    > "$home/state/promote-base-f1.meta"
+  out=$(FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" \
+    "$PROMOTE" promote-base-f1 --mode local-only --yolo off 2>&1)
+  status=$?
+  [ "$status" -ne 0 ] || fail "promotion to local-only from a non-default base should exit non-zero"
+  assert_contains "$out" "mode=local-only cannot ship from base 'prod'" \
+    "the promotion refusal did not name the mode and the recorded base"
+  assert_contains "$out" "the default branch of $proj is 'main'" \
+    "the promotion refusal did not name the project's default branch"
+  assert_contains "$out" "fast-forwards the default branch only" \
+    "the promotion refusal did not state why local-only cannot land another line"
+  assert_grep 'kind=scout' "$home/state/promote-base-f1.meta" "the refused promotion still changed the task record"
+
+  # The supported combination still promotes.
+  write_brief "$home" promote-base-f2 "" main
+  printf 'window=fm-promote-base-f2\nkind=scout\nworktree=/tmp/wt\nproject=%s\nbase=main\n' "$proj" \
+    > "$home/state/promote-base-f2.meta"
+  out=$(FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" \
+    "$PROMOTE" promote-base-f2 --mode local-only --yolo off 2>&1)
+  status=$?
+  [ "$status" -eq 0 ] || fail "promotion to local-only from the default branch should succeed: $out"
+  grep -qx 'mode=local-only' "$home/state/promote-base-f2.meta" \
+    || fail "the accepted promotion did not record its mode"
+
+  # A task recorded before base= existed is a legacy record, not another line.
+  write_brief "$home" promote-base-f3
+  printf 'window=fm-promote-base-f3\nkind=scout\nworktree=/tmp/wt\nproject=%s\n' "$proj" \
+    > "$home/state/promote-base-f3.meta"
+  out=$(FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" \
+    "$PROMOTE" promote-base-f3 --mode local-only --yolo off 2>&1)
+  status=$?
+  [ "$status" -eq 0 ] || fail "promotion of a legacy record with no recorded base should succeed: $out"
+  pass "fm-promote: local-only promotion refuses a base the local landing could never fast-forward"
+}
+
+# A promoted worker's definition of done reads the recorded base the same way a
+# scaffolded brief does: a tag base must not be handed a PR-target flag that
+# GitHub would refuse.
+test_promotion_tells_a_tag_base_from_a_branch_base() {
+  local home proj origin publisher out status brief
+  home="$TMP_ROOT/promote-base-kind/home"
+  proj="$TMP_ROOT/promote-base-kind/proj"
+  origin="$TMP_ROOT/promote-base-kind/origin.git"
+  publisher="$TMP_ROOT/promote-base-kind/publisher"
+  mkdir -p "$home/state"
+  make_git_project "$publisher" main
+  git clone -q --bare "$publisher" "$origin"
+  git clone -q "$origin" "$proj"
+  git -C "$publisher" tag prod-2026-09-02
+  git -C "$publisher" push -q "$origin" prod-2026-09-02
+
+  write_brief "$home" promote-kind-t1 "" prod-2026-09-02
+  printf 'window=fm-promote-kind-t1\nkind=scout\nworktree=/tmp/wt\nproject=%s\nbase=prod-2026-09-02\n' "$proj" \
+    > "$home/state/promote-kind-t1.meta"
+  out=$(FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" \
+    "$PROMOTE" promote-kind-t1 --mode direct-PR --yolo off 2>&1)
+  status=$?
+  [ "$status" -eq 0 ] || fail "promotion to direct-PR from a tag base should succeed: $out"
+  brief="$home/data/promote-kind-t1/ship-instructions.md"
+  # shellcheck disable=SC2016  # single quotes are deliberate: the backticks must stay literal
+  assert_grep 'Your base `prod-2026-09-02` is a tag, and a tag cannot be a pull-request target' "$brief" \
+    "promotion from an origin-only tag did not say a tag cannot be a PR target"
+  # shellcheck disable=SC2016  # single quotes are deliberate: the backticks must stay literal
+  assert_no_grep '`--base prod-2026-09-02`' "$brief" \
+    "promotion from a tag still hands the worker a flag that cannot succeed"
+
+  write_brief "$home" promote-kind-b1 "" main
+  printf 'window=fm-promote-kind-b1\nkind=scout\nworktree=/tmp/wt\nproject=%s\nbase=main\n' "$proj" \
+    > "$home/state/promote-kind-b1.meta"
+  out=$(FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" \
+    "$PROMOTE" promote-kind-b1 --mode direct-PR --yolo off 2>&1)
+  status=$?
+  [ "$status" -eq 0 ] || fail "promotion to direct-PR from a branch base should succeed: $out"
+  brief="$home/data/promote-kind-b1/ship-instructions.md"
+  # shellcheck disable=SC2016  # single quotes are deliberate: the backticks must stay literal
+  assert_grep 'The PR MUST target `main`' "$brief" \
+    "promotion from a branch lost the PR-target rule"
+  assert_no_grep 'cannot be a pull-request target' "$brief" \
+    "promotion from a branch was rendered with the tag wording"
+  pass "fm-promote: definition of done tells a tag base from a branch base"
+}
+
 test_promote_requires_and_records_the_delivery_contract() {
   local home meta out status blocked_data instructions_path
   home="$TMP_ROOT/promote/home"
@@ -320,8 +513,8 @@ STUB
   for mode in no-mistakes direct-PR local-only; do
     id="promote-dod-$(printf '%s' "$mode" | tr '[:upper:]' '[:lower:]')"
     meta="$home/state/$id.meta"
-    printf 'window=fm-%s\nkind=scout\nworktree=/tmp/wt\n' "$id" > "$meta"
-    FM_HOME="$home" "$BRIEF" "$id" fixture-project --scout >/dev/null 2>&1 \
+    printf 'window=fm-%s\nkind=scout\nworktree=/tmp/wt\nbase=main\n' "$id" > "$meta"
+    FM_HOME="$home" "$BRIEF" "$id" fixture-project --base main --scout >/dev/null 2>&1 \
       || fail "$mode: scout brief generation should succeed"
     fill_brief_subsections "$home/data/$id/brief.md" \
       "Ship the delivery-contract change." "Preserve the selected delivery mode."
@@ -358,7 +551,7 @@ STUB
     # payload ends at its Definition of done, as does an ordinary generated
     # brief, so identical suffixes prove both workers receive the same contract.
     rm "$home/data/$id/brief.md"
-    FM_HOME="$home" "$BRIEF" "$id" fixture-project --mode "$mode" >/dev/null 2>&1 \
+    FM_HOME="$home" "$BRIEF" "$id" fixture-project --base main --mode "$mode" >/dev/null 2>&1 \
       || fail "$mode: ordinary ship brief generation should succeed"
     brief_dod="$TMP_ROOT/promote-dod/brief-dod-$id"
     delivered_dod="$TMP_ROOT/promote-dod/delivered-dod-$id"
@@ -437,9 +630,9 @@ $rec
 EOF
 
   id=delivery-unfilled-ship
-  FM_HOME="$home" "$BRIEF" "$id" proj --mode no-mistakes >/dev/null 2>&1 \
+  FM_HOME="$home" "$BRIEF" "$id" proj --base main --mode no-mistakes >/dev/null 2>&1 \
     || fail "unfilled ship brief should still scaffold"
-  out=$(run_spawn "$home" "$fakebin" "$id" "$proj" claude --mode no-mistakes --yolo off)
+  out=$(run_spawn "$home" "$fakebin" "$id" "$proj" claude --base main --mode no-mistakes --yolo off)
   status=$?
   [ "$status" -ne 0 ] || fail "spawn of an unfilled ship brief should exit non-zero"
   assert_contains "$out" "still contains {TASK} or {FIRSTMATE_SPEC}" \
@@ -449,12 +642,12 @@ EOF
   assert_absent "$home/state/$id.meta" "unfilled ship spawn wrote task metadata"
 
   id=delivery-filled-ship
-  FM_HOME="$home" "$BRIEF" "$id" proj --mode direct-PR >/dev/null 2>&1 \
+  FM_HOME="$home" "$BRIEF" "$id" proj --base main --mode direct-PR >/dev/null 2>&1 \
     || fail "filled-ship brief should scaffold"
   fill_brief_subsections "$home/data/$id/brief.md" \
     "Fix replacement of \`{TASK}\` in Herdr briefs." \
     "Keep literal \`{FIRSTMATE_SPEC}\` examples intact."
-  out=$(run_spawn "$home" "$fakebin" "$id" "$proj" claude --mode direct-PR --yolo off)
+  out=$(run_spawn "$home" "$fakebin" "$id" "$proj" claude --base main --mode direct-PR --yolo off)
   assert_not_contains "$out" "still contains {TASK} or {FIRSTMATE_SPEC}" \
     "a filled ship brief mentioning placeholder tokens was refused as unfilled"
   assert_not_contains "$out" "must contain nonempty" \
@@ -478,7 +671,7 @@ Example specification
 # Definition of done
 Delivery contract: mode=direct-PR
 EOF
-  out=$(run_spawn "$home" "$fakebin" "$id" "$proj" claude --mode direct-PR --yolo off)
+  out=$(run_spawn "$home" "$fakebin" "$id" "$proj" claude --base main --mode direct-PR --yolo off)
   assert_not_contains "$out" "must contain nonempty" \
     "fenced example headings made a filled legacy Task fail validation"
   assert_not_contains "$out" "still contains {TASK} or {FIRSTMATE_SPEC}" \
@@ -495,7 +688,7 @@ Do not copy this Firstmate-authored constraint into intent.
 Delivery contract: mode=no-mistakes
 Pass the entire Task as --intent.
 EOF
-  out=$(run_spawn "$home" "$fakebin" "$id" "$proj" claude --mode no-mistakes --yolo off)
+  out=$(run_spawn "$home" "$fakebin" "$id" "$proj" claude --base main --mode no-mistakes --yolo off)
   assert_not_contains "$out" "has no provenance-marked captain words" \
     "legacy no-mistakes spawn rejected explicitly marked captain words"
   assert_present "$home/data/$id/launch-brief.md" \
@@ -526,7 +719,7 @@ Preserve the existing compatibility path.
 Delivery contract: mode=no-mistakes
 Pass the entire Task and every Firstmate requirement as --intent.
 EOF
-  out=$(run_spawn "$home" "$fakebin" "$id" "$proj" claude --mode no-mistakes --yolo off)
+  out=$(run_spawn "$home" "$fakebin" "$id" "$proj" claude --base main --mode no-mistakes --yolo off)
   assert_present "$home/data/$id/launch-brief.md" \
     "migrated subsection brief did not receive the current launch contract"
   authorized=$(awk '$0 == "## Captain intent authorized for --intent" { emit=1; next } emit && /^$/ { exit } emit { print }' "$home/data/$id/launch-brief.md")
@@ -557,7 +750,7 @@ Unrelated notes must not become task intent.
 ## Firstmate spec
 Unrelated notes must not satisfy task validation.
 EOF
-  out=$(run_spawn "$home" "$fakebin" "$id" "$proj" claude --mode no-mistakes --yolo off)
+  out=$(run_spawn "$home" "$fakebin" "$id" "$proj" claude --base main --mode no-mistakes --yolo off)
   status=$?
   [ "$status" -ne 0 ] || fail "unmarked legacy no-mistakes spawn should require provenance"
   assert_contains "$out" "has no provenance-marked captain words" \
@@ -565,9 +758,9 @@ EOF
   assert_absent "$home/state/$id.meta" "unmarked legacy no-mistakes spawn wrote task metadata"
 
   id=delivery-unfilled-scout
-  FM_HOME="$home" "$BRIEF" "$id" proj --scout >/dev/null 2>&1 \
+  FM_HOME="$home" "$BRIEF" "$id" proj --base main --scout >/dev/null 2>&1 \
     || fail "unfilled scout brief should still scaffold"
-  out=$(run_spawn "$home" "$fakebin" "$id" "$proj" claude --scout)
+  out=$(run_spawn "$home" "$fakebin" "$id" "$proj" claude --base main --scout)
   status=$?
   [ "$status" -ne 0 ] || fail "spawn of an unfilled scout brief should exit non-zero"
   assert_contains "$out" "still contains {TASK} or {FIRSTMATE_SPEC}" \
@@ -575,10 +768,10 @@ EOF
   assert_absent "$home/state/$id.meta" "unfilled scout spawn wrote task metadata"
 
   id=delivery-empty-ship
-  FM_HOME="$home" "$BRIEF" "$id" proj --mode direct-PR >/dev/null 2>&1 \
+  FM_HOME="$home" "$BRIEF" "$id" proj --base main --mode direct-PR >/dev/null 2>&1 \
     || fail "empty-ship brief should scaffold"
   fill_brief_subsections "$home/data/$id/brief.md" "" ""
-  out=$(run_spawn "$home" "$fakebin" "$id" "$proj" claude --mode direct-PR --yolo off)
+  out=$(run_spawn "$home" "$fakebin" "$id" "$proj" claude --base main --mode direct-PR --yolo off)
   status=$?
   [ "$status" -ne 0 ] || fail "spawn of empty Task subsections should exit non-zero"
   assert_contains "$out" "must contain nonempty ## Captain's intent and ## Firstmate spec" \
@@ -589,7 +782,7 @@ EOF
   meta="$home/state/$id.meta"
   mkdir -p "$home/state"
   printf 'window=fm-%s\nkind=scout\nworktree=/tmp/wt\n' "$id" > "$meta"
-  FM_HOME="$home" "$BRIEF" "$id" proj --scout >/dev/null 2>&1 \
+  FM_HOME="$home" "$BRIEF" "$id" proj --base main --scout >/dev/null 2>&1 \
     || fail "unfilled promote scout brief should scaffold"
   out=$(FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" "$PROMOTE" "$id" --mode direct-PR --yolo on 2>&1)
   status=$?
@@ -639,7 +832,7 @@ EOF
   id=promote-filled-e2
   meta="$home/state/$id.meta"
   printf 'window=fm-%s\nkind=scout\nworktree=/tmp/wt\n' "$id" > "$meta"
-  FM_HOME="$home" "$BRIEF" "$id" proj --scout >/dev/null 2>&1 \
+  FM_HOME="$home" "$BRIEF" "$id" proj --base main --scout >/dev/null 2>&1 \
     || fail "filled promote scout brief should scaffold"
   fill_brief_subsections "$home/data/$id/brief.md" \
     "Investigate why the identity check is failing." \
@@ -743,9 +936,13 @@ EOF
 test_ship_spawn_requires_a_valid_delivery_contract
 test_scout_and_secondmate_refuse_delivery_flags
 test_spawn_refuses_a_brief_mode_mismatch
+test_spawn_refuses_a_brief_base_mismatch
+test_local_only_refuses_a_non_default_base
 test_spawn_notices_a_rigor_downgrade_against_the_registry
 test_scout_records_no_delivery_posture
 test_promote_requires_and_records_the_delivery_contract
+test_promote_refuses_local_only_on_a_non_default_base
+test_promotion_tells_a_tag_base_from_a_branch_base
 test_promote_refuses_a_symlinked_task_record
 test_promotion_delivers_the_real_definition_of_done
 test_project_mode_maps_the_conditional_policy

@@ -5,9 +5,25 @@
 # receives. Both paths must hand the worker the same contract: a promoted
 # no-mistakes worker that never received the ask-user escalation rule or the
 # `--yes` ban is the exact delivery hole this single owner exists to close.
-# fm_dod_block <no-mistakes|direct-PR|local-only> <task-id> prints the block on
-# stdout with no trailing blank line. The caller validates the mode; an unknown
-# mode is refused rather than silently rendered as the pipeline contract.
+# fm_dod_block <no-mistakes|direct-PR|local-only> <task-id> <base-ref> [<project-dir>]
+# prints the block on stdout with no trailing blank line. The caller validates the mode; an
+# unknown mode is refused rather than silently rendered as the pipeline contract.
+# The base ref is the branch or tag the task was dispatched from. It is named in
+# the block so a PR targets that same line and a rebase has a line to fetch: a
+# worker that correctly branches from a production line and then lets `gh pr
+# create` default to the repository default branch is the silent default-branch
+# fallback the explicit base exists to prevent. Each mode states that requirement
+# in terms of what that worker actually does: a direct-PR worker raises the PR
+# itself and passes the flag, while a no-mistakes worker never raises one and is
+# told what the pipeline's PR must target instead. A legacy task record with no
+# recorded base passes an empty value and keeps the older unnamed wording.
+# A tag cannot be a pull-request target, so when the recorded base is a tag the
+# PR-raising modes are not told to target it: they are told to choose and state
+# the PR target deliberately instead of being handed a flag that cannot succeed.
+# Whether the base is a tag is read from the recorded base itself - its refname
+# prefix, then its listing on origin from <project-dir> when one is given.
+# A kind that cannot be confirmed is rendered with the same deliberate-target
+# wording and says so, because the branch instruction is only safe once proven.
 # The block opens with the fixed machine-readable "Delivery contract: mode=<mode>"
 # line that bin/fm-spawn.sh checks a ship brief against.
 # This file is the one owner of the no-mistakes `--intent` contract: only the
@@ -18,6 +34,17 @@
 # below. Other mentions of `--intent` point here rather than restating the rule.
 # Every heredoc here stays outside a command substitution: `VAR=$(cat <<EOF ...)`
 # breaks parsing of the whole file on Bash 3.2 (tests/fm-brief.test.sh).
+
+# fm_local_only_base_ok below resolves a project's default branch through the
+# shared helper that owns that lookup, so this lib stays usable wherever it is
+# sourced.
+# shellcheck source=bin/fm-tangle-lib.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/fm-tangle-lib.sh"
+# fm_base_ref_kind's one origin lookup is bounded through the shared runner, so an
+# origin that accepts the connection and never answers falls back instead of
+# hanging the brief or the promotion.
+# shellcheck source=bin/fm-timeout-lib.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/fm-timeout-lib.sh"
 
 # Return 0 when a Task subsection still consists only of its scaffold
 # placeholder. A missing file and legacy briefs carry no such placeholders.
@@ -160,8 +187,107 @@ fm_brief_task_content_valid() {  # <file>
   [ -n "$(printf '%s' "$task" | tr -d '[:space:]')" ]
 }
 
-fm_dod_block() {  # <mode> <task-id>
-  local mode=$1 id=$2
+# The one owner of mode=local-only's landing precondition, checked at BOTH doors
+# where a delivery mode is decided: bin/fm-spawn.sh at dispatch and
+# bin/fm-promote.sh at promotion. bin/fm-merge-local.sh fast-forwards the
+# project's DEFAULT branch and nothing else, so local-only work based on another
+# line has no landing path once it is finished; both doors must refuse it in the
+# same words, while the operator can still act on it.
+# A task recorded before base= existed carries an empty value, which is the legacy
+# record every other consumer falls back on rather than a base on another line.
+# The comparison is by NORMALIZED ref name, the way bin/fm-merge-local.sh decides
+# what counts as the same line, so "refs/heads/main" and "main" agree.
+fm_normalize_ref() {  # <dir> <ref>
+  local dir=$1 ref=$2 full
+  full=$(git -C "$dir" rev-parse --verify --quiet --symbolic-full-name --end-of-options "$ref" 2>/dev/null || true)
+  [ -n "$full" ] || full=$ref
+  printf '%s\n' "$full"
+}
+
+# Print "tag", "branch", or "unknown" for <ref>. A refs/tags/ prefix is a tag
+# outright and a refs/heads/ or refs/remotes/ prefix a branch. A bare name is
+# classified against ORIGIN through one ls-remote call from <dir>, never against
+# the local clone: a stale clone is the premise of the explicit base, so a
+# release tag cut on origin that the clone has not fetched must still be a tag.
+# When that call fails, does not answer within FM_BASE_KIND_PROBE_SECS (default
+# 5, valid 1..60), or origin carries the name as both a branch and a tag, the
+# kind is unknown, and the caller must not assume a branch. Git's own prompts
+# are disabled (terminal prompts off, an askpass helper that answers nothing),
+# so an unauthenticated origin fails fast; an ssh host-key prompt goes to the
+# controlling terminal instead and is only bounded by the probe timeout.
+fm_base_kind_probe_secs() {
+  local secs=${FM_BASE_KIND_PROBE_SECS:-5}
+  case "$secs" in
+    ''|*[!0-9]*) secs=5 ;;
+  esac
+  [ "$secs" -ge 1 ] && [ "$secs" -le 60 ] || secs=5
+  printf '%s\n' "$secs"
+}
+
+fm_base_ref_kind() {  # <ref> [<dir>]
+  local ref=$1 dir=${2:-} listing heads tags
+  case "$ref" in
+    refs/tags/*) echo tag; return 0 ;;
+    refs/heads/*|refs/remotes/*) echo branch; return 0 ;;
+  esac
+  if [ -z "$dir" ] || [ ! -d "$dir" ]; then
+    echo unknown
+    return 0
+  fi
+  listing=$(GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=true \
+    fm_run_timed "$(fm_base_kind_probe_secs)" \
+    git -C "$dir" ls-remote --end-of-options origin "$ref" 2>/dev/null </dev/null) || {
+    echo unknown
+    return 0
+  }
+  heads=$(printf '%s\n' "$listing" | awk -v want="refs/heads/$ref" '$2 == want' | wc -l | tr -d ' ')
+  tags=$(printf '%s\n' "$listing" | awk -v want="refs/tags/$ref" '$2 == want' | wc -l | tr -d ' ')
+  if [ "$tags" -gt 0 ] && [ "$heads" -eq 0 ]; then
+    echo tag
+  elif [ "$heads" -gt 0 ] && [ "$tags" -eq 0 ]; then
+    echo branch
+  else
+    echo unknown
+  fi
+}
+
+# Return 0 when mode=local-only may ship from <base-ref>, else print the shared
+# refusal and return 1. An unresolvable default branch warns and allows.
+fm_local_only_base_ok() {  # <base-ref> <project-dir>
+  local base=$1 dir=$2 default
+  [ -n "$base" ] || return 0
+  default=$(fm_default_branch "$dir") || {
+    echo "warning: cannot resolve the default branch of $dir (expected origin/HEAD, main, or master), so mode=local-only cannot confirm base '$base' is the line bin/fm-merge-local.sh fast-forwards" >&2
+    return 0
+  }
+  [ "$(fm_normalize_ref "$dir" "$base")" = "$(fm_normalize_ref "$dir" "$default")" ] && return 0
+  echo "error: mode=local-only cannot ship from base '$base': the default branch of $dir is '$default', and the local landing (bin/fm-merge-local.sh) fast-forwards the default branch only, so this task would have no way to land. Put it on '$default' by dispatching it from that base, or ship base '$base' through --mode direct-PR or --mode no-mistakes so it lands on its own line's merge path." >&2
+  return 1
+}
+
+fm_dod_block() {  # <mode> <task-id> <base-ref> [<project-dir>]
+  local mode=$1 id=$2 base=${3:-} dir=${4:-}
+  local pr_base_rule pipeline_pr_base_rule rebase_target kind why
+  kind=
+  [ -z "$base" ] || kind=$(fm_base_ref_kind "$base" "$dir")
+  if [ -n "$base" ] && [ "$kind" != branch ]; then
+    if [ "$kind" = tag ]; then
+      why="Your base \`$base\` is a tag, and a tag cannot be a pull-request target"
+    else
+      why="Whether your base \`$base\` is a branch or a tag was not confirmed against origin, and a tag cannot be a pull-request target"
+    fi
+    pr_base_rule="$why, so the PR target must be chosen deliberately: pick the branch that carries the line this base belongs to, state that choice and why in the PR description, and pass it explicitly (\`--base <branch>\`) rather than letting the PR default to the repository's default branch."
+    pipeline_pr_base_rule="$why, so the PR target must be chosen deliberately: pick the branch that carries the line this base belongs to, state that choice and why when no-mistakes asks where to ship, and if a gate reports a PR base you did not choose, stop and report it rather than letting it merge."
+    rebase_target="Keep your branch a clean fast-forward onto \`$base\` - the base you were dispatched from - so fetch that ref and rebase onto it if it has advanced."
+  elif [ -n "$base" ]; then
+    pr_base_rule="The PR MUST target \`$base\` - the base this task was dispatched from - so pass it explicitly (\`--base $base\`) rather than letting the PR default to the repository's default branch."
+    pipeline_pr_base_rule="The PR the pipeline raises MUST target \`$base\` - the base this task was dispatched from - so tell no-mistakes that base when it asks where to ship, and if a gate reports a different PR base, stop and report it rather than letting it merge."
+    rebase_target="Keep your branch a clean fast-forward onto \`$base\` - the base you were dispatched from - so fetch that ref and rebase onto it if it has advanced."
+  else
+    pr_base_rule="The PR MUST target the base this task was dispatched from; pass it explicitly rather than letting the PR default to the repository's default branch."
+    pipeline_pr_base_rule="The PR the pipeline raises MUST target the base this task was dispatched from; if a gate reports a different PR base, stop and report it rather than letting it merge."
+    rebase_target="Keep your branch a clean fast-forward onto the base you were dispatched from - if that base has advanced, rebase onto it so the eventual merge stays a fast-forward."
+  fi
   case "$mode" in
     direct-PR)
       cat <<EOF
@@ -170,6 +296,7 @@ Delivery contract: mode=direct-PR
 This task ships **direct-PR**: you raise the PR yourself, without the no-mistakes pipeline.
 The task is complete only when committed on your branch.
 When it is implemented and committed, push your branch and open a PR with \`gh-axi\`, then append \`done: PR {url}\` to the status file and stop.
+$pr_base_rule
 Do NOT run /no-mistakes. The configured merge authority decides whether to merge the PR; firstmate relays the outcome.
 EOF
       ;;
@@ -179,7 +306,7 @@ EOF
 Delivery contract: mode=local-only
 This task ships **local-only**: no remote, no PR, no pipeline.
 The task is complete only when committed on your branch \`fm/$id\`. Do NOT push, do NOT open a PR, do NOT merge.
-Keep your branch a clean fast-forward onto the current default branch - if \`main\` has advanced, rebase onto it so the eventual merge stays a fast-forward.
+$rebase_target
 When it is implemented and committed, append \`done: ready in branch fm/$id\` to the status file and stop.
 The configured merge authority approves the ready branch, then firstmate merges it into local \`main\` through the guarded fast-forward path.
 EOF
@@ -191,6 +318,7 @@ Delivery contract: mode=no-mistakes
 The task is complete only when committed on your branch.
 When you believe it is complete, append \`done: {summary}\` to the status file and stop.
 Firstmate will then instruct you to run /no-mistakes to validate and ship a PR.
+$pipeline_pr_base_rule
 
 You drive no-mistakes by responding to its gates, not by implementing fixes.
 Follow the guidance no-mistakes itself provides for the mechanics: it loads when you invoke /no-mistakes, and \`no-mistakes axi run --help\` plus the \`help\` lines in each \`axi\` response are authoritative and version-matched to the installed binary.

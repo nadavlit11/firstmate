@@ -3,6 +3,12 @@
 # Usage: fm-harness.sh                  print own harness: claude|codex|opencode|pi|pi-signed|grok|kimi|cursor|muse|unknown
 #        fm-harness.sh crew             print the effective CREWMATE harness
 #                                        (config/crew-harness; "default" resolves to own)
+#        fm-harness.sh crew-model       print the standing CREWMATE model from
+#                                        config/crew-model, or empty when that file is
+#                                        absent, blank, or holds "default". There is no
+#                                        model to mirror from firstmate's own session, so
+#                                        an absent file resolves to empty and the harness
+#                                        launches on its own default model.
 #        fm-harness.sh secondmate       print the harness the PRIMARY uses to launch
 #                                        SECONDMATE agents: config/secondmate-harness ->
 #                                        config/crew-harness -> own. "default" or absent
@@ -17,7 +23,8 @@
 # whitespace-separated. A bare "<harness>" (today's format) behaves exactly as before:
 # harness only, no model/effort. Only the first non-empty, non-comment line is parsed.
 # Model/effort come ONLY from this file - config/crew-harness stays a bare adapter
-# name and is never parsed for a model.
+# name and is never parsed for a model, and config/crew-model stays a bare model
+# name and is never parsed for a harness.
 # Detection layers: verified environment markers first, then process ancestry.
 # Record each newly verified env marker here.
 set -u
@@ -122,12 +129,14 @@ resolve_crew() {
   if [ -z "$crew" ] || [ "$crew" = "default" ]; then detect_own; else echo "$crew"; fi
 }
 
-# Print the first non-empty, non-comment line of config/secondmate-harness
-# (leading/trailing whitespace trimmed), or nothing when the file is absent or
-# holds only blank/comment lines.
-secondmate_line() {
-  local line
-  [ -f "$CONFIG/secondmate-harness" ] || return 0
+# Print the first non-empty, non-comment line of <file> (leading/trailing
+# whitespace trimmed), or nothing when the file is absent or holds only
+# blank/comment lines. The one reader for every single-value config file here,
+# so config/crew-model and config/secondmate-harness agree on what a usable
+# line is.
+config_first_line() {  # <file>
+  local file=$1 line
+  [ -f "$file" ] || return 0
   while IFS= read -r line || [ -n "$line" ]; do
     line="${line#"${line%%[![:space:]]*}"}"
     line="${line%"${line##*[![:space:]]}"}"
@@ -137,7 +146,34 @@ secondmate_line() {
     esac
     printf '%s\n' "$line"
     return 0
-  done < "$CONFIG/secondmate-harness"
+  done < "$file"
+}
+
+# Resolve the standing crewmate model: config/crew-model (a bare model name)
+# wins; absent, blank, or "default" resolves to empty. Unlike the harness axis
+# there is nothing to mirror from firstmate's own session - a harness names its
+# model differently everywhere - so empty means "launch on the harness default"
+# rather than "copy the primary". The value is the first non-blank, non-comment
+# line, read by the same config_first_line reader config/secondmate-harness
+# uses, so a leading blank line cannot silently drop the pin and a comment is
+# never taken for a model name. Only surrounding whitespace is trimmed: a value
+# with internal whitespace (a secondmate-style "<model> <effort>" line) is
+# passed through as written so the harness refuses it, rather than being
+# collapsed into a plausible-looking name that was never configured, and a
+# later line can never reach the task record or the launch command as an
+# embedded newline.
+resolve_crew_model() {
+  local model
+  model=$(config_first_line "$CONFIG/crew-model")
+  [ "$model" = "default" ] && model=
+  [ -z "$model" ] || echo "$model"
+}
+
+# Print the first non-empty, non-comment line of config/secondmate-harness
+# (leading/trailing whitespace trimmed), or nothing when the file is absent or
+# holds only blank/comment lines.
+secondmate_line() {
+  config_first_line "$CONFIG/secondmate-harness"
 }
 
 # Print the 1-based whitespace-separated token (1=harness, 2=model, 3=effort) of
@@ -188,6 +224,7 @@ resolve_secondmate_effort() {
 
 case "${1:-}" in
   crew) resolve_crew ;;
+  crew-model) resolve_crew_model ;;
   secondmate) resolve_secondmate ;;
   secondmate-model) resolve_secondmate_model ;;
   secondmate-effort) resolve_secondmate_effort ;;

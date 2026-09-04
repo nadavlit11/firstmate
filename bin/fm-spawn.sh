@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Spawn a direct report: a crewmate in a treehouse or Orca worktree, or a
 # secondmate in its isolated firstmate home.
-# Usage: fm-spawn.sh <task-id> <project-dir> --mode <no-mistakes|direct-PR|local-only> --yolo <on|off> [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>]
-#        fm-spawn.sh <task-id> <project-dir> --scout [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>]
+# Usage: fm-spawn.sh <task-id> <project-dir> --base <ref> --mode <no-mistakes|direct-PR|local-only> --yolo <on|off> [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>]
+#        fm-spawn.sh <task-id> <project-dir> --base <ref> --scout [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>]
 #        fm-spawn.sh <task-id> [<firstmate-home>] [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] --secondmate
 #   --mode and --yolo are this task's delivery contract, REQUIRED for every ship
 #   spawn and refused on --scout and --secondmate spawns. Firstmate resolves both
@@ -23,6 +23,20 @@
 #   notice is printed and the spawn continues.
 #   no-mistakes-prod-only is a registry policy rather than a task mode and is
 #   refused as a flag value.
+#   --base is this task's BASE REF - the branch or tag on origin the worker starts
+#   from - REQUIRED for every ship and scout spawn and refused on --secondmate.
+#   There is no default and no fallback: the correct base differs by task (a
+#   project's production line, its integration branch, a release tag), so any
+#   global default would silently be wrong for some project, and a base that
+#   cannot be fetched and resolved on origin refuses the spawn rather than
+#   launching from whatever the slot happened to hold. The resolved value is
+#   recorded as base= in the task's metadata, and --relaunch reuses that record.
+#   The brief records the same base as a fixed "Base ref: <ref>" line, and a spawn
+#   whose --base disagrees with it is refused, exactly as a --mode disagreement is.
+#   mode=local-only additionally requires --base to be the project's DEFAULT
+#   branch, because bin/fm-merge-local.sh fast-forwards that branch alone; another
+#   line ships through --mode direct-PR or --mode no-mistakes, which land on their
+#   own line's merge path.
 #        fm-spawn.sh <task-id> --relaunch [--harness <name>] [--model <name>] [--effort <level>]
 #   --relaunch launches a replacement agent for an EXISTING task into that
 #   task's own recorded endpoint and worktree instead of creating either. It is
@@ -143,9 +157,9 @@
 #   Ship/scout spawns refuse to launch unless the resolved task path is a real
 #   git worktree root distinct from the primary project checkout.
 #   Before a fresh ship or scout worker starts, its clean task worktree fetches
-#   origin, resolves the current remote default branch, and resets to its tip.
-#   An unreachable origin, unresolved default branch, or non-clean worktree
-#   refuses the spawn rather than risking a PR based on stale history.
+#   the explicit --base ref from origin and resets to that commit.
+#   An unreachable origin, an unfetchable or unresolvable base ref, or a non-clean
+#   worktree refuses the spawn rather than risking a PR based on stale history.
 #   A slot whose only deviation is a stale submodule gitlink is refused by that
 #   same clean check, but is reported as a stale checkout naming each submodule
 #   and both pins; nothing is converged or removed, and no remedy is suggested.
@@ -158,7 +172,7 @@
 # Batch dispatch: pass one or more `id=repo` pairs instead of a single <id> <project>, e.g.
 #     fm-spawn.sh fix-a-k3=projects/foo add-b-q7=projects/bar [--scout]
 #   Each pair re-execs this script in single-task mode, so the single path stays the only
-#   source of truth; shared --scout/--harness/--model/--effort/--backend/--mode/--yolo
+#   source of truth; shared --scout/--harness/--model/--effort/--backend/--base/--mode/--yolo
 #   applies to every pair. A ship batch therefore carries one delivery contract, and each
 #   pair still checks it against its own brief; a batch spanning modes is two invocations.
 #   If config/crew-dispatch.json exists, shared --harness is required for crewmate
@@ -309,6 +323,8 @@ fm_backlog_directory_present "$STATE" "state directory" || {
 . "$SCRIPT_DIR/fm-pr-lib.sh"
 # shellcheck source=bin/fm-dod-lib.sh
 . "$SCRIPT_DIR/fm-dod-lib.sh"
+# shellcheck source=bin/fm-tangle-lib.sh
+. "$SCRIPT_DIR/fm-tangle-lib.sh"
 # shellcheck source=bin/fm-trace-context-lib.sh
 . "$SCRIPT_DIR/fm-trace-context-lib.sh"
 # shellcheck source=bin/fm-remote-readiness-lib.sh
@@ -327,6 +343,7 @@ EFFORT=
 BACKEND_ARG=
 MODE=
 YOLO=
+BASE=
 TRACEPARENT_ARG=
 HARNESS_SET=0
 MODEL_SET=0
@@ -334,6 +351,7 @@ EFFORT_SET=0
 BACKEND_SET=0
 MODE_SET=0
 YOLO_SET=0
+BASE_SET=0
 TRACEPARENT_SET=0
 RELAUNCH=0
 POS=()
@@ -350,6 +368,7 @@ for a in "$@"; do
       backend) BACKEND_ARG=$a; BACKEND_SET=1 ;;
       mode) MODE=$a; MODE_SET=1 ;;
       yolo) YOLO=$a; YOLO_SET=1 ;;
+      base) BASE=$a; BASE_SET=1 ;;
       traceparent) TRACEPARENT_ARG=$a; TRACEPARENT_SET=1 ;;
       *) echo "error: internal parser state for --$want_value" >&2; exit 1 ;;
     esac
@@ -372,6 +391,8 @@ for a in "$@"; do
     --mode=*) MODE=${a#--mode=}; MODE_SET=1 ;;
     --yolo) want_value=yolo ;;
     --yolo=*) YOLO=${a#--yolo=}; YOLO_SET=1 ;;
+    --base) want_value=base ;;
+    --base=*) BASE=${a#--base=}; BASE_SET=1 ;;
     --traceparent) want_value=traceparent ;;
     --traceparent=*) TRACEPARENT_ARG=${a#--traceparent=}; TRACEPARENT_SET=1 ;;
     *) POS+=("$a") ;;
@@ -384,6 +405,21 @@ done
 [ "$BACKEND_SET" -eq 0 ] || [ -n "$BACKEND_ARG" ] || { echo "error: --backend requires a non-empty value" >&2; exit 1; }
 [ "$MODE_SET" -eq 0 ] || [ -n "$MODE" ] || { echo "error: --mode requires a non-empty value" >&2; exit 1; }
 [ "$YOLO_SET" -eq 0 ] || [ -n "$YOLO" ] || { echo "error: --yolo requires a non-empty value" >&2; exit 1; }
+[ "$BASE_SET" -eq 0 ] || [ -n "$BASE" ] || { echo "error: --base requires a non-empty value" >&2; exit 1; }
+# The base ref is written verbatim into the task record and handed to git by this
+# script and by every later reader, so it is closed to plain ref names here. A
+# leading dash would be parsed by git as an option (--upload-pack=<cmd> runs a
+# command), and whitespace cannot name a ref at all.
+if [ "$BASE_SET" -eq 1 ]; then
+  case "$BASE" in
+    -*)
+      echo "error: --base '$BASE' starts with '-'; a base ref must be a plain branch or tag name that git can never read as an option" >&2
+      exit 1 ;;
+    *[[:space:]]*)
+      echo "error: --base '$BASE' contains whitespace; a base ref must be a plain branch or tag name" >&2
+      exit 1 ;;
+  esac
+fi
 [ "$TRACEPARENT_SET" -eq 0 ] || [ -n "$TRACEPARENT_ARG" ] || { echo "error: --traceparent requires a non-empty value" >&2; exit 1; }
 # A parent-delivered carrier replaces this home's own resolution, so it is
 # refused unless it is a secondmate spawn carrying a strictly valid W3C value.
@@ -412,6 +448,7 @@ if [ "$RELAUNCH" -eq 1 ]; then
   [ "$KIND_SET" -eq 0 ] || { echo "error: --relaunch reuses the task's recorded kind; --scout/--secondmate cannot override it" >&2; exit 1; }
   [ "$MODE_SET" -eq 0 ] || { echo "error: --relaunch reuses the task's recorded delivery mode; --mode cannot override it" >&2; exit 1; }
   [ "$YOLO_SET" -eq 0 ] || { echo "error: --relaunch reuses the task's recorded yolo posture; --yolo cannot override it" >&2; exit 1; }
+  [ "$BASE_SET" -eq 0 ] || { echo "error: --relaunch reuses the task's recorded base ref; --base cannot override it" >&2; exit 1; }
 else
   # Delivery contract (AGENTS.md section 7). A ship task's mode and yolo are
   # firstmate's per-task decision, so they are required and closed-set validated
@@ -444,6 +481,21 @@ else
     }
     [ "$YOLO_SET" -eq 0 ] || {
       echo "error: --yolo applies only to ship spawns; a scout delivers a report and a secondmate records its own fixed posture" >&2
+      exit 1
+    }
+  fi
+  # Base ref (AGENTS.md section 7). The branch or tag the worker starts from is a
+  # per-task decision with no safe global default, so it is required here and
+  # never inferred. A secondmate spawn has no project base: its home follows the
+  # primary's default-branch commit through the sync path instead.
+  if [ "$KIND" = secondmate ]; then
+    [ "$BASE_SET" -eq 0 ] || {
+      echo "error: --base applies only to ship and scout spawns; a secondmate home follows the primary's default-branch commit, not a project base ref" >&2
+      exit 1
+    }
+  else
+    [ "$BASE_SET" -eq 1 ] || {
+      echo "error: $KIND spawns require --base <ref>; name the branch or tag on origin this task must start from (a project's default branch is not assumed - it can be stale, and the right base differs by task)" >&2
       exit 1
     }
   fi
@@ -850,6 +902,7 @@ spawn_abort_cleanup() {
             echo "kind=$KIND"
             [ -z "${MODE:-}" ] || echo "mode=$MODE"
             [ -z "${YOLO:-}" ] || echo "yolo=$YOLO"
+            [ -z "${BASE:-}" ] || echo "base=$BASE"
             echo "tasktmp=${TASK_TMP:-}"
             echo "model=${MODEL:-default}"
             echo "effort=${EFFORT:-default}"
@@ -974,6 +1027,7 @@ if [ "${#POS[@]}" -gt 0 ] && [ "${POS[0]}" != "$idpart" ] && case "$idpart" in *
   # spanning several modes is two invocations rather than a silent mixed dispatch.
   [ "$MODE_SET" -eq 0 ] || shared_args+=(--mode "$MODE")
   [ "$YOLO_SET" -eq 0 ] || shared_args+=(--yolo "$YOLO")
+  [ "$BASE_SET" -eq 0 ] || shared_args+=(--base "$BASE")
   for pair in "${POS[@]}"; do
     case "$pair" in
       *=*) : ;;
@@ -1157,6 +1211,20 @@ if [ "$RELAUNCH" -eq 1 ]; then
   [ -n "$KIND" ] || KIND=ship
   MODE=$(fm_meta_get "$RELAUNCH_META" mode)
   YOLO=$(fm_meta_get "$RELAUNCH_META" yolo)
+  BASE=$(fm_meta_get "$RELAUNCH_META" base)
+  # The recorded model is reused exactly as the recorded harness, mode, yolo and
+  # base are: a standing model that silently dropped to the harness default on
+  # every recovery would put the fleet back on the per-spawn memory
+  # config/crew-model replaced. It is reused only while the harness stays the
+  # one that model was validated against; a switch still leaves it behind.
+  if [ "$MODEL_SET" -eq 0 ] \
+     && { [ -z "${HARNESS_ARG:-}" ] || [ "${HARNESS_ARG:-}" = "$RELAUNCH_PRIOR_HARNESS" ]; }; then
+    RELAUNCH_PRIOR_MODEL=$(fm_meta_get "$RELAUNCH_META" model)
+    case "$RELAUNCH_PRIOR_MODEL" in
+      ''|default) ;;
+      *) MODEL=$RELAUNCH_PRIOR_MODEL ;;
+    esac
+  fi
   RELAUNCH_WT=$(fm_meta_get "$RELAUNCH_META" worktree)
   [ -n "$RELAUNCH_WT" ] && [ -d "$RELAUNCH_WT" ] || {
     echo "error: task $ID's recorded worktree '${RELAUNCH_WT:-none}' is missing; refusing to relaunch without the local copy its work lives in" >&2
@@ -1360,6 +1428,27 @@ case "$ARG3" in
     LAUNCH=$(launch_template "$HARNESS" "$KIND") || { echo "error: unknown harness '$HARNESS'; pass a raw launch command to use an unverified adapter" >&2; exit 1; }
     ;;
 esac
+
+# config/crew-model is this home's STANDING crewmate/scout model, resolved the way
+# config/crew-harness is: a bare model name, absent or "default" meaning "launch on
+# the harness default". A model name only means something next to the harness that
+# offers it, so the standing model applies exactly when the standing harness also
+# governs this spawn - the same pairing rule config/secondmate-harness uses for its
+# own model token. An explicit --model always wins, and an explicit harness (or an
+# active dispatch profile, which already requires one) carries its own model rather
+# than borrowing another vendor's name; that skip is announced instead of silent.
+if [ "$KIND" != secondmate ] && [ "$MODEL_SET" -eq 0 ] && [ -z "$MODEL" ]; then
+  CREW_MODEL=$("$FM_ROOT/bin/fm-harness.sh" crew-model)
+  if [ -n "$CREW_MODEL" ]; then
+    if [ -z "$ARG3" ]; then
+      MODEL=$CREW_MODEL
+    elif [ "$RELAUNCH" -eq 1 ]; then
+      echo "notice: config/crew-model pins '$CREW_MODEL', but this relaunch reuses the task's recorded harness and its default model; pass --model to choose one" >&2
+    else
+      echo "notice: config/crew-model pins '$CREW_MODEL', but this spawn selects the harness explicitly, so it launches on that harness's default model; pass --model to choose one" >&2
+    fi
+  fi
+fi
 
 # muse is verified as a CREWMATE/SCOUT adapter only. A secondmate is a firstmate
 # instance, so it needs a primary supervision protocol; muse has none, and its
@@ -1841,6 +1930,33 @@ delivery_rigor_rank() {  # <mode> -> 3 (most rigor) .. 1 (least); 0 = not a task
   esac
 }
 
+# Brief/spawn base agreement, checked before any endpoint exists, on the same
+# footing as the delivery-contract check below. fm-brief.sh records a ship or
+# scout brief's base as a fixed "Base ref: <ref>" line and names it in the Setup
+# and definition-of-done prose. A spawn that disagrees resets the worktree to one
+# line and hands the worker instructions naming another, which is the wrong-line
+# delivery the explicit base exists to prevent.
+# A relaunch reuses the record rather than deciding a base, and a task recorded
+# before base= existed carries an empty value: that is the legacy record, not a
+# disagreement, so it is passed through the way the local-only guard passes it,
+# or the task could never be relaunched since --base is refused on a relaunch.
+if { [ "$KIND" = ship ] || [ "$KIND" = scout ]; } \
+   && ! { [ "$RELAUNCH" -eq 1 ] && [ -z "$BASE" ]; }; then
+  BRIEF_BASE=$(sed -n 's/^Base ref: \(.*\)$/\1/p' "$BRIEF" | head -n 1)
+  if [ -z "$BRIEF_BASE" ]; then
+    echo "warning: $BRIEF records no base ref line (scaffolded before briefs recorded one); launching on the explicit --base $BASE - confirm the worker's setup and definition of done name that base" >&2
+  elif [ "$BRIEF_BASE" != "$BASE" ]; then
+    echo "error: base mismatch for $ID: the brief says base=$BRIEF_BASE but this spawn passed --base $BASE; correct the flag or re-scaffold the brief so the worker's instructions and the task record agree" >&2
+    exit 1
+  fi
+fi
+
+# mode=local-only's landing precondition, owned by bin/fm-dod-lib.sh so this
+# dispatch door and bin/fm-promote.sh refuse the same thing in the same words.
+if [ "$KIND" = ship ] && [ "$MODE" = local-only ]; then
+  fm_local_only_base_ok "$BASE" "$PROJ_ABS" || exit 1
+fi
+
 # Brief/spawn delivery agreement, checked before any endpoint exists.
 # fm-brief.sh records a ship brief's mode as a fixed "Delivery contract: mode=<mode>"
 # line. A spawn that disagrees would launch a worker whose instructions and whose
@@ -1957,27 +2073,25 @@ EOF
   printf '%s' "$lines" >&2
 }
 
-freshen_spawn_worktree_base() {  # <worktree>
-  local worktree=$1 default target expected actual status
+# Reset a clean pooled worktree onto the task's EXPLICIT base ref, fetched fresh
+# from origin. The base is never inferred: the caller had to name it, so a
+# project whose default branch has gone stale can no longer supply a silent
+# wrong answer, and every failure below refuses the launch instead of falling
+# back to whatever the slot already held.
+# The ref is fetched by name and read back through FETCH_HEAD rather than a
+# remote-tracking branch, so a tag or a full refname works exactly like a branch.
+freshen_spawn_worktree_base() {  # <worktree> <base-ref>
+  local worktree=$1 base=$2 expected actual status
   if ! git -C "$worktree" fetch --quiet origin; then
     echo "error: could not fetch origin for pooled worktree '$worktree'; refusing to launch from a potentially stale base" >&2
     return 1
   fi
-  if ! git -C "$worktree" remote set-head origin --auto >/dev/null 2>&1; then
-    echo "error: could not resolve origin's current default branch for pooled worktree '$worktree'; refusing to launch from a potentially stale base" >&2
+  if ! git -C "$worktree" fetch --quiet origin --end-of-options "$base"; then
+    echo "error: could not fetch base ref '$base' from origin for pooled worktree '$worktree'; refusing to launch this task from any other base" >&2
     return 1
   fi
-  default=$(default_branch "$worktree") || {
-    echo "error: could not determine origin's default branch for pooled worktree '$worktree'; refusing to launch from a potentially stale base" >&2
-    return 1
-  }
-  target="origin/$default"
-  if ! git -C "$worktree" fetch --quiet origin "+refs/heads/$default:refs/remotes/origin/$default"; then
-    echo "error: could not fetch '$target' for pooled worktree '$worktree'; refusing to launch from a potentially stale base" >&2
-    return 1
-  fi
-  expected=$(git -C "$worktree" rev-parse --verify --quiet "$target^{commit}" 2>/dev/null) || {
-    echo "error: '$target' is not a commit for pooled worktree '$worktree'; refusing to launch from a potentially stale base" >&2
+  expected=$(git -C "$worktree" rev-parse --verify --quiet 'FETCH_HEAD^{commit}' 2>/dev/null) || {
+    echo "error: base ref '$base' does not resolve to a commit on origin for pooled worktree '$worktree'; refusing to launch this task from any other base" >&2
     return 1
   }
   status=$(git -C "$worktree" -c core.quotePath=false status --porcelain) || {
@@ -1992,13 +2106,13 @@ freshen_spawn_worktree_base() {  # <worktree>
     fi
     return 1
   fi
-  if ! git -C "$worktree" reset --hard "$target" >/dev/null; then
-    echo "error: could not reset pooled worktree '$worktree' to '$target'; refusing to launch from a potentially stale base" >&2
+  if ! git -C "$worktree" reset --hard "$expected" >/dev/null; then
+    echo "error: could not reset pooled worktree '$worktree' to base ref '$base' ('$expected'); refusing to launch from a potentially stale base" >&2
     return 1
   fi
   actual=$(git -C "$worktree" rev-parse --verify --quiet HEAD 2>/dev/null || true)
   if [ "$actual" != "$expected" ]; then
-    echo "error: pooled worktree '$worktree' is at '${actual:-unknown}', not current '$target' ('$expected'); refusing to launch" >&2
+    echo "error: pooled worktree '$worktree' is at '${actual:-unknown}', not base ref '$base' ('$expected'); refusing to launch" >&2
     return 1
   fi
 }
@@ -2535,7 +2649,7 @@ elif [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
   validate_spawn_worktree "treehouse get" "$T"
 fi
 if [ "$RELAUNCH" -eq 0 ] && [ "$KIND" != secondmate ]; then
-  freshen_spawn_worktree_base "$WT" || exit 1
+  freshen_spawn_worktree_base "$WT" "$BASE" || exit 1
 fi
 
 # Per-task temp root: /tmp/fm-<id>/ with Go's build temp nested at gotmp/. Go won't
@@ -2911,7 +3025,7 @@ SPAWN_META_PATH=$SPAWN_META_TMP
 preserve_relaunch_meta() {
   awk -F= '
     BEGIN {
-      split("window endpoint_task_id worktree project harness kind mode yolo tasktmp model effort busy_gen spawn_gen traceparent backend herdr_session herdr_workspace_id herdr_tab_id herdr_pane_id zellij_session zellij_tab_id zellij_pane_id orca_worktree_id terminal cmux_workspace_id cmux_surface_id home projects control_relaunch_tx", keys, " ")
+      split("window endpoint_task_id worktree project harness kind mode yolo base tasktmp model effort busy_gen spawn_gen traceparent backend herdr_session herdr_workspace_id herdr_tab_id herdr_pane_id zellij_session zellij_tab_id zellij_pane_id orca_worktree_id terminal cmux_workspace_id cmux_surface_id home projects control_relaunch_tx", keys, " ")
       for (i in keys) owned[keys[i]] = 1
     }
     !($1 in owned)
@@ -2926,6 +3040,7 @@ preserve_relaunch_meta() {
   echo "kind=$KIND"
   [ -z "$MODE" ] || echo "mode=$MODE"
   [ -z "$YOLO" ] || echo "yolo=$YOLO"
+  [ -z "$BASE" ] || echo "base=$BASE"
   echo "tasktmp=$TASK_TMP"
   echo "model=${MODEL:-default}"
   echo "effort=${EFFORT:-default}"

@@ -51,7 +51,7 @@ git -C "$LAB/projects/comms" add README.md
 git -C "$LAB/projects/comms" commit -qm 'fixture: initialize cmux Claude composer probe'
 
 STATUS="$LAB/state/$TASK.status"
-FM_HOME="$LAB" "$ROOT/bin/fm-brief.sh" "$TASK" comms --scout || fail "could not scaffold the Claude probe brief"
+FM_HOME="$LAB" "$ROOT/bin/fm-brief.sh" "$TASK" comms --base main --scout || fail "could not scaffold the Claude probe brief"
 python3 - "$LAB/data/$TASK/brief.md" "$STATUS" <<'PY'
 from pathlib import Path
 import sys
@@ -66,7 +66,7 @@ When you receive a firstmate message containing `ALBATROSS`, append `done: recei
 Do not change project files or make a commit.'''))
 PY
 
-FM_HOME="$LAB" "$ROOT/bin/fm-spawn.sh" "$TASK" "$LAB/projects/comms" --scout --harness claude --model haiku --backend cmux \
+FM_HOME="$LAB" "$ROOT/bin/fm-spawn.sh" "$TASK" "$LAB/projects/comms" --base main --scout --harness claude --model haiku --backend cmux \
   || fail "could not launch the real Claude cmux probe"
 SPAWNED=1
 

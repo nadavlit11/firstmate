@@ -287,6 +287,102 @@ SH
   chmod +x "$dir/fakebin/tasks-axi"
 }
 
+# A task recorded before base= existed carries no base at all. That legacy value
+# is not a base on another line, and --base is refused on a relaunch, so a
+# local-only task in flight when the base ref requirement landed must still be
+# able to replace its agent rather than becoming unrelaunchable.
+test_legacy_empty_base_local_only_task_still_relaunches() {
+  local dir out rc
+  dir=$(new_case legacy-base rl-legacy-base)
+  add_ship_task "$dir" rl-legacy-base
+  sed -i.bak 's/^mode=no-mistakes$/mode=local-only/' "$dir/home/state/rl-legacy-base.meta"
+  rm -f "$dir/home/state/rl-legacy-base.meta.bak"
+  grep -q '^base=' "$dir/home/state/rl-legacy-base.meta" \
+    && fail "fixture must record no base, the legacy shape this guards"
+
+  out=$(run_control "$dir" rl-legacy-base relaunch --note "stopped mid-refactor"); rc=$?
+
+  assert_not_contains "$out" "cannot ship from base" \
+    "a legacy local-only task with no recorded base was refused by the base guard"
+  expect_code 0 "$rc" "a local-only relaunch with a legacy empty base should succeed: $out"
+  [ "$(meta_field "$dir" rl-legacy-base mode)" = local-only ] \
+    || fail "the relaunch must preserve the recorded local-only mode"
+  pass "fm-spawn --relaunch: a local-only task with a legacy empty recorded base still relaunches"
+}
+
+# The brief/spawn base agreement check has nothing to agree on for a legacy
+# record: its base is empty and --base is refused on a relaunch, so a brief
+# re-scaffolded with a "Base ref:" line would otherwise make the task
+# unrelaunchable. The check stays in force for a relaunch whose record does
+# carry a base that disagrees with the brief.
+test_legacy_empty_base_relaunches_past_a_rescaffolded_brief_base_line() {
+  local dir out rc
+  dir=$(new_case legacy-brief-base rl-legacy-brief)
+  add_ship_task "$dir" rl-legacy-brief
+  grep -q '^base=' "$dir/home/state/rl-legacy-brief.meta" \
+    && fail "fixture must record no base, the legacy shape this guards"
+  printf 'Base ref: develop\n\n%s\n' "$(cat "$dir/home/data/rl-legacy-brief/brief.md")" \
+    > "$dir/home/data/rl-legacy-brief/brief.md"
+
+  out=$(run_control "$dir" rl-legacy-brief relaunch --note "stopped mid-refactor"); rc=$?
+
+  assert_not_contains "$out" "base mismatch" \
+    "a legacy task with no recorded base was refused against its re-scaffolded brief base line"
+  expect_code 0 "$rc" "a relaunch of a legacy task whose brief names a base should succeed: $out"
+
+  dir=$(new_case recorded-brief-base rl-recorded-brief)
+  add_ship_task "$dir" rl-recorded-brief
+  echo "base=develop" >> "$dir/home/state/rl-recorded-brief.meta"
+  printf 'Base ref: main\n\n%s\n' "$(cat "$dir/home/data/rl-recorded-brief/brief.md")" \
+    > "$dir/home/data/rl-recorded-brief/brief.md"
+
+  out=$(run_control "$dir" rl-recorded-brief relaunch --note "stopped mid-refactor"); rc=$?
+
+  assert_contains "$out" "base mismatch for rl-recorded-brief" \
+    "a relaunch whose recorded base disagrees with the brief was not refused"
+  [ "$rc" -ne 0 ] || fail "a relaunch whose recorded base disagrees with the brief should fail"
+  pass "fm-spawn --relaunch: a legacy empty base skips the brief agreement check, a recorded one does not"
+}
+
+# config/crew-model exists so the fleet's model no longer depends on remembering
+# it per spawn. A relaunch is a recovery, not a new decision, so bin/fm-spawn.sh
+# reuses the task's recorded model on its own - exactly as it reuses the recorded
+# harness that model was validated against - rather than relying on its caller to
+# re-supply it, and it must not downgrade the record to model=default.
+test_spawn_relaunch_preserves_the_recorded_model() {
+  local dir out
+  dir=$(new_case model-preserved rl-model)
+  add_ship_task "$dir" rl-model
+  sed -i.bak 's/^model=default$/model=gpt-5/' "$dir/home/state/rl-model.meta"
+  rm -f "$dir/home/state/rl-model.meta.bak"
+  printf 'zsh' > "$dir/fake/command"
+
+  out=$(run_spawn "$dir" rl-model --relaunch)
+
+  [ "$(meta_field "$dir" rl-model model)" = gpt-5 ] \
+    || fail "the relaunch downgraded the recorded model to '$(meta_field "$dir" rl-model model)'"
+  grep -q -- "--model 'gpt-5'" "$dir/fake/literal" \
+    || fail "the replacement agent did not launch on the task's recorded model: $(cat "$dir/fake/literal")"
+  pass "fm-spawn --relaunch: the task's recorded model survives the relaunch"
+}
+
+# A model belongs to the harness it was chosen for, so a relaunch that switches
+# harness must still leave it behind rather than carrying a foreign vendor name.
+test_spawn_relaunch_drops_the_recorded_model_on_a_harness_switch() {
+  local dir out
+  dir=$(new_case model-switch rl-model-sw)
+  add_ship_task "$dir" rl-model-sw claude
+  sed -i.bak 's/^model=default$/model=gpt-5/' "$dir/home/state/rl-model-sw.meta"
+  rm -f "$dir/home/state/rl-model-sw.meta.bak"
+  printf 'zsh' > "$dir/fake/command"
+
+  out=$(run_spawn "$dir" rl-model-sw --relaunch --harness codex)
+
+  [ "$(meta_field "$dir" rl-model-sw model)" = default ] \
+    || fail "a model chosen for the old harness carried onto a different one"
+  pass "fm-spawn --relaunch: a harness switch leaves the previous harness's model behind"
+}
+
 # --- 1. same-harness relaunch -----------------------------------------------
 
 test_same_harness_relaunch_keeps_identity_and_reuses_the_endpoint() {
@@ -1485,6 +1581,10 @@ test_relaunch_moves_a_drifted_item_back_in_flight() {
 }
 
 test_same_harness_relaunch_keeps_identity_and_reuses_the_endpoint
+test_legacy_empty_base_local_only_task_still_relaunches
+test_legacy_empty_base_relaunches_past_a_rescaffolded_brief_base_line
+test_spawn_relaunch_preserves_the_recorded_model
+test_spawn_relaunch_drops_the_recorded_model_on_a_harness_switch
 test_relaunch_preserves_durable_task_metadata
 test_relaunch_serializes_concurrent_durable_metadata_publication
 test_disabled_relaunch_clears_prior_trace_context
