@@ -47,6 +47,7 @@ The queue re-check is a fixed step after every worker completion, every stand-do
 The night's work is finished only when the ready queue is empty, or headroom is gone, or every remaining ready item is blocked by the section 2 envelope; in the last two cases the hold message names each remaining item and its blocker.
 A hold message that says nothing needs doing while ready items exist is forbidden; every hourly hold line states the ready count and the headroom reading.
 A usage-limit stop is a paused wait with a known reset time; the first turn after the reset runs the queue re-check before anything else.
+When away mode is on, overnight-watch composes with the `afk` skill, and the away-mode daemon's self-handled heartbeat wakes still trigger this section's queue re-check.
 
 ## 5. Wake handling habits that keep the night moving
 
