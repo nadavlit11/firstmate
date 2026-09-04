@@ -395,7 +395,7 @@ test_spawn_relaunch_drops_the_recorded_model_on_a_harness_switch() {
 }
 
 test_spawn_relaunch_recreates_a_missing_tmux_window() {
-  local dir out
+  local dir out rc
   dir=$(new_case missing-spawn rl-missing-spawn)
   add_ship_task "$dir" rl-missing-spawn
   sed -i.bak 's/^window=fmses:/window=firstmate:/' "$dir/home/state/rl-missing-spawn.meta"
@@ -403,8 +403,9 @@ test_spawn_relaunch_recreates_a_missing_tmux_window() {
   rm -f "$dir/fake/windows"
   printf 'zsh' > "$dir/fake/command"
 
-  out=$(FM_FAKE_CONTAINER_SESSION=firstmate FM_FAKE_MISSING_ID=rl-missing-spawn run_spawn "$dir" rl-missing-spawn --relaunch)
+  out=$(FM_FAKE_CONTAINER_SESSION=firstmate FM_FAKE_MISSING_ID=rl-missing-spawn run_spawn "$dir" rl-missing-spawn --relaunch); rc=$?
 
+  expect_code 0 "$rc" "fm-spawn should relaunch an authoritatively missing endpoint: $out"
   assert_grep 'fm-rl-missing-spawn' "$dir/fake/windows" \
     "fm-spawn did not recreate the recorded missing window name"
   [ "$(meta_field "$dir" rl-missing-spawn window)" = "firstmate:fm-rl-missing-spawn" ] \
