@@ -1,0 +1,3 @@
+ok - fm-merge-local lands a task whose recorded base is another spelling of the default branch
+ok - fm-merge-local still refuses a task dispatched from a genuinely different line
+ok - fm-merge-local refuses a distinct base line even when it currently points at the default branch's commit

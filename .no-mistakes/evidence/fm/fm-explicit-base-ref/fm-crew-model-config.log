@@ -1,0 +1,8 @@
+ok - config/crew-model reaches the crewmate launch with no per-spawn flag
+ok - scouts launch on the same standing model as crewmates
+ok - an explicit --model wins over the standing pin
+ok - an absent or default pin launches on the harness own default model
+ok - an explicitly selected harness skips the standing pin and says so
+ok - config/crew-model trims surrounding whitespace only and passes a malformed value through
+ok - a multi-line config/crew-model yields a single-line model
+ok - config/crew-model skips leading blank and comment lines before taking the pin

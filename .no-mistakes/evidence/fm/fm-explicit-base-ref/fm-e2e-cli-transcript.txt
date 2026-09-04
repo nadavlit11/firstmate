@@ -1,0 +1,31 @@
+### 1. spawn with NO --base is refused loudly (no default-branch fallback)
+error: ship spawns require --base <ref>; name the branch or tag on origin this task must start from (a project's default branch is not assumed - it can be stale, and the right base differs by task)
+[exit=1]
+
+### 2. --base beginning with a dash is rejected at argument validation
+error: --base requires a value
+[exit=1]
+
+### 3. mode=local-only with a non-default base is refused at dispatch
+warning: /private/var/folders/x0/m_0bk2pj1lg8bvp8ft5kzhcw0000gn/T/fm-e2e-demo.AnzVjB/c/home/data/demo-dash/brief.md records no base ref line (scaffolded before briefs recorded one); launching on the explicit --base release/1.0 - confirm the worker's setup and definition of done name that base
+error: mode=local-only cannot ship from base 'release/1.0': the default branch of /private/var/folders/x0/m_0bk2pj1lg8bvp8ft5kzhcw0000gn/T/fm-e2e-demo.AnzVjB/c/project is 'main', and the local landing (bin/fm-merge-local.sh) fast-forwards the default branch only, so this task would have no way to land. Put it on 'main' by dispatching it from that base, or ship base 'release/1.0' through --mode direct-PR or --mode no-mistakes so it lands on its own line's merge path.
+[exit=1]
+
+### 4. config/crew-model with leading blank + comment line, plus --base main: recorded and launched
+--- fm-harness.sh crew-model -> 'gpt-5'
+warning: /private/var/folders/x0/m_0bk2pj1lg8bvp8ft5kzhcw0000gn/T/fm-e2e-demo.AnzVjB/c/home/data/demo-pinned/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+spawned demo-pinned harness=codex kind=ship mode=no-mistakes yolo=off window=firstmate:fm-demo-pinned worktree=/private/var/folders/x0/m_0bk2pj1lg8bvp8ft5kzhcw0000gn/T/fm-e2e-demo.AnzVjB/c/wt
+[exit=0]
+--- task record:
+mode=no-mistakes
+base=main
+model=gpt-5
+--- launch command:
+env -u CURSOR_AGENT -u CURSOR_INVOKED_AS codex --model 'gpt-5' --dangerously-bypass-approvals-and-sandbox -c "notify=[\"bash\",\"-c\",\"touch '/private/var/folders/x0/m_0bk2pj1lg8bvp8ft5kzhcw0000gn/T/fm-e2e-demo.AnzVjB/c/home/state/demo-pinned.turn-ended'\"]" "$('/Users/nadavlitvak/.no-mistakes/worktrees/c4ebdacd560e/01M1N380GFRZXYQC0JH966VVG4/bin/fm-operational-input.sh' encode launch-brief < '/private/var/folders/x0/m_0bk2pj1lg8bvp8ft5kzhcw0000gn/T/fm-e2e-demo.AnzVjB/c/home/data/demo-pinned/launch-brief.md')"
+
+### 5. brief scaffolded by fm-brief names the base and the PR-target rule
+
+### 6. per-spawn --model wins over the standing pin
+[exit=0]
+model=claude-opus-5
+--model 'claude-opus-5'

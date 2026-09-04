@@ -1,0 +1,28 @@
+### 2b. --base=<dash-prefixed value> is rejected before it is recorded or handed to git
+error: --base '--upload-pack=touch' starts with '-'; a base ref must be a plain branch or tag name that git can never read as an option
+[exit=1]
+(no task record written)
+
+### 5. fm-brief scaffolds a brief naming the base; PR-target wording per mode
+fm-brief demo-brief-no-mistakes --base main --mode no-mistakes [exit=0]
+16:You are in a disposable git worktree of some-proj, at a detached HEAD on the clean commit of `main` - the base ref firstmate dispatched this task from.
+17:Base ref: main
+60:For anything the codebase already shows, prefer a pointer to the authoritative file, command, or doc over copying the detail.
+69:Whether your base `main` is a branch or a tag was not confirmed against origin, and a tag cannot be a pull-request target, so the PR target must be chosen deliberately: pick the branch that carries the line this base belongs to, state that choice and why when no-mistakes asks where to ship, and if a gate reports a PR base you did not choose, stop and report it rather than letting it merge.
+
+fm-brief demo-brief-direct-PR --base main --mode direct-PR [exit=0]
+16:You are in a disposable git worktree of some-proj, at a detached HEAD on the clean commit of `main` - the base ref firstmate dispatched this task from.
+17:Base ref: main
+59:For anything the codebase already shows, prefer a pointer to the authoritative file, command, or doc over copying the detail.
+68:Whether your base `main` is a branch or a tag was not confirmed against origin, and a tag cannot be a pull-request target, so the PR target must be chosen deliberately: pick the branch that carries the line this base belongs to, state that choice and why in the PR description, and pass it explicitly (`--base <branch>`) rather than letting the PR default to the repository's default branch.
+
+### 5b. a tag base gets tag wording (origin lookup classifies the kind)
+[exit=0]
+16:You are in a disposable git worktree of some-proj, at a detached HEAD on the clean commit of `v1.0.0` - the base ref firstmate dispatched this task from.
+17:Base ref: v1.0.0
+23:1. First action: create your branch: `git checkout -b fm/demo-brief-tag`
+26:1. Never push to the default branch (push only your `fm/demo-brief-tag` branch). Never merge a PR.
+30:   `echo "{state}: {one short line}" >> '/private/var/folders/x0/m_0bk2pj1lg8bvp8ft5kzhcw0000gn/T/fm-e2e-demo2.tNl4CI/c/home/state/demo-brief-tag.status'`
+37:   turn after it; continue the same stage until a defined `done:` gate under Definition of done.
+52:Firstmate steers you through durable message files in '/private/var/folders/x0/m_0bk2pj1lg8bvp8ft5kzhcw0000gn/T/fm-e2e-demo2.tNl4CI/c/home/state/demo-brief-tag.inbox'.
+53:When a terminal message says an instruction is waiting there - and at any natural checkpoint when you are unsure - list '/private/var/folders/x0/m_0bk2pj1lg8bvp8ft5kzhcw0000gn/T/fm-e2e-demo2.tNl4CI/c/home/state/demo-brief-tag.inbox'/*.msg, read and act on each message in numeric order, then acknowledge each handled message by moving it: `mv '/private/var/folders/x0/m_0bk2pj1lg8bvp8ft5kzhcw0000gn/T/fm-e2e-demo2.tNl4CI/c/home/state/demo-brief-tag.inbox'/NNN.msg '/private/var/folders/x0/m_0bk2pj1lg8bvp8ft5kzhcw0000gn/T/fm-e2e-demo2.tNl4CI/c/home/state/demo-brief-tag.inbox'/handled/`.
