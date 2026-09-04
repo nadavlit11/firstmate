@@ -69,7 +69,8 @@ It is not deterministic across the verified adapters: codex and grok resume only
    A ship or scout relaunch requires `--note`, because the replacement inherits the local copy but none of the conversation; the note is appended to the instructions it reads.
    A secondmate relaunch does not require one and never rewrites its standing charter.
 4. **Stop the old agent** through the `exit` verb, with its postcondition.
-5. **Launch the replacement** through its single owner, `bin/fm-spawn.sh --relaunch`, which adopts the recorded endpoint and worktree instead of creating either, clears the previous harness's per-task wiring, and arms a fresh busy generation.
+   An authoritatively missing endpoint skips the stop because no agent or endpoint exists to act on.
+5. **Launch the replacement** through its single owner, `bin/fm-spawn.sh --relaunch`, which adopts an agent-free recorded endpoint or recreates an authoritatively missing tmux endpoint at the recorded name and worktree, clears the previous harness's per-task wiring, and arms a fresh busy generation.
 
 Switching harness is therefore one ordinary relaunch rather than a separate mechanism.
 
@@ -98,7 +99,8 @@ Switching harness is therefore one ordinary relaunch rather than a separate mech
   zellij, orca, and cmux are refused rather than reported as successful blind.
 - An ambiguous or unreadable endpoint state refuses.
   Only a positively classified state acts.
-- `fm-spawn --relaunch` independently refuses unless the recorded endpoint is positively agent-free and its shell is sitting in the recorded worktree, so a replacement can never join a live agent or start outside the copy holding the work.
+- `fm-spawn --relaunch` independently refuses unless the recorded endpoint is positively agent-free or authoritatively missing.
+  A missing tmux endpoint is recreated through the backend at its recorded name and worktree before the same worktree check, so a replacement can never join a live agent or start outside the copy holding the work.
 
 ## Capability matrix
 

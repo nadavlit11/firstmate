@@ -50,6 +50,8 @@
 #              the prior durable record in place and reports the concrete
 #              state; it never leaves a half-transitioned task claiming to be
 #              running.
+#              An authoritatively missing endpoint has nothing to stop and is
+#              recreated at the recorded name and worktree during launch.
 #
 # Teardown and discard are NOT verbs here and never will be. `exit` stops an
 # agent and preserves everything else; removing a worktree, killing an
@@ -820,7 +822,12 @@ do_relaunch() {
   journal_write noted "${CHECKPOINT_LINES[@]}" "$note_line"
 
   journal_write stopping "${CHECKPOINT_LINES[@]}" "$note_line"
-  exit_result=$(do_exit)
+  state=$(agent_state)
+  if [ "$state" = missing ]; then
+    exit_result=already-missing
+  else
+    exit_result=$(do_exit)
+  fi
   journal_write exited "${CHECKPOINT_LINES[@]}" "$note_line" "exit_result=$exit_result"
 
   # The launch owner (fm-spawn --relaunch) clears the previous incarnation's
