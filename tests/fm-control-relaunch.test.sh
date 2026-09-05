@@ -405,8 +405,6 @@ test_spawn_relaunch_recreates_a_missing_tmux_window() {
   local dir out rc
   dir=$(new_case missing-spawn rl-missing-spawn)
   add_ship_task "$dir" rl-missing-spawn
-  sed -i.bak 's/^window=fmses:/window=firstmate:/' "$dir/home/state/rl-missing-spawn.meta"
-  rm -f "$dir/home/state/rl-missing-spawn.meta.bak"
   rm -f "$dir/fake/windows"
   printf 'zsh' > "$dir/fake/command"
 
@@ -415,9 +413,9 @@ test_spawn_relaunch_recreates_a_missing_tmux_window() {
   expect_code 0 "$rc" "fm-spawn should relaunch an authoritatively missing endpoint: $out"
   assert_grep 'fm-rl-missing-spawn' "$dir/fake/windows" \
     "fm-spawn did not recreate the recorded missing window name"
-  [ "$(cat "$dir/fake/window-session")" = firstmate ] \
+  [ "$(cat "$dir/fake/window-session")" = fmses ] \
     || fail "fm-spawn did not recreate the missing window in the recorded session (got '$(cat "$dir/fake/window-session")')"
-  [ "$(meta_field "$dir" rl-missing-spawn window)" = "firstmate:fm-rl-missing-spawn" ] \
+  [ "$(meta_field "$dir" rl-missing-spawn window)" = "fmses:fm-rl-missing-spawn" ] \
     || fail "fm-spawn changed the recorded endpoint while recreating it: $out"
   pass "fm-spawn --relaunch: a missing tmux window is recreated at the recorded endpoint"
 }
@@ -426,8 +424,6 @@ test_control_relaunch_recreates_a_missing_tmux_window_without_exit() {
   local dir out rc
   dir=$(new_case missing-control rl-missing-control)
   add_ship_task "$dir" rl-missing-control
-  sed -i.bak 's/^window=fmses:/window=firstmate:/' "$dir/home/state/rl-missing-control.meta"
-  rm -f "$dir/home/state/rl-missing-control.meta.bak"
   rm -f "$dir/fake/windows"
 
   out=$(FM_FAKE_CONTAINER_SESSION=after-reboot FM_FAKE_MISSING_ID=rl-missing-control run_control "$dir" rl-missing-control relaunch --note "resume after reboot"); rc=$?
@@ -439,8 +435,10 @@ test_control_relaunch_recreates_a_missing_tmux_window_without_exit() {
     || fail "the relaunch journal did not record the missing-endpoint stop result"
   assert_grep 'fm-rl-missing-control' "$dir/fake/windows" \
     "fm-control did not recreate the recorded missing window name"
-  [ "$(cat "$dir/fake/window-session")" = firstmate ] \
+  [ "$(cat "$dir/fake/window-session")" = fmses ] \
     || fail "fm-control did not recreate the missing window in the recorded session (got '$(cat "$dir/fake/window-session")')"
+  [ "$(meta_field "$dir" rl-missing-control window)" = "fmses:fm-rl-missing-control" ] \
+    || fail "fm-control changed the recorded endpoint while recreating it: $out"
   pass "fm-control relaunch: a missing tmux window skips exit and is recreated in place"
 }
 
