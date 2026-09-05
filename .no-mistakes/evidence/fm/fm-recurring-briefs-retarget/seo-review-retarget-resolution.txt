@@ -1,0 +1,26 @@
+# seo-review skill retarget: do the new references resolve in the real Firstmate home?
+home: /Users/nadavlitvak/Desktop/Workspace/firstmate   (skill under test: .agents/skills/seo-review/SKILL.md @ e2219b4)
+
+## Paths named by the retargeted skill text
+  OK   data/marketing/click-bateva/seo/seo-target-terms.md                    7830 bytes
+  OK   data/marketing/click-bateva/seo/social-seo-baseline.md                 12652 bytes
+  OK   data/marketing/bateva-shelanu/seo                                      448 bytes
+  OK   .agents/skills/click-bateva-social/SKILL.md                            47270 bytes
+  OK   .agents/skills/click-bateva-social/references/measurement.md           9967 bytes
+
+## click-bateva-social skill really owns what the sentence claims
+  SKILL.md:40:⛔ **SEO splits one level down:** choosing what to target → `seo` (social). Reporting the numbers →
+  measurement.md:102:   follows; never propose cutting cadence because reach is low. → `project_social_feed_is_brand_not_traffic`
+  measurement.md:123:## The weekly digest — procedure
+  measurement.md:139:## SEO — reporting lives HERE, targeting does NOT
+  measurement.md:141:**Here:** the 28-day numbers, the brand/non-brand split, the digest's SEO section.
+
+## recurring triggers the skill names exist (FM_HOME=<home> bin/fm-jobs.sh list, this worktree's script)
+  fm-weekly-digest-cb  RUNNING as fm-weekly-digest-cb-2026-09-05  last-run never  recurring: click-bateva Saturday analyti
+  fm-seo-review-cb  due 2026-09-12  last-run 2026-09-05  recurring: click-bateva weekly SEO review - Search Console pull, 
+  fm-seo-review-bs  due 2026-09-26  last-run never  recurring: bateva-shelanu monthly SEO review - position comparison on 
+  fm-whatsapp-campaign-export-weekly  due 2026-09-07  last-run never  recurring: weekly WhatsApp campaign export for click
+
+## remaining origin/develop references in the tracked seo-review skill
+  78:  `scripts/ga4-query.mjs` on `origin/develop` mints an ephemeral token with `gcloud auth print-access-token --account=ga4-admin@click-bateva.iam.gserviceaccount.com --scopes=<scope>`.
+  (line 78 ga4-query.mjs is the one reference the task spec explicitly keeps)
