@@ -422,6 +422,53 @@ test_no_mistakes_dod_wording() {
   pass "fm-brief.sh: no-mistakes DOD keeps its apostrophe prose and bans --yes outright"
 }
 
+# A repository with no CI at all cannot reach the pipeline's CI-ready return point:
+# the CI step polls for checks that never arrive and never parks, so it can only
+# be skipped at run start. Pin the whole contract - the evidence test, the
+# run-start skip, the never-skip-a-checked-repo rule, and the reported done line -
+# because a worker that gets only part of it either waits forever or skips CI on a
+# repository that does run checks.
+test_no_ci_contract_is_rendered_for_no_mistakes() {
+  local home id brief other_id other_brief
+  home="$TMP_ROOT/no-ci-home"
+  mkdir -p "$home/data"
+  id="brief-no-ci-e1"
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" some-proj --base main --mode no-mistakes >/dev/null 2>&1
+  brief="$home/data/$id/brief.md"
+  assert_present "$brief" "brief was not scaffolded"
+
+  assert_grep "A repository with no CI at all is the one case where that CI-ready return point never arrives on its own." "$brief" \
+    "no-mistakes DOD lost the no-CI case"
+  assert_grep "polls \`no CI checks reported yet\` until its timeout instead of parking" "$brief" \
+    "no-mistakes DOD must say why the CI step cannot be answered later"
+  assert_grep "\`no-mistakes axi respond --action skip --step ci\` is refused with \`no step awaiting approval\`" "$brief" \
+    "no-mistakes DOD must name the refusal a worker would otherwise retry"
+  assert_grep "The CI step is skippable only at run start, through \`no-mistakes axi run --skip ci\`" "$brief" \
+    "no-mistakes DOD must name the run-start skip as the supported mechanism"
+  assert_grep "intent, rebase, review, test, document, lint, push, pr, ci" "$brief" \
+    "no-mistakes DOD must name the valid --skip step names"
+  assert_grep "whether it carries a workflow triggered by \`pull_request\` or \`push\`" "$brief" \
+    "no-mistakes DOD must state the workflow half of the evidence test"
+  assert_grep "whether \`gh-axi\` reports any checks on recent commits of the base branch" "$brief" \
+    "no-mistakes DOD must state the forge half of the evidence test"
+  assert_grep "Pass \`--skip ci\` only when both say no" "$brief" \
+    "no-mistakes DOD must gate the skip on both halves of the evidence test"
+  assert_grep "an unclear answer means you run with CI rather than skipping it" "$brief" \
+    "no-mistakes DOD must resolve an unclear answer toward running CI"
+  assert_grep "done: PR {url} checks green (no CI configured; skipped ci, evidence: <what you checked>, head <sha>)" "$brief" \
+    "no-mistakes DOD must pin the no-CI done line"
+
+  # The contract belongs to the pipeline mode only: a direct-PR worker never runs
+  # no-mistakes, so handing it a CI-skip instruction would be a second, wrong owner.
+  other_id="brief-no-ci-e2"
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$other_id" some-proj --base main --mode direct-PR >/dev/null 2>&1
+  other_brief="$home/data/$other_id/brief.md"
+  assert_present "$other_brief" "direct-PR brief was not scaffolded"
+  assert_no_grep "--skip ci" "$other_brief" \
+    "direct-PR brief must not carry the pipeline's CI-skip contract"
+  pass "fm-brief.sh: the no-mistakes DOD renders the no-CI skip contract"
+}
+
 test_ask_user_escalation_format() {
   local home id brief mode other_id other_brief
   home="$TMP_ROOT/ask-user-home"
@@ -992,6 +1039,7 @@ test_faster_paths_use_configured_authority_without_stacked_review
 test_no_mistakes_dod_wording
 test_browser_rule_is_harness_neutral
 test_pipeline_invocation_names_both_harness_forms
+test_no_ci_contract_is_rendered_for_no_mistakes
 test_ask_user_escalation_format
 test_ship_project_memory_wording
 test_herdr_lab_contract_is_explicit_and_complete

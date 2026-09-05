@@ -32,6 +32,11 @@
 # The string passed must be self-sufficient - it plus the codebase reconstructs
 # roughly the same specification - so a report, decision, or PR the intent
 # refers to is written into it as substance, never left as a pointer.
+# This file is also the one owner of the no-CI contract: on a repository where
+# nothing runs a check on a pull request, the pipeline's CI step polls forever
+# and cannot be answered later, so the worker is told to establish that from
+# evidence and start the run with `no-mistakes axi run --skip ci` instead.
+# AGENTS.md section 7's PR-ready wording points here rather than restating it.
 # bin/fm-brief.sh scaffolds those two `# Task` subsections; bin/fm-spawn.sh and
 # bin/fm-promote.sh refuse leftover `{TASK}` / `{FIRSTMATE_SPEC}` placeholders
 # through the helpers below. Other mentions of `--intent` point here rather than
@@ -350,6 +355,13 @@ Two firstmate-specific rules layer on top of that guidance:
   When the decision comes back, feed it to the gate with \`no-mistakes axi respond\` and let the pipeline apply it - do not route the question to "the user" or implement the fix yourself.
 - NEVER pass \`--yes\` (or \`-y\`) to \`no-mistakes axi run\` or \`no-mistakes axi respond\`. It is banned fleet-wide.
   It auto-resolves every gate including ask-user findings with no escalation, and answering your own ask-user finding is a hard rule violation.
+
+A repository with no CI at all is the one case where that CI-ready return point never arrives on its own.
+When nothing runs a check on a pull request, the pipeline's CI step polls \`no CI checks reported yet\` until its timeout instead of parking, so it cannot be answered later: \`no-mistakes axi respond --action skip --step ci\` is refused with \`no step awaiting approval\`.
+The CI step is skippable only at run start, through \`no-mistakes axi run --skip ci\` (its valid step names are intent, rebase, review, test, document, lint, push, pr, ci).
+So before starting the run, establish from evidence whether this repository runs any check on a pull request: whether it carries a workflow triggered by \`pull_request\` or \`push\` (\`.github/workflows/\`, or the forge's equivalent), and whether \`gh-axi\` reports any checks on recent commits of the base branch.
+Pass \`--skip ci\` only when both say no; a repository that does run checks must never be started with it, and an unclear answer means you run with CI rather than skipping it.
+When you do skip it, report \`done: PR {url} checks green (no CI configured; skipped ci, evidence: <what you checked>, head <sha>)\` once the run reaches its outcome, naming the evidence you actually checked, and stop.
 
 After the no-mistakes pipeline reports CI green (the CI-ready return point - do not wait for it to keep monitoring in the background until merge), append \`done: PR {url} checks green\` and stop. You are finished.
 EOF
