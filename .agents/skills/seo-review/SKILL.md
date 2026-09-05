@@ -109,7 +109,7 @@ The recurring job `fm-weekly-digest-cb` is the firstmate trigger, and after each
 Its records were migrated on 2026-09-05 into the home's local marketing store under `data/marketing/click-bateva/seo/`.
 That migration closed work item `cb-seo-social-records-unreachable`.
 
-Its own skills own the mechanics, and both are on `develop`: targeting decisions in the `seo` skill, and the numbers, the brand split and the digest's SEO section in `measurement`.
+The mechanics now live in the home-local `click-bateva-social` skill, migrated 2026-09-05: targeting decisions in its SEO section, and the numbers, the brand split and the digest's SEO section in its measurement reference.
 A review that finds itself recomputing what those own is in the wrong place.
 
 ## bateva-shelanu - monthly-ish and event-keyed
