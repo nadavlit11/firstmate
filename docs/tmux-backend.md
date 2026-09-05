@@ -50,6 +50,8 @@ A target-existence check proves only that the pane exists.
 The deeper tmux agent-liveness probe first verifies exact window membership, then reads process names to distinguish a running harness from a bare idle shell.
 It classifies recognized Claude, Codex, OpenCode, Pi, pi-signed, Grok, Kimi, Cursor, and Muse process identities as `alive`, common shells as `dead`, an authoritatively absent window as `missing`, unreadable state as `unreadable`, and every other process as `ambiguous`.
 Only `dead` and `missing` authorize recovery because a false dead result could launch a duplicate agent.
+A `missing` relaunch recreates the recorded window name in the recorded session and recorded worktree through the tmux backend before launching the replacement.
+The recorded `session:window` is the contract: the backend ensures that session exists (creating it detached when the server or session is gone) and never substitutes the session firstmate itself currently runs in, so a firstmate restarted in a differently named session still recovers its workers in place.
 
 For positive attribution, the probe combines two independent name sources rather than making either one load-bearing.
 `#{pane_current_command}` and the pane tty foreground process group's kernel `comm` values expose different name fields, and which one retains executable identity is platform-dependent.

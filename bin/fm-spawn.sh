@@ -39,7 +39,11 @@
 #   own line's merge path.
 #        fm-spawn.sh <task-id> --relaunch [--harness <name>] [--model <name>] [--effort <level>]
 #   --relaunch launches a replacement agent for an EXISTING task into that
-#   task's own recorded endpoint and worktree instead of creating either. It is
+#   task's own recorded endpoint and worktree, recreating that exact endpoint
+#   when it is authoritatively missing instead of allocating a new one. On tmux
+#   the recorded session:window is the contract: a missing window is recreated
+#   in the RECORDED session (ensured if the server or session is gone), never
+#   in whichever session this firstmate currently runs in. It is
 #   the launch half of the control plane (bin/fm-control.sh relaunch), which
 #   owns the checkpoint, the progress note, stopping the previous agent, and the
 #   transaction; call fm-control rather than this flag directly unless you are
@@ -1202,10 +1206,13 @@ if [ "$RELAUNCH" -eq 1 ]; then
     exit 1
   }
   RELAUNCH_STATE=$(fm_backend_agent_state "$BACKEND" "$RELAUNCH_TARGET")
-  [ "$RELAUNCH_STATE" = dead ] || {
-    echo "error: task $ID's endpoint reads '$RELAUNCH_STATE'; a relaunch requires a positively agent-free endpoint (stop the agent first with bin/fm-control.sh $ID exit)" >&2
-    exit 1
-  }
+  case "$RELAUNCH_STATE" in
+    dead|missing) ;;
+    *)
+      echo "error: task $ID's endpoint reads '$RELAUNCH_STATE'; a relaunch requires a positively agent-free endpoint (stop the agent first with bin/fm-control.sh $ID exit)" >&2
+      exit 1
+      ;;
+  esac
   RELAUNCH_PRIOR_HARNESS=$(fm_meta_get "$RELAUNCH_META" harness)
   KIND=$(fm_meta_get "$RELAUNCH_META" kind)
   [ -n "$KIND" ] || KIND=ship
@@ -2235,16 +2242,37 @@ fi
 
 W="fm-$ID"
 if [ "$RELAUNCH" -eq 1 ]; then
-  # Adopt the recorded endpoint instead of creating one. This is what keeps a
-  # relaunch a REPLACEMENT rather than a second copy of the task: no new
-  # terminal, no second worktree, and every uncommitted change left exactly
-  # where the previous agent left it.
+  # Adopt the recorded endpoint when it remains, or recreate that exact endpoint
+  # through the backend when it is authoritatively missing. This keeps a relaunch
+  # a REPLACEMENT rather than a second task: no new endpoint name, no second
+  # worktree, and every uncommitted change stays where the previous agent left it.
   T=$RELAUNCH_TARGET
   # A secondmate's home already resolved WT above through the same validation a
   # fresh secondmate spawn uses; every other kind takes the recorded worktree.
   [ "$KIND" = secondmate ] || WT=$RELAUNCH_WT
-  WT_TARGET=$T
   SES=${T%%:*}
+  if [ "$RELAUNCH_STATE" = missing ]; then
+    case "$BACKEND" in
+      tmux)
+        # The recorded endpoint is authoritative: ensure the RECORDED session
+        # exists and recreate the window there, regardless of which tmux
+        # session this firstmate happens to be running in after a restart.
+        RECORDED_WINDOW=${T#*:}
+        fm_backend_tmux_session_ensure "$SES" || {
+          echo "error: task $ID records tmux session '$SES', which could not be ensured for endpoint recreation" >&2
+          exit 1
+        }
+        WID=$(fm_backend_tmux_create_task "$SES" "$RECORDED_WINDOW" "$WT") || exit 1
+        WT_TARGET=$WID
+        ;;
+      *)
+        echo "error: task $ID's $BACKEND endpoint is missing, but that backend has no guarded exact-endpoint recreation path" >&2
+        exit 1
+        ;;
+    esac
+  else
+    WT_TARGET=$T
+  fi
 else
 case "$BACKEND" in
   tmux)

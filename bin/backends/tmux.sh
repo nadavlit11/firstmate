@@ -66,9 +66,17 @@ fm_backend_tmux_container_ensure() {
   if [ -n "${TMUX:-}" ]; then
     tmux display-message -p '#S'
   else
-    tmux has-session -t firstmate 2>/dev/null || tmux new-session -d -s firstmate
+    fm_backend_tmux_session_ensure firstmate || return 1
     printf 'firstmate'
   fi
+}
+
+# fm_backend_tmux_session_ensure: ensure the NAMED detached session exists,
+# independent of whichever session this process runs in. A relaunch of a
+# missing endpoint uses it so the replacement lands in the task's RECORDED
+# session even when firstmate itself restarted inside a differently named one.
+fm_backend_tmux_session_ensure() {  # <session>
+  tmux has-session -t "$1" 2>/dev/null || tmux new-session -d -s "$1"
 }
 
 # fm_backend_tmux_create_task: create the task's window in <proj-abs>,

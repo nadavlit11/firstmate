@@ -2,8 +2,8 @@
 # fm-control.sh relaunch: the transactional replace-the-agent verb.
 #
 # Relaunch is the only control verb that changes durable records, so these
-# tests pin the transaction itself, hermetically (stubbed session provider, no
-# real agent):
+# tests pin the transaction itself hermetically with a lifecycle-modelled
+# session provider:
 #   1. A same-harness relaunch keeps every identity axis and reuses the SAME
 #      endpoint and worktree - it replaces an agent, it never forks a task.
 #   2. A harness switch is one ordinary relaunch: the record follows, the
@@ -14,7 +14,10 @@
 #   4. A refusal before the agent is stopped changes nothing.
 #   5. A launch failure after the agent is stopped keeps the prior record,
 #      reports the concrete state, and preserves the work.
-#   6. fm-spawn --relaunch refuses on its own: a live agent, a contradicting
+#   6. A missing tmux window is recreated at its recorded name, session, and
+#      worktree by both the direct launch half and the transactional control
+#      command, even when firstmate itself now runs in a different session.
+#   7. fm-spawn --relaunch refuses on its own: a live agent, a contradicting
 #      flag, an extra positional, or a backend that cannot prove the previous
 #      agent exited.
 set -u
@@ -98,6 +101,7 @@ case "${1:-}" in
   display-message)
     for a in "$@"; do
       case "$a" in
+        '#S') printf '%s\n' "${FM_FAKE_CONTAINER_SESSION:-fakepane}"; exit 0 ;;
         *cursor_y*) printf '1\n'; exit 0 ;;
         *pane_current_command*) cat "$D/command"; printf '\n'; exit 0 ;;
         *pane_current_path*)
@@ -111,6 +115,18 @@ case "${1:-}" in
     printf 'fakepane\n'; exit 0 ;;
   capture-pane) printf '╭────╮\n│    │\n╰────╯\n'; exit 0 ;;
   list-windows) [ -f "$D/windows" ] && cat "$D/windows"; exit 0 ;;
+  has-session) exit 0 ;;
+  new-window)
+    ses=""; prev=""
+    for a in "$@"; do
+      [ "$prev" != -t ] || ses=${a%:}
+      prev=$a
+    done
+    printf 'fm-%s\n' "${FM_FAKE_MISSING_ID:?}" > "$D/windows"
+    printf '%s\n' "$ses" > "$D/window-session"
+    printf '@42\n'
+    exit 0 ;;
+  set-window-option) exit 0 ;;
 esac
 exit 0
 SH
@@ -178,6 +194,7 @@ run_control() {  # <case-dir> <args...>
     FM_FAKE_META_PUBLISH_MV_FAIL="${FM_FAKE_META_PUBLISH_MV_FAIL:-}" \
     FM_FAKE_TRACE_PREPARE="${FM_FAKE_TRACE_PREPARE:-}" \
     FM_FAKE_TRACE_RELEASE="${FM_FAKE_TRACE_RELEASE:-}" \
+    FM_FAKE_CONTAINER_SESSION="${FM_FAKE_CONTAINER_SESSION:-}" \
     FM_FAKE_META_WRITER_READY="${FM_FAKE_META_WRITER_READY:-}" \
     FM_FAKE_TRACE_EXPORTED="${FM_FAKE_TRACE_EXPORTED:-}" \
     "$CONTROL" "$@" 2>&1
@@ -187,6 +204,7 @@ run_spawn() {  # <case-dir> <args...>
   local dir=$1; shift
   env PATH="$dir/fakebin:$PATH" FM_HOME="$dir/home" FM_FAKE_DIR="$dir/fake" \
     FM_SPAWN_NO_GUARD=1 GROK_HOME="$dir/grokhome" \
+    FM_FAKE_CONTAINER_SESSION="${FM_FAKE_CONTAINER_SESSION:-}" \
     "$SPAWN" "$@" 2>&1
 }
 
@@ -381,6 +399,47 @@ test_spawn_relaunch_drops_the_recorded_model_on_a_harness_switch() {
   [ "$(meta_field "$dir" rl-model-sw model)" = default ] \
     || fail "a model chosen for the old harness carried onto a different one"
   pass "fm-spawn --relaunch: a harness switch leaves the previous harness's model behind"
+}
+
+test_spawn_relaunch_recreates_a_missing_tmux_window() {
+  local dir out rc
+  dir=$(new_case missing-spawn rl-missing-spawn)
+  add_ship_task "$dir" rl-missing-spawn
+  rm -f "$dir/fake/windows"
+  printf 'zsh' > "$dir/fake/command"
+
+  out=$(FM_FAKE_CONTAINER_SESSION=after-reboot FM_FAKE_MISSING_ID=rl-missing-spawn run_spawn "$dir" rl-missing-spawn --relaunch); rc=$?
+
+  expect_code 0 "$rc" "fm-spawn should relaunch an authoritatively missing endpoint: $out"
+  assert_grep 'fm-rl-missing-spawn' "$dir/fake/windows" \
+    "fm-spawn did not recreate the recorded missing window name"
+  [ "$(cat "$dir/fake/window-session")" = fmses ] \
+    || fail "fm-spawn did not recreate the missing window in the recorded session (got '$(cat "$dir/fake/window-session")')"
+  [ "$(meta_field "$dir" rl-missing-spawn window)" = "fmses:fm-rl-missing-spawn" ] \
+    || fail "fm-spawn changed the recorded endpoint while recreating it: $out"
+  pass "fm-spawn --relaunch: a missing tmux window is recreated at the recorded endpoint"
+}
+
+test_control_relaunch_recreates_a_missing_tmux_window_without_exit() {
+  local dir out rc
+  dir=$(new_case missing-control rl-missing-control)
+  add_ship_task "$dir" rl-missing-control
+  rm -f "$dir/fake/windows"
+
+  out=$(FM_FAKE_CONTAINER_SESSION=after-reboot FM_FAKE_MISSING_ID=rl-missing-control run_control "$dir" rl-missing-control relaunch --note "resume after reboot"); rc=$?
+
+  expect_code 0 "$rc" "fm-control should relaunch an authoritatively missing endpoint: $out"
+  assert_not_contains "$(cat "$dir/fake/literal")" "/exit" \
+    "fm-control tried to stop an agent at an authoritatively missing endpoint"
+  [ "$(journal_field "$dir" rl-missing-control exit_result)" = already-missing ] \
+    || fail "the relaunch journal did not record the missing-endpoint stop result"
+  assert_grep 'fm-rl-missing-control' "$dir/fake/windows" \
+    "fm-control did not recreate the recorded missing window name"
+  [ "$(cat "$dir/fake/window-session")" = fmses ] \
+    || fail "fm-control did not recreate the missing window in the recorded session (got '$(cat "$dir/fake/window-session")')"
+  [ "$(meta_field "$dir" rl-missing-control window)" = "fmses:fm-rl-missing-control" ] \
+    || fail "fm-control changed the recorded endpoint while recreating it: $out"
+  pass "fm-control relaunch: a missing tmux window skips exit and is recreated in place"
 }
 
 # --- 1. same-harness relaunch -----------------------------------------------
@@ -1585,6 +1644,8 @@ test_legacy_empty_base_local_only_task_still_relaunches
 test_legacy_empty_base_relaunches_past_a_rescaffolded_brief_base_line
 test_spawn_relaunch_preserves_the_recorded_model
 test_spawn_relaunch_drops_the_recorded_model_on_a_harness_switch
+test_spawn_relaunch_recreates_a_missing_tmux_window
+test_control_relaunch_recreates_a_missing_tmux_window_without_exit
 test_relaunch_preserves_durable_task_metadata
 test_relaunch_serializes_concurrent_durable_metadata_publication
 test_disabled_relaunch_clears_prior_trace_context
