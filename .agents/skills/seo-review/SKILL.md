@@ -103,12 +103,13 @@ The gap the research actually found is that Saturday does not announce itself, s
 ⚠️ **Reconcile the project's standing "no cron, ever" ruling instead of tripping over it or breaking it.**
 What the founder retired was an automated weekly report *email*, a data dump that nobody decided anything from.
 An agent that does the analysis and returns decisions is the thing he asked for, not the thing he retired.
-So: no project-side cron, no re-armed session cron, no automated digest email, and the firstmate item stays the trigger.
+So: no project-side cron and no re-armed session cron.
+The recurring job `fm-weekly-digest-cb` is the firstmate trigger, and after each run firstmate emails the finished digest DOCX to the captain and to Bateva Shelanu.
 
-Its records live on `origin/develop` only, and firstmate's clone sits on the prod line, so a brief pointing at them resolves to nothing without saying so.
-Work item `cb-seo-social-records-unreachable` owns that defect; coordinate with it rather than solving it again inside a review.
+Its records were migrated on 2026-09-05 into the home's local marketing store under `data/marketing/click-bateva/seo/`.
+That migration closed work item `cb-seo-social-records-unreachable`.
 
-Its own skills own the mechanics, and both are on `develop`: targeting decisions in the `seo` skill, and the numbers, the brand split and the digest's SEO section in `measurement`.
+The mechanics now live in the home-local `click-bateva-social` skill, migrated 2026-09-05: targeting decisions in its SEO section, and the numbers, the brand split and the digest's SEO section in its measurement reference.
 A review that finds itself recomputing what those own is in the wrong place.
 
 ## bateva-shelanu - monthly-ish and event-keyed
@@ -125,7 +126,7 @@ Save the export, every time.
 The 2026-08-25 pull was lost by being quoted into a session transcript instead of saved, and only its procedure doc survives.
 
 ⭐ **This site has no running table, and that is the one genuine structural gap between the two setups.**
-The first review from 2026-09-26 onward starts `docs/gsc-baseline.md` with one row per pull, in the same shape as click-bateva's running baseline.
+The first review from 2026-09-26 onward starts `data/marketing/bateva-shelanu/seo/gsc-baseline.md` alongside the existing pulls in that directory, with one row per pull in the same shape as click-bateva's running baseline.
 It costs one paste per pull and it is the difference between "did it move" and "I think it moved".
 
 ## The target lists exist - read them, never invent one
@@ -133,9 +134,9 @@ It costs one paste per pull and it is the difference between "did it move" and "
 The review reads the site's own list and reports against it.
 A run that assembles its own list has silently changed what the business is chasing.
 
-- **click-bateva:** `docs/seo-target-terms.md` on `origin/develop` is the working list, 51 terms in three tiers, each row carrying a real measured volume and bid.
+- **click-bateva:** `data/marketing/click-bateva/seo/seo-target-terms.md` in the home's local marketing store is the working list, 51 terms in three tiers, each row carrying a real measured volume and bid.
   It supersedes the earlier corpus-sized proposal artifact.
-  The running table it feeds is `docs/social-seo-baseline.md`.
+  The running table it feeds is `data/marketing/click-bateva/seo/social-seo-baseline.md` in the same home-local store.
 - **bateva-shelanu:** two lists that do not agree, and the disagreement is itself a standing captain call.
   Gilad's own 41 unique phrases are analysed in `docs/keyword-map-2026-08-23.md`; the measured population is the parsed Keyword Planner exports.
   That analysis records that not one of the top ten earning queries appears in Gilad's list, concludes the list is an aspiration rather than a description, and its open question - whether abandoning the family and small-team traffic is deliberate - has never been answered.
