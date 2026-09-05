@@ -1,0 +1,2 @@
+not ok - a subshell reclaimed its parent's live hold (rc=13)
+EXIT=1

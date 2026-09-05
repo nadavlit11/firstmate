@@ -1,0 +1,32 @@
+# Weekly upstream sync 2026-09-05: merge graph 398c5d1..437a09f
+* 437a09f (HEAD, fm/fm-fork-weekly-sync-2026-09-05) no-mistakes(review): pass --base main to claude-trust spawn tests
+* 7483bd2 fix(tests): pass the required base to the merged ask-user brief cases
+*   90c1308 Merge upstream/main into fork main (weekly sync)
+|\  
+| * e075c96 fix(bin): stop reading an unanswered backend probe as a dead endpoint (#3785)
+| * 64304b6 fix: protect primary checkout when spawning from linked homes (#3783)
+| * 1820316 fix: avoid duplicate AGENTS.md governance for marked projects (#3763)
+| * f09de8a fix(pi): keep supervision outcome delivery responsive (#3767)
+| * 86ff1bf fix: classify captain holds from structured state (#3508)
+| * 8f7b79c fix(teardown): conclude parked runs advanced past task copy (#3704)
+| * a5c64a0 feat: add verified Gemini crewmate runtime (#3695)
+| * d43e610 fix(bin): prevent false missed-reply escalations (#3697)
+| * 3c1e86d fix(bin): close pending-reply decisions via resolve-key (#3696)
+| * efbeb4f fix: restart every live second mate after updates (#3690)
+| * 1b0fbb9 fix(bin): pre-register claude workspace trust at spawn time (#3663)
+| * b82d09f fix(bin): attribute active runs with unfetched pipeline heads (#3681)
+| * 31cba0d fix(bin): avoid fleet snapshot argument limits (#3677)
+| * f4d7875 fix: prevent stale supervision wake loops (#3672)
+| * 5a7ba57 fix: accelerate local Bearings snapshot composition (#3499)
+| * 3b82ebd fix(bin): require self-sufficient no-mistakes intent (#3671)
+| * ed44d15 feat: structure no-mistakes ask-user escalations (#3670)
+| * 7adb358 feat(tests): run three more validation families concurrently (#3662)
+| * 3034912 fix(bin): disable Claude feedback drafts for fleet launches (#3661)
+| * 75b2de2 fix: copy PR URLs from durable records (#3648)
+| * 7dcf072 perf: accelerate local validation with bounded concurrency (#3644)
+| * 1c5c9c1 feat: restart second mates after instruction updates (#3614)
+* 398c5d1 (origin/main) docs(skills): retarget seo-review skill to home-local click-bateva records (#7)
+
+# Upstream commits brought in (398c5d1..e075c96): 22
+# upstream head is ancestor of target: yes
+# fork-only commits preserved (e075c96..398c5d1): 31

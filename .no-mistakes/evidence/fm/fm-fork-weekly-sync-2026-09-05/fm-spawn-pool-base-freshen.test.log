@@ -1,0 +1,20 @@
+ok - linked spawning home: primary preserves the primary before any refresh
+ok - linked spawning home: primary-alias preserves the primary before any refresh
+ok - linked spawning home: spawning preserves the primary before any refresh
+ok - linked spawning home: scout preserves the primary before any refresh
+ok - a stale pooled worktree refreshes to the fetched tip of its base ref before a crew branch is created
+ok - a stale pooled worktree resolves and refreshes a non-main base ref
+ok - direct-PR ships and scouts both refresh stale pooled worktrees before launch
+ok - a dirty pooled worktree is refused without discarding its local work
+ok - a dispatch that names no base ref is refused instead of assuming the default branch
+ok - a base ref git could reparse as an option is refused before any git invocation
+ok - an explicitly named branch or tag is the base, even when the default branch is elsewhere
+ok - a base ref that does not exist on origin refuses the pooled worktree
+ok - an unreachable origin refuses a potentially stale pooled worktree
+ok - two consecutive spawns across a moved submodule pin end in a refusal naming both pins and no remedy
+ok - an unpushed submodule commit keeps the uncommitted-work refusal and survives it
+ok - work inside a submodule is still refused as uncommitted work, not called stale
+ok - a stale pin carrying real work is refused conservatively, never called stale
+ok - a stale pin beside other dirt yields the conservative refusal alone, with no stale-pin line
+# all fm-spawn-pool-base-freshen tests passed
+EXIT=0

@@ -1,0 +1,9 @@
+tests/fm-wake-queue.test.sh fails locally at "a subshell reclaimed its parent's live hold (rc=13)".
+Reproduced identically on:
+  - target 437a09f (merge result)
+  - e075c96 (pure upstream head)
+  - 398c5d1 (fork base, before the merge)
+Cause: only /bin/bash 3.2.57 exists on this Mac; bash 3.2 has no BASHPID, so
+fm_lock_try_acquire's ${BASHPID:-$$} owner check sees a subshell as its parent.
+CI runs this suite on ubuntu-latest (bash 5) and only a curated subset under
+stock macOS bash 3.2. Not merge fallout.
