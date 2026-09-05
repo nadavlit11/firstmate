@@ -189,6 +189,10 @@
       "audience": "agent-runtime"
     },
     {
+      "path": ".agents/skills/harness-adapters/references/harness/gemini.md",
+      "audience": "agent-runtime"
+    },
+    {
       "path": ".agents/skills/harness-adapters/references/harness/grok.md",
       "audience": "agent-runtime"
     },
@@ -355,6 +359,10 @@
     {
       "path": "docs/herdr-backend.md",
       "audience": "operator-current"
+    },
+    {
+      "path": "docs/migrations/2026-09-04-private-project-ops-home.md",
+      "audience": "maintainer-verification"
     },
     {
       "path": "docs/orca-backend.md",
