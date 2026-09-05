@@ -1,0 +1,13 @@
+ok - fm-control relaunch: a same-harness relaunch replaces the agent in the same endpoint and worktree
+== recorded endpoint before relaunch: fmses:fm-rl-reboot
+== current firstmate tmux session (simulated): after-reboot
+$ bin/fm-control.sh rl-reboot relaunch --note "resume after reboot"
+warning: /private/var/folders/x0/m_0bk2pj1lg8bvp8ft5kzhcw0000gn/T/fm-control-relaunch.FcYIaL/manual-1048/home/data/rl-reboot/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+relaunched rl-reboot harness=claude from=claude model=default effort=default backend=tmux endpoint=fmses:fm-rl-reboot worktree=/private/var/folders/x0/m_0bk2pj1lg8bvp8ft5kzhcw0000gn/T/fm-control-relaunch.FcYIaL/manual-1048/wt
+== exit status: 0
+== journal exit_result: already-missing
+== recreated window(s) in stub: fm-rl-reboot
+== session the window was created in: fmses
+== recorded endpoint after relaunch: fmses:fm-rl-reboot
+== keys sent to tmux (must not include /exit):
+unset TRACEPARENT; env -u CURSOR_AGENT -u CURSOR_INVOKED_AS CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false claude --dangerously-skip-permissions "$('/Users/nadavlitvak/.no-mistakes/worktrees/c4ebdacd560e/01M1R4AH2DFNV2GFSC7V6FV9RV/bin/fm-operational-input.sh' encode launch-brief < '/private/var/folders/x0/m_0bk2pj1lg8bvp8ft5kzhcw0000gn/T/fm-control-relaunch.FcYIaL/manual-1048/home/data/rl-reboot/launch-brief.md')"
