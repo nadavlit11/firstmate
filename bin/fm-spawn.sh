@@ -40,7 +40,10 @@
 #        fm-spawn.sh <task-id> --relaunch [--harness <name>] [--model <name>] [--effort <level>]
 #   --relaunch launches a replacement agent for an EXISTING task into that
 #   task's own recorded endpoint and worktree, recreating that exact endpoint
-#   when it is authoritatively missing instead of allocating a new one. It is
+#   when it is authoritatively missing instead of allocating a new one. On tmux
+#   the recorded session:window is the contract: a missing window is recreated
+#   in the RECORDED session (ensured if the server or session is gone), never
+#   in whichever session this firstmate currently runs in. It is
 #   the launch half of the control plane (bin/fm-control.sh relaunch), which
 #   owns the checkpoint, the progress note, stopping the previous agent, and the
 #   transaction; call fm-control rather than this flag directly unless you are
@@ -2251,11 +2254,12 @@ if [ "$RELAUNCH" -eq 1 ]; then
   if [ "$RELAUNCH_STATE" = missing ]; then
     case "$BACKEND" in
       tmux)
-        RECORDED_SES=$SES
+        # The recorded endpoint is authoritative: ensure the RECORDED session
+        # exists and recreate the window there, regardless of which tmux
+        # session this firstmate happens to be running in after a restart.
         RECORDED_WINDOW=${T#*:}
-        SES=$(fm_backend_tmux_container_ensure) || exit 1
-        [ "$SES" = "$RECORDED_SES" ] || {
-          echo "error: task $ID records tmux session '$RECORDED_SES', but the backend ensured '$SES'; refusing to recreate a different endpoint" >&2
+        fm_backend_tmux_session_ensure "$SES" || {
+          echo "error: task $ID records tmux session '$SES', which could not be ensured for endpoint recreation" >&2
           exit 1
         }
         WID=$(fm_backend_tmux_create_task "$SES" "$RECORDED_WINDOW" "$WT") || exit 1
