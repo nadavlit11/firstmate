@@ -193,7 +193,8 @@ When that section reports its checks still in progress it names exactly what is 
 
 Bootstrap detects first, asks for consent, and installs only after the captain approves in the current session.
 Do not dispatch until the required tools are present and GitHub authentication is good.
-Use `gh-axi` for GitHub, `chrome-devtools-axi` for browser work, and `lavish-axi` for structured decisions or reports; consult current help rather than memorizing flags.
+Use `gh-axi` for GitHub and `lavish-axi` for structured decisions or reports; consult current help rather than memorizing flags.
+For browser work use the harness's own browser tooling (Codex's native browser and computer-use tools, Claude's claude-in-chrome tools), not `chrome-devtools-axi`, while the `fm-chrome-devtools-attach-chrome152` defect is open; the crewmate brief scaffold in `bin/fm-brief.sh` carries the same rule to workers.
 A silent bootstrap section needs no action; for any printed actionable diagnostic line, load `bootstrap-diagnostics` and follow its owner procedure.
 `BOOTSTRAP_INFO:` lines are completed no-action facts and do not require loading a skill.
 `secondmate-provisioning` owns startup secondmate sync, liveness, and inherited local-material convergence.
