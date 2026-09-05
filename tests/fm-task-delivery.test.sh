@@ -580,7 +580,7 @@ STUB
     "promoted worker lost the scout protocols and safety rules that still apply"
 
   # The faster paths keep their own contracts rather than inheriting the pipeline's.
-  assert_grep "Do NOT run /no-mistakes" "$payload" \
+  assert_grep "Do NOT run the no-mistakes skill" "$payload" \
     "promoted direct-PR worker lost its no-pipeline contract"
   assert_grep "Do NOT push, do NOT open a PR, do NOT merge" "$TMP_ROOT/promote-dod/payload-promote-dod-local-only" \
     "promoted local-only worker lost its no-remote contract"

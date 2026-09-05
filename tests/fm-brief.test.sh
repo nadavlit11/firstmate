@@ -260,7 +260,7 @@ test_ship_mode_is_explicit_not_registry() {
   brief="$home/data/brief-explicit-a5/brief.md"
   grep -qx "Delivery contract: mode=no-mistakes" "$brief" \
     || fail "registered direct-PR posture overrode the explicit --mode"
-  assert_grep "Firstmate will then instruct you to run /no-mistakes" "$brief" \
+  assert_grep "Firstmate will then instruct you to invoke the no-mistakes skill" "$brief" \
     "explicit no-mistakes brief did not render the pipeline definition of done"
 
   # An unregistered project is not a blocker either, because nothing is looked up.
@@ -325,6 +325,56 @@ test_faster_paths_use_configured_authority_without_stacked_review() {
 
 # Pin the specific line the bug lived on: the no-mistakes DOD's no-mistakes
 # reference must render as plain prose with no dangling apostrophe artifact.
+# The scaffold is dispatched onto several harnesses, so the two lines that used to
+# name one harness's tooling must stay true on all of them: browser work follows the
+# worker's own harness, and the pipeline invocation carries both accepted forms.
+test_browser_rule_is_harness_neutral() {
+  local home id brief
+  home="$TMP_ROOT/harness-neutral-home"
+  mkdir -p "$home/data"
+  for id_mode in "brief-browser-ship:--mode no-mistakes" "brief-browser-scout:--scout"; do
+    id=${id_mode%%:*}
+    # shellcheck disable=SC2086  # the flag pair is deliberately word-split
+    FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" some-proj --base main ${id_mode#*:} >/dev/null 2>&1 \
+      || fail "harness-neutral: $id did not scaffold"
+    brief="$home/data/$id/brief.md"
+    assert_grep "3. Use gh-axi for GitHub operations." "$brief" \
+      "harness-neutral: $id lost the gh-axi half of rule 3"
+    assert_grep "use your own harness's browser tooling" "$brief" \
+      "harness-neutral: $id does not defer browser work to the worker's own harness"
+    assert_grep "on Codex its native browser and computer-use tools, on Claude the claude-in-chrome tools" "$brief" \
+      "harness-neutral: $id does not name the per-harness browser tooling"
+    assert_grep "fm-chrome-devtools-attach-chrome152" "$brief" \
+      "harness-neutral: $id does not name the open defect that bans chrome-devtools-axi"
+    assert_no_grep "gh-axi for GitHub operations and chrome-devtools-axi" "$brief" \
+      "harness-neutral: $id still prescribes chrome-devtools-axi for browser operations"
+  done
+  pass "fm-brief.sh: rule 3 keeps gh-axi and makes browser tooling harness-neutral"
+}
+
+test_pipeline_invocation_names_both_harness_forms() {
+  local home id brief
+  home="$TMP_ROOT/invocation-home"
+  mkdir -p "$home/data"
+  id="brief-invocation-nm"
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" some-proj --base main --mode no-mistakes >/dev/null 2>&1
+  brief="$home/data/$id/brief.md"
+  # shellcheck disable=SC2016  # single quotes are deliberate: $no-mistakes must stay literal
+  assert_grep 'invoke the no-mistakes skill - `$no-mistakes` on Codex, `/no-mistakes` on every other harness' "$brief" \
+    "no-mistakes brief did not render both accepted skill-invocation forms"
+  assert_grep "it loads when you invoke that skill" "$brief" \
+    "no-mistakes brief still tied skill loading to one harness's invocation"
+  assert_grep "After the no-mistakes pipeline reports CI green" "$brief" \
+    "no-mistakes brief still tied the CI-green return point to one harness's invocation"
+  id="brief-invocation-direct"
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" some-proj --base main --mode direct-PR >/dev/null 2>&1
+  brief="$home/data/$id/brief.md"
+  # shellcheck disable=SC2016  # single quotes are deliberate: $no-mistakes must stay literal
+  assert_grep 'Do NOT run the no-mistakes skill (`$no-mistakes` on Codex, `/no-mistakes` on every other harness).' "$brief" \
+    "direct-PR brief did not name both forms in its do-not-run rule"
+  pass "fm-brief.sh: the pipeline invocation names the Codex and Claude forms"
+}
+
 test_no_mistakes_dod_wording() {
   local home id brief
   home="$TMP_ROOT/wording-home"
@@ -940,6 +990,8 @@ test_ship_mode_is_explicit_not_registry
 test_delivery_flags_are_refused_where_they_do_not_apply
 test_faster_paths_use_configured_authority_without_stacked_review
 test_no_mistakes_dod_wording
+test_browser_rule_is_harness_neutral
+test_pipeline_invocation_names_both_harness_forms
 test_ask_user_escalation_format
 test_ship_project_memory_wording
 test_herdr_lab_contract_is_explicit_and_complete
