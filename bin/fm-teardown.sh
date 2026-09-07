@@ -2694,16 +2694,6 @@ if [ "$KIND" = scout ] && [ "$FORCE" != "--force" ]; then
   fi
 fi
 
-# A ship's lessons belong in the branch that produced them, so the retro is
-# owned by the worker before validation; this is the destructive-boundary
-# backstop for the direct-PR and local-only paths and for workers that shipped
-# before the receipt existed. Scouts deliver a report and persistent secondmates
-# are not one task, so neither is retro-gated. --force is explicit discard
-# authority and carries past this the way it carries past the scout report gate.
-if [ "$KIND" = ship ] && [ "$FORCE" != "--force" ] && [ "$CLEANUP_RECOVERY" != orca ]; then
-  fm_retro_validate "$DATA" "$ID" "$WT" "$BASE_REF" "$RETRO_PLANNING" || exit 1
-fi
-
 # A public commitment is not kept until its final reply lands in the ORIGINAL
 # thread, and this cleanup removes the task records that make the promise
 # reconcilable. Refuse while this home still owes a public reply for exactly this
@@ -2724,6 +2714,16 @@ if [ "$FORCE" != "--force" ] \
     echo "Deliver it with bin/fm-public-followup.sh deliver <obligation-id>, waive it with tasks-axi public-followup waive, or use --force after explicit discard approval." >&2
     exit 1
   fi
+fi
+
+# A ship's lessons belong in the branch that produced them, so the retro is
+# owned by the worker before validation; this is the destructive-boundary
+# backstop for the direct-PR and local-only paths and for workers that shipped
+# before the receipt existed. Scouts deliver a report and persistent secondmates
+# are not one task, so neither is retro-gated. --force is explicit discard
+# authority and carries past this the way it carries past the scout report gate.
+if [ "$KIND" = ship ] && [ "$FORCE" != "--force" ] && [ "$CLEANUP_RECOVERY" != orca ]; then
+  fm_retro_validate "$DATA" "$ID" "$WT" "$BASE_REF" "$RETRO_PLANNING" || exit 1
 fi
 
 # Non-blocking: a delivered public loop is not a teardown refusal (guard-work
