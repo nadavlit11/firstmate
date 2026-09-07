@@ -128,7 +128,11 @@ test_brief_assertion_precedes_branch() {
   local home brief iso br
   home="$TMP_ROOT/brief-home"
   mkdir -p "$home/data"
-  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" tangle-brief-cc3 alpha --base main --mode no-mistakes >/dev/null 2>&1
+  # This suite measures the worktree-tangle guard, not the planning gate, so its
+  # ship scaffold carries the typed disposition every ship brief now needs
+  # (bin/fm-brief.sh "PLANNING GATE").
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" tangle-brief-cc3 alpha --base main --mode no-mistakes \
+    --planning-exception one-line --planning-reason "tangle guard fixture brief" >/dev/null 2>&1
   brief="$home/data/tangle-brief-cc3/brief.md"
   assert_present "$brief" "brief was not scaffolded"
   assert_grep "blocked: launched in primary checkout, not an isolated worktree" "$brief" \
