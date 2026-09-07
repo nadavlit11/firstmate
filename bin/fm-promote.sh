@@ -22,7 +22,18 @@
 # read the scout's report (AGENTS.md section 7); data/projects.md holds the
 # captain's standing posture as context, and this script never looks it up.
 # no-mistakes-prod-only is a registry policy rather than a task mode and is refused.
+# PLANNING GATE: promotion is a ship dispatch door, so it applies the same
+# planning provenance an ordinary ship brief carries (AGENTS.md section 7,
+# bin/fm-planning-lib.sh). The promoted scout's own completed
+# data/<task-id>/report.md is the natural disposition and is used automatically
+# when it exists as a non-empty file, because that report IS the plan this ship
+# implements. Pass --plan-report <path> to name a different completed report, or
+# --planning-exception <one-line|precedent-following> --planning-reason <why>
+# when the promoted work is genuinely exempt. With no report and no exception,
+# promotion refuses. The resolved disposition is recorded in the task record
+# exactly as a fresh ship spawn records it.
 # Usage: fm-promote.sh <task-id> --mode <no-mistakes|direct-PR|local-only> --yolo <on|off>
+#          [--plan-report <path> | --planning-exception <one-line|precedent-following> --planning-reason <text>]
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -33,6 +44,8 @@ DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
 
 # shellcheck source=bin/fm-dod-lib.sh
 . "$SCRIPT_DIR/fm-dod-lib.sh"
+# shellcheck source=bin/fm-planning-lib.sh
+. "$SCRIPT_DIR/fm-planning-lib.sh"
 # shellcheck source=bin/fm-pr-lib.sh
 . "$SCRIPT_DIR/fm-pr-lib.sh"
 # shellcheck source=bin/fm-wake-lib.sh
@@ -52,6 +65,12 @@ MODE=
 YOLO=
 MODE_SET=0
 YOLO_SET=0
+PLAN_REPORT=
+PLAN_REPORT_SET=0
+PLANNING_EXCEPTION=
+PLANNING_EXCEPTION_SET=0
+PLANNING_REASON=
+PLANNING_REASON_SET=0
 POS=()
 want_value=
 for a in "$@"; do
@@ -62,6 +81,10 @@ for a in "$@"; do
     case "$want_value" in
       mode) MODE=$a; MODE_SET=1 ;;
       yolo) YOLO=$a; YOLO_SET=1 ;;
+      plan-report) PLAN_REPORT=$a; PLAN_REPORT_SET=1 ;;
+      planning-exception) PLANNING_EXCEPTION=$a; PLANNING_EXCEPTION_SET=1 ;;
+      planning-reason) PLANNING_REASON=$a; PLANNING_REASON_SET=1 ;;
+      *) echo "error: internal parser state for --$want_value" >&2; exit 1 ;;
     esac
     want_value=
     continue
@@ -71,6 +94,12 @@ for a in "$@"; do
     --mode=*) MODE=${a#--mode=}; MODE_SET=1 ;;
     --yolo) want_value=yolo ;;
     --yolo=*) YOLO=${a#--yolo=}; YOLO_SET=1 ;;
+    --plan-report) want_value='plan-report' ;;
+    --plan-report=*) PLAN_REPORT=${a#--plan-report=}; PLAN_REPORT_SET=1 ;;
+    --planning-exception) want_value='planning-exception' ;;
+    --planning-exception=*) PLANNING_EXCEPTION=${a#--planning-exception=}; PLANNING_EXCEPTION_SET=1 ;;
+    --planning-reason) want_value='planning-reason' ;;
+    --planning-reason=*) PLANNING_REASON=${a#--planning-reason=}; PLANNING_REASON_SET=1 ;;
     *) POS+=("$a") ;;
   esac
 done
@@ -154,6 +183,51 @@ if [ -z "$(printf '%s' "$INTENT_BODY" | tr -d '[:space:]')" ]; then
   exit 1
 fi
 
+
+# Planning provenance for this promotion (see the PLANNING GATE note above).
+# Resolved after the scout brief is validated, so the natural default - this
+# scout's own completed report - is checked as the real file it must be.
+PLANNING_DISPOSITION=
+PLANNING_PLAN_REPORT=
+PLANNING_REASON_RECORD=
+PLANNING_NOTE=
+if [ "$PLAN_REPORT_SET" -eq 1 ] && [ "$PLANNING_EXCEPTION_SET" -eq 1 ]; then
+  echo "error: planning gate refused $ID: --plan-report and --planning-exception are the two alternatives, not a pair; choose the one that is true" >&2
+  exit 1
+fi
+if [ "$PLANNING_REASON_SET" -eq 1 ] && [ "$PLANNING_EXCEPTION_SET" -eq 0 ]; then
+  echo "error: planning gate refused $ID: --planning-reason belongs to --planning-exception; a plan report speaks for itself" >&2
+  exit 1
+fi
+if [ "$PLAN_REPORT_SET" -eq 1 ]; then
+  PLANNING_PLAN_REPORT=$(fm_planning_canonical_plan_report "$PLAN_REPORT" "$DATA" "$ID") || exit 1
+  PLANNING_DISPOSITION=plan
+elif [ "$PLANNING_EXCEPTION_SET" -eq 1 ]; then
+  case "$PLANNING_EXCEPTION" in
+    one-line|precedent-following) ;;
+    *)
+      echo "error: planning gate refused $ID: --planning-exception must be one-line or precedent-following (got '$PLANNING_EXCEPTION')" >&2
+      exit 1 ;;
+  esac
+  fm_planning_valid_reason "$PLANNING_REASON" || {
+    echo "error: planning gate refused $ID: exception '$PLANNING_EXCEPTION' requires a specific single-line --planning-reason; use one-line only for a literal one-line change, or precedent-following with the precedent named." >&2
+    exit 1
+  }
+  PLANNING_DISPOSITION="exception:$PLANNING_EXCEPTION"
+  PLANNING_REASON_RECORD=$PLANNING_REASON
+  echo "PLANNING EXCEPTION: $ID $PLANNING_EXCEPTION: $PLANNING_REASON" >&2
+elif PLANNING_PLAN_REPORT=$(fm_planning_canonical_plan_report "$ID/report.md" "$DATA" "$ID" 2>/dev/null); then
+  PLANNING_DISPOSITION=plan
+else
+  echo "error: planning gate refused $ID: this scout has no completed report at $DATA/$ID/report.md to implement. Finish the report, name another completed report with --plan-report, or pass --planning-exception <one-line|precedent-following> --planning-reason <why>." >&2
+  exit 1
+fi
+if [ "$PLANNING_DISPOSITION" = plan ]; then
+  PLANNING_NOTE="This ship implements the completed report at \`$DATA/$PLANNING_PLAN_REPORT\`; follow it, and report material divergence rather than silently building something else."
+else
+  PLANNING_NOTE="This ship proceeds without a separate plan (${PLANNING_DISPOSITION#exception:}: $PLANNING_REASON_RECORD). If it turns out to be larger than that, stop and report it rather than growing the change."
+fi
+
 # The base ref the scout was dispatched from, recorded by bin/fm-spawn.sh. The
 # promoted worker must branch from that same explicit base rather than from
 # whatever this project's default branch happens to be, which is the whole reason
@@ -207,6 +281,7 @@ EOF
 6. These ship instructions supersede the scout delivery rules and report-based Definition of done. Everything else in your original instructions carries over unchanged: the status protocol; the instruction inbox and its acknowledgement; the escalation rules, including ask-user; and every safety rule.
 $PROMOTION_ASK_USER_BLOCK
 7. Treat the scout-time Firstmate spec and any unmarked legacy \`# Task\` text as investigation context, not captain intent or ship-time instructions.
+8. $PLANNING_NOTE
 EOF
   printf '\n'
   fm_dod_block "$MODE" "$ID" "$BASE" "$PROMOTE_PROJ"
@@ -216,11 +291,16 @@ TMP=
 [ -f "$INSTRUCTIONS" ] && [ -r "$INSTRUCTIONS" ] || { echo "error: ship instructions were not published as a readable file: $INSTRUCTIONS" >&2; exit 1; }
 
 TMP="$STATE/.$ID.meta.promote.${BASHPID:-$$}"
-grep -v -e '^kind=' -e '^mode=' -e '^yolo=' "$META" > "$TMP"
+grep -v -e '^kind=' -e '^mode=' -e '^yolo=' \
+  -e '^plan_report=' -e '^planning_exception=' -e '^planning_reason=' "$META" > "$TMP"
 {
   echo "kind=ship"
   echo "mode=$MODE"
   echo "yolo=$YOLO"
+  [ -z "$PLANNING_PLAN_REPORT" ] || echo "plan_report=$PLANNING_PLAN_REPORT"
+  case "$PLANNING_DISPOSITION" in
+    exception:*) echo "planning_exception=${PLANNING_DISPOSITION#exception:}"; echo "planning_reason=$PLANNING_REASON_RECORD" ;;
+  esac
 } >> "$TMP"
 if ! fm_backlog_atomic_transition publish "$TMP" "$META" "task record" "$STATE"; then
   rm -f -- "$TMP"

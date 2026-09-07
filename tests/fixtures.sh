@@ -236,9 +236,14 @@ fm_test_spawn_home() {
   fi
 }
 
-# fm_test_spawn_brief <home> <id> [captain-intent]
+# fm_test_spawn_brief <home> <id> [captain-intent] [planning-line]
+# Stands in for a scaffolded ship brief, so it carries the machine-readable
+# "Planning gate:" line bin/fm-spawn.sh revalidates (bin/fm-planning-lib.sh).
+# Pass a fourth argument to write a different disposition, or the empty string
+# to write a brief with none, which is what the planning-gate refusal tests need.
 fm_test_spawn_brief() {
   local home=$1 id=$2 intent=${3:-brief for $2}
+  local planning=${4-Planning gate: exception=one-line reason=spawn fixture brief exercising launch behavior}
   mkdir -p "$home/data/$id"
   cat > "$home/data/$id/brief.md" <<EOF
 # Task
@@ -248,6 +253,7 @@ $intent
 ## Firstmate spec
 Exercise the spawn behavior under test.
 EOF
+  [ -z "$planning" ] || printf '%s\n' "$planning" >> "$home/data/$id/brief.md"
 }
 
 # fm_test_make_spawn_fakebin <dir> [extra-exit0-tool...]

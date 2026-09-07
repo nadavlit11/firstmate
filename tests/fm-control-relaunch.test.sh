@@ -165,6 +165,8 @@ Exercise relaunch behavior for $id.
 
 ## Firstmate spec
 Preserve the task while replacing its agent process.
+
+Planning gate: exception=one-line reason=relaunch fixture brief
 EOF
   {
     echo "window=fmses:fm-$id"

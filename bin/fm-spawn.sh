@@ -14,6 +14,14 @@
 #   scaffolded before that line existed warns once and launches on the flag. A
 #   ship or scout spawn also refuses leftover `{TASK}` / `{FIRSTMATE_SPEC}`
 #   placeholders, an empty Task, or an incomplete pair of Task subsections.
+#   PLANNING GATE: a ship spawn re-reads the brief's fixed
+#   "Planning gate: plan=<report>" or
+#   "Planning gate: exception=<one-line|precedent-following> reason=<why>" line and
+#   refuses a missing, duplicated, or malformed one, revalidating the referenced
+#   report immediately before any worktree or endpoint mutation. The disposition
+#   is recorded as plan_report= or planning_exception=/planning_reason=, and an
+#   accepted exception is printed. bin/fm-brief.sh owns the flags that write that
+#   line; scouts and secondmates are not planning-gated.
 #   For a no-mistakes ship, spawn renders `launch-brief.md` with the current
 #   `--intent` contract and the extracted captain intent; a ship or scout whose
 #   launch wires Tavily gets the worker-facing web-retrieval section appended to
@@ -362,6 +370,8 @@ fm_backlog_directory_present "$STATE" "state directory" || {
 . "$SCRIPT_DIR/fm-dod-lib.sh"
 # shellcheck source=bin/fm-tavily-lib.sh
 . "$SCRIPT_DIR/fm-tavily-lib.sh"
+# shellcheck source=bin/fm-planning-lib.sh
+. "$SCRIPT_DIR/fm-planning-lib.sh"
 # shellcheck source=bin/fm-tangle-lib.sh
 . "$SCRIPT_DIR/fm-tangle-lib.sh"
 # shellcheck source=bin/fm-trace-context-lib.sh
@@ -2163,6 +2173,63 @@ if [ "$KIND" = ship ]; then
   fi
 fi
 
+# Planning provenance (AGENTS.md section 7). fm-brief.sh writes one fixed
+# "Planning gate:" line into every ship brief; this re-validates it here, before
+# any worktree or endpoint mutation, so an edited brief or a plan report deleted
+# since scaffolding refuses rather than launching an unplanned build. A relaunch
+# runs the same check against the same brief, so a plan cannot quietly vanish
+# between incarnations. PLANNING_DISPOSITION/PLANNING_REASON_RECORD carry the
+# result to metadata publication.
+PLANNING_DISPOSITION=
+PLANNING_PLAN_REPORT=
+PLANNING_REASON_RECORD=
+validate_ship_planning_provenance() { # <brief> <data-dir> <task-id>
+  local brief=$1 data=$2 id=$3 count line value kind reason
+  count=$(grep -c '^Planning gate: ' "$brief" 2>/dev/null || true)
+  [ -n "$count" ] || count=0
+  if [ "$count" -eq 0 ]; then
+    echo "error: planning gate refused $id: ship briefs require either --plan-report <completed scout report> or --planning-exception <one-line|precedent-following> with --planning-reason <why>. Run and review a planning scout before building non-trivial work." >&2
+    return 1
+  fi
+  if [ "$count" -gt 1 ]; then
+    echo "error: planning gate refused $id: $brief records $count 'Planning gate:' lines; exactly one disposition is the whole point, so re-scaffold the brief rather than choosing among them" >&2
+    return 1
+  fi
+  line=$(grep -m 1 '^Planning gate: ' "$brief")
+  case "$line" in
+    'Planning gate: plan='*)
+      value=${line#Planning gate: plan=}
+      PLANNING_PLAN_REPORT=$(fm_planning_canonical_plan_report "$value" "$data" "$id") || return 1
+      PLANNING_DISPOSITION=plan
+      ;;
+    'Planning gate: exception='*)
+      value=${line#Planning gate: exception=}
+      kind=${value%% reason=*}
+      reason=${value#* reason=}
+      case "$kind" in
+        one-line|precedent-following) ;;
+        *)
+          echo "error: planning gate refused $id: $brief records exception '$kind', which is not one-line or precedent-following; re-scaffold the brief" >&2
+          return 1 ;;
+      esac
+      if [ "$reason" = "$value" ] || ! fm_planning_valid_reason "$reason"; then
+        echo "error: planning gate refused $id: exception '$kind' requires a specific single-line --planning-reason; use one-line only for a literal one-line change, or precedent-following with the precedent named." >&2
+        return 1
+      fi
+      PLANNING_DISPOSITION="exception:$kind"
+      PLANNING_REASON_RECORD=$reason
+      echo "PLANNING EXCEPTION: $id $kind: $reason" >&2
+      ;;
+    *)
+      echo "error: planning gate refused $id: $brief's planning line is malformed: $line" >&2
+      return 1 ;;
+  esac
+  return 0
+}
+if [ "$KIND" = ship ]; then
+  validate_ship_planning_provenance "$BRIEF" "$DATA" "$ID" || exit 1
+fi
+
 BRIEF_DIR_REAL=$(cd "$(dirname "$BRIEF")" && pwd -P)
 BRIEF_REAL="$BRIEF_DIR_REAL/$(basename "$BRIEF")"
 
@@ -3303,7 +3370,7 @@ SPAWN_META_PATH=$SPAWN_META_TMP
 preserve_relaunch_meta() {
   awk -F= '
     BEGIN {
-      split("window endpoint_task_id worktree project harness kind mode yolo base tasktmp model effort effort_override_reason busy_gen spawn_gen traceparent backend herdr_session herdr_workspace_id herdr_tab_id herdr_pane_id zellij_session zellij_tab_id zellij_pane_id orca_worktree_id terminal cmux_workspace_id cmux_surface_id home projects control_relaunch_tx", keys, " ")
+      split("window endpoint_task_id worktree project harness kind mode yolo base tasktmp model effort effort_override_reason plan_report planning_exception planning_reason busy_gen spawn_gen traceparent backend herdr_session herdr_workspace_id herdr_tab_id herdr_pane_id zellij_session zellij_tab_id zellij_pane_id orca_worktree_id terminal cmux_workspace_id cmux_surface_id home projects control_relaunch_tx", keys, " ")
       for (i in keys) owned[keys[i]] = 1
     }
     !($1 in owned)
@@ -3323,6 +3390,10 @@ preserve_relaunch_meta() {
   echo "model=${MODEL:-default}"
   echo "effort=$EFFORT"
   [ -z "$EFFORT_OVERRIDE_REASON" ] || echo "effort_override_reason=$EFFORT_OVERRIDE_REASON"
+  [ -z "$PLANNING_PLAN_REPORT" ] || echo "plan_report=$PLANNING_PLAN_REPORT"
+  case "$PLANNING_DISPOSITION" in
+    exception:*) echo "planning_exception=${PLANNING_DISPOSITION#exception:}"; echo "planning_reason=$PLANNING_REASON_RECORD" ;;
+  esac
   [ -z "${BUSY_GEN:-}" ] || echo "busy_gen=$BUSY_GEN"
   echo "spawn_gen=$SPAWN_GEN"
   # Default-off writes no traceparent= line.

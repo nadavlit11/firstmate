@@ -153,6 +153,8 @@ Exercise Kimi dispatch.
 
 ## Firstmate spec
 Verify launch and delivery behavior.
+
+Planning gate: exception=one-line reason=kimi dispatch fixture brief
 EOF
   printf 'kimi\n' > "$home/config/crew-harness"
   fm_git_worktree "$proj" "$wt" "wt-$name"
@@ -180,7 +182,9 @@ run_spawn() {
     FM_FAKE_BRIEF_REAL="$(cd "$home/data/$id" && pwd -P)/launch-brief.md" \
     FM_KIMI_READY_POLLS=2 FM_KIMI_DELIVERY_POLLS=2 FM_KIMI_POLL_INTERVAL=0 \
     PATH="$fakebin:$BASE_PATH" \
-    "$SPAWN" "$id" "$proj" --harness kimi --base main --mode no-mistakes --yolo off "$@" 2>&1
+    "$SPAWN" "$id" "$proj" --harness kimi --base main --mode no-mistakes --yolo off \
+    --effort-override-reason 'kimi exposes no reasoning-effort flag, so low cannot be enforced on its launch' \
+    "$@" 2>&1
 }
 
 read_spawn_record() {

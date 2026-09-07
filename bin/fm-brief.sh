@@ -12,7 +12,9 @@
 # charters still use a single `{TASK}` charter fill. Firstmate may adjust other
 # sections when the task genuinely deviates (e.g. working an existing external
 # PR instead of shipping a new one).
-# Usage: fm-brief.sh <task-id> <repo-name> --base <ref> --mode <no-mistakes|direct-PR|local-only> [--herdr-lab]
+# Usage: fm-brief.sh <task-id> <repo-name> --base <ref> --mode <no-mistakes|direct-PR|local-only>
+#          (--plan-report <path> | --planning-exception <one-line|precedent-following> --planning-reason <text>)
+#          [--herdr-lab]
 #        fm-brief.sh <task-id> <repo-name> --base <ref> --scout [--herdr-lab]
 #        fm-brief.sh <task-id> --secondmate {<project>...|--no-projects}
 #   Nothing here is harness-specific. A scaffold happens before the spawn picks a
@@ -62,6 +64,28 @@
 # "Delivery contract: mode=<mode>" line. bin/fm-spawn.sh reads that line and refuses
 # to launch a ship task whose explicit --mode disagrees, so an adjusted brief and the
 # recorded task metadata cannot drift apart.
+# PLANNING GATE: every ship brief must choose exactly one planning disposition,
+# and the scaffold refuses rather than guessing one.
+#   --plan-report <path>    a COMPLETED scout report under this home's data/ tree,
+#                           normally data/<scout-id>/report.md. It must be a
+#                           non-empty regular file inside data/, and it is
+#                           recorded canonically relative to that directory. The
+#                           report may have been written as a planning scout or
+#                           as an earlier investigation whose implementation-ready
+#                           findings cover this ship; the brief's
+#                           `## Firstmate spec` names which part is being built.
+#                           A build spec firstmate wrote itself is not a plan.
+#   --planning-exception one-line --planning-reason <text>
+#                           a literal one-line change.
+#   --planning-exception precedent-following --planning-reason <text>
+#                           work that follows a named precedent; name the
+#                           precedent - a file, commit, or report - in the reason.
+# The disposition is written as one fixed machine-readable "Planning gate:" line
+# that bin/fm-spawn.sh re-validates before it mutates anything, exactly as it
+# re-validates "Delivery contract:" and "Base ref:". There is deliberately no
+# bare --no-plan, --trivial, or reviewed=yes flag: an exemption has to be typed,
+# reasoned, printed, and recorded so it stays inspectable instead of reflexive.
+# The flags are refused on scout and secondmate scaffolds.
 # Ship briefs begin with a worktree-isolation assertion before the branch step.
 # --mode is refused on scout and secondmate scaffolds: a scout's deliverable is a
 # report rather than a merge, and a charter is not a delivery contract.
@@ -102,6 +126,8 @@ esac
 . "$SCRIPT_DIR/fm-classify-lib.sh"
 # shellcheck source=bin/fm-dod-lib.sh
 . "$SCRIPT_DIR/fm-dod-lib.sh"
+# shellcheck source=bin/fm-planning-lib.sh
+. "$SCRIPT_DIR/fm-planning-lib.sh"
 PAUSED_VERB=${FM_CLASSIFY_PAUSED_VERB:-$FM_CLASSIFY_PAUSED_VERB_DEFAULT}
 
 resolve_directory_input() {
@@ -135,6 +161,12 @@ MODE=
 MODE_SET=0
 BASE=
 BASE_SET=0
+PLAN_REPORT=
+PLAN_REPORT_SET=0
+PLANNING_EXCEPTION=
+PLANNING_EXCEPTION_SET=0
+PLANNING_REASON=
+PLANNING_REASON_SET=0
 POS=()
 want_value=
 for a in "$@"; do
@@ -145,6 +177,9 @@ for a in "$@"; do
     case "$want_value" in
       mode) MODE=$a; MODE_SET=1 ;;
       base) BASE=$a; BASE_SET=1 ;;
+      plan-report) PLAN_REPORT=$a; PLAN_REPORT_SET=1 ;;
+      planning-exception) PLANNING_EXCEPTION=$a; PLANNING_EXCEPTION_SET=1 ;;
+      planning-reason) PLANNING_REASON=$a; PLANNING_REASON_SET=1 ;;
       *) echo "error: internal parser state for --$want_value" >&2; exit 1 ;;
     esac
     want_value=
@@ -159,6 +194,12 @@ for a in "$@"; do
     --mode=*) MODE=${a#--mode=}; MODE_SET=1 ;;
     --base) want_value=base ;;
     --base=*) BASE=${a#--base=}; BASE_SET=1 ;;
+    --plan-report) want_value='plan-report' ;;
+    --plan-report=*) PLAN_REPORT=${a#--plan-report=}; PLAN_REPORT_SET=1 ;;
+    --planning-exception) want_value='planning-exception' ;;
+    --planning-exception=*) PLANNING_EXCEPTION=${a#--planning-exception=}; PLANNING_EXCEPTION_SET=1 ;;
+    --planning-reason) want_value='planning-reason' ;;
+    --planning-reason=*) PLANNING_REASON=${a#--planning-reason=}; PLANNING_REASON_SET=1 ;;
     # yolo never reaches the worker: it is firstmate's merge authority, not a
     # brief input. Refuse it loudly so it is never silently dropped here and then
     # believed to have been recorded.
@@ -209,6 +250,46 @@ else
   esac
 fi
 ID=${POS[0]}
+
+# Planning gate (AGENTS.md section 7; see the PLANNING GATE note in the header).
+# Exactly one disposition, validated here and re-validated by bin/fm-spawn.sh
+# before it mutates anything. PLANNING_LINE is the fixed machine-readable record.
+PLANNING_LINE=
+PLANNING_INSTRUCTION=
+if [ "$KIND" = ship ]; then
+  if [ "$PLAN_REPORT_SET" -eq 1 ] && [ "$PLANNING_EXCEPTION_SET" -eq 1 ]; then
+    echo "error: planning gate refused $ID: --plan-report and --planning-exception are the two alternatives, not a pair; choose the one that is true" >&2
+    exit 1
+  fi
+  if [ "$PLAN_REPORT_SET" -eq 1 ]; then
+    [ "$PLANNING_REASON_SET" -eq 0 ] || {
+      echo "error: planning gate refused $ID: --planning-reason belongs to --planning-exception; a plan report speaks for itself" >&2
+      exit 1
+    }
+    PLAN_REPORT_CANON=$(fm_planning_canonical_plan_report "$PLAN_REPORT" "$DATA" "$ID") || exit 1
+    PLANNING_LINE="Planning gate: plan=$PLAN_REPORT_CANON"
+    PLANNING_INSTRUCTION="This task was planned first. Read \`$DATA/$PLAN_REPORT_CANON\` and follow it; if you find it factually wrong, say so with your evidence and report the divergence rather than silently building something else."
+  elif [ "$PLANNING_EXCEPTION_SET" -eq 1 ]; then
+    case "$PLANNING_EXCEPTION" in
+      one-line|precedent-following) ;;
+      *)
+        echo "error: planning gate refused $ID: --planning-exception must be one-line or precedent-following (got '$PLANNING_EXCEPTION')" >&2
+        exit 1 ;;
+    esac
+    fm_planning_valid_reason "$PLANNING_REASON" || {
+      echo "error: planning gate refused $ID: exception '$PLANNING_EXCEPTION' requires a specific single-line --planning-reason; use one-line only for a literal one-line change, or precedent-following with the precedent named." >&2
+      exit 1
+    }
+    PLANNING_LINE="Planning gate: exception=$PLANNING_EXCEPTION reason=$PLANNING_REASON"
+    PLANNING_INSTRUCTION="This task ships without a separate plan ($PLANNING_EXCEPTION: $PLANNING_REASON). If it turns out to be larger than that, stop and report it rather than growing the change."
+  else
+    echo "error: planning gate refused $ID: ship briefs require either --plan-report <completed scout report> or --planning-exception <one-line|precedent-following> with --planning-reason <why>. Run and review a planning scout before building non-trivial work." >&2
+    exit 1
+  fi
+elif [ "$PLAN_REPORT_SET" -eq 1 ] || [ "$PLANNING_EXCEPTION_SET" -eq 1 ] || [ "$PLANNING_REASON_SET" -eq 1 ]; then
+  echo "error: the planning gate applies only to ship briefs; a scout produces the plan and a secondmate charter is not a build" >&2
+  exit 1
+fi
 
 if [ "$KIND" = secondmate ] && [ "$HERDR_LAB" -eq 1 ]; then
   echo "error: --herdr-lab applies only to crewmate ship or scout briefs" >&2
@@ -486,6 +567,8 @@ $HERDR_SECTION
 # Setup
 You are in a disposable git worktree of $REPO, at a detached HEAD on the clean commit of \`$BASE\` - the base ref firstmate dispatched this task from.
 Base ref: $BASE
+$PLANNING_LINE
+$PLANNING_INSTRUCTION
 
 **Verify isolation before anything else.** Run \`pwd -P\` and \`git rev-parse --show-toplevel\`; both must resolve to the disposable task worktree you were launched in, such as a treehouse pool path or an Orca-managed worktree, not the primary checkout firstmate operates from.
 The path check is authoritative: \`git rev-parse --git-dir\` and \`git rev-parse --git-common-dir\` can help inspect the repo, but they do not prove you are outside the primary checkout.
