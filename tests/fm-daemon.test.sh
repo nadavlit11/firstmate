@@ -1442,9 +1442,9 @@ test_inject_skip_forces_self() {
 }
 
 test_heartbeat_self_handles_regardless_of_inject_skip() {
-  # overnight-watch pre-flight item 6 rests on this: an away-mode heartbeat
-  # never reaches firstmate even with FM_INJECT_SKIP cleared, so a night with
-  # ready queue items cannot rely on heartbeats for the queue re-check.
+  # An away-mode heartbeat never reaches firstmate, even with FM_INJECT_SKIP
+  # cleared, so an unattended stretch with ready queue items cannot rely on
+  # heartbeats for the queue re-check.
   local dir state
   dir=$(make_supercase heartbeat-no-skip)
   state="$dir/state"
