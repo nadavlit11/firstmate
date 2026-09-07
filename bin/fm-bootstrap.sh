@@ -1447,7 +1447,11 @@ detect_local_tools() {
 # token, so report it here rather than letting a session discover it at dispatch.
 secondmate_harness_validate() {
   local token
-  token=$("$FM_ROOT/bin/fm-harness.sh" secondmate-effort 2>/dev/null || true)
+  # Resolved next to THIS script rather than under FM_ROOT: the parsing owner is
+  # bin/fm-harness.sh, and a home whose FM_ROOT points elsewhere must still get
+  # this gate rather than silently skipping it, exactly as bin/fm-spawn.sh reads
+  # the same token.
+  token=$("$SCRIPT_DIR/fm-harness.sh" secondmate-effort 2>/dev/null || true)
   case "$token" in
     ''|low) return 0 ;;
   esac
