@@ -857,7 +857,7 @@ test_non_low_effort_reason_is_visible_and_recorded() {
   pass "an accepted effort exception is printed and recorded with its reason"
 }
 
-test_effort_override_reason_is_refused_with_low() {
+test_redundant_effort_reason_still_launches_at_low() {
   local rec id out status
   id=profile-effort-reason-low-z43
   rec=$(make_spawn_case profile-effort-reason-low claude "$id")
@@ -866,10 +866,9 @@ test_effort_override_reason_is_refused_with_low() {
   out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" \
     --effort low --effort-override-reason 'nothing to authorize')
   status=$?
-  expect_code 1 "$status" "a reason with an enforceable low must refuse"
-  assert_contains "$out" "has nothing to authorize" "refusal did not explain the empty exception"
-  assert_absent "$HOME_DIR/state/$id.meta" "the refusal must happen before any task record is written"
-  pass "an override reason on an already-enforced low is refused as an empty exception"
+  expect_code 0 "$status" "a compliant low spawn must not be refused for a redundant reason: $out"
+  assert_grep "effort=low" "$HOME_DIR/state/$id.meta" "the compliant low level was not recorded"
+  pass "a redundant override reason does not refuse an already-compliant low spawn"
 }
 
 test_standing_config_cannot_authorize_non_low_effort() {
@@ -994,7 +993,7 @@ test_active_dispatch_profile_does_not_block_secondmate_launch
 test_effort_defaults_to_low_for_supported_harnesses
 test_non_low_effort_requires_current_reason
 test_non_low_effort_reason_is_visible_and_recorded
-test_effort_override_reason_is_refused_with_low
+test_redundant_effort_reason_still_launches_at_low
 test_standing_config_cannot_authorize_non_low_effort
 test_harness_without_effort_axis_refuses_without_capability_exception
 test_relaunch_does_not_inherit_non_low_authority

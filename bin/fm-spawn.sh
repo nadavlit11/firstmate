@@ -584,6 +584,12 @@ secondmate_config_effort_is_low() {
   return 1
 }
 
+shell_quote() {
+  printf "'"
+  printf '%s' "$1" | sed "s/'/'\\\\''/g"
+  printf "'"
+}
+
 effort_flag_for_harness() {
   local harness=$1 effort=$2
   [ -n "$effort" ] && [ "$effort" != default ] || return 0
@@ -668,9 +674,6 @@ enforce_effort_gate() { # <task-id> <harness> <raw-launch 0|1>
       echo "error: effort gate refused $id: harness $harness has no verified low-effort launch axis. Select a harness that can enforce low, or pass --effort-override-reason '<why this adapter is required despite unprovable effort>'." >&2
       return 1
     fi
-  elif [ -n "$EFFORT_OVERRIDE_REASON" ]; then
-    echo "error: effort gate refused $id: --effort-override-reason has nothing to authorize; $harness enforces low and this spawn already launches at low. Drop the reason, or pass the non-low --effort it justifies under an explicit current captain exception." >&2
-    return 1
   fi
   if [ -n "$EFFORT_OVERRIDE_REASON" ]; then
     echo "EFFORT OVERRIDE: $id launches at $EFFORT: $EFFORT_OVERRIDE_REASON" >&2
@@ -1467,12 +1470,6 @@ else
   ARG3=${POS[2]:-}
 fi
 [ -z "$HARNESS_ARG" ] || ARG3=$HARNESS_ARG
-
-shell_quote() {
-  printf "'"
-  printf '%s' "$1" | sed "s/'/'\\\\''/g"
-  printf "'"
-}
 
 resolve_pi_executable() {
   local candidate dir

@@ -1320,6 +1320,12 @@ test_ship_brief_triggers_retro_before_definition_of_done() {
       "retro: the $mode ship brief does not name this task's exact receipt path"
     assert_grep "Do it now, not after" "$brief" \
       "retro: the $mode ship brief does not place the retro before validation"
+    # The receipt lives outside the worktree, so the brief's own worktree rule
+    # must enumerate it; otherwise a rule-following worker cannot write it.
+    assert_grep 'the only files you may write outside it are the status file below and the retro receipt' "$brief" \
+      "retro: the $mode ship brief forbids the very receipt teardown demands"
+    assert_no_grep 'modify nothing outside it' "$brief" \
+      "retro: the $mode ship brief still carries the blanket no-write-outside rule"
   done
   pass "every ship mode's definition of done triggers the retro before it validates or ships"
 }

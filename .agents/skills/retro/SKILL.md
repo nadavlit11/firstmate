@@ -62,7 +62,7 @@ Only project-owned outcomes are yours to write, and they land in THIS branch, be
 - A map or doc the project already owns: that file.
 
 Everything else is a candidate, not an edit.
-You cannot write outside your worktree, so name it on the receipt and let firstmate apply it after inspect-then-update:
+You cannot write outside your worktree - the receipt at the path your brief names is the single exception - so name it on the receipt and let firstmate apply it after inspect-then-update:
 
 - **home-learning** - a fleet-local operational fact or gotcha, for `data/learnings.md`.
 - **captain-preference** - something the captain wants that is not yet written down, for `data/captain.md`.

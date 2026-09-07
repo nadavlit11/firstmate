@@ -1135,8 +1135,7 @@ crew_dispatch_validate() {
       | unique;
     def bad_efforts:
       configured_profiles
-      | map({h: .harness, e: .effort})
-      | map(select(.e != null))
+      | map({h: .harness, e: (.effort // "low")})
       | map(select((.h | type) == "string" and verified(.h)))
       | map(select(. as $p | effort_ok($p.h; $p.e) | not))
       | map("\(.h):\(.e)")

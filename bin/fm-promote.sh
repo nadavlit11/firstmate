@@ -24,14 +24,13 @@
 # no-mistakes-prod-only is a registry policy rather than a task mode and is refused.
 # PLANNING GATE: promotion is a ship dispatch door, so it applies the same
 # planning provenance an ordinary ship brief carries (AGENTS.md section 7,
-# bin/fm-planning-lib.sh). The promoted scout's own completed
-# data/<task-id>/report.md is the natural disposition and is used automatically
-# when it exists as a non-empty file, because that report IS the plan this ship
-# implements. Pass --plan-report <path> to name a different completed report, or
-# --planning-exception <one-line|precedent-following> --planning-reason <why>
-# when the promoted work is genuinely exempt. With no report and no exception,
-# promotion refuses. The resolved disposition is recorded in the task record
-# exactly as a fresh ship spawn records it.
+# bin/fm-planning-lib.sh). The disposition is never inferred: pass --plan-report
+# <path> - usually the promoted scout's own completed data/<task-id>/report.md,
+# which the refusal names - or --planning-exception <one-line|precedent-following>
+# --planning-reason <why> when the promoted work is genuinely exempt. With
+# neither, promotion refuses rather than adopting a report that merely happens to
+# exist. The resolved disposition is recorded in the task record exactly as a
+# fresh ship spawn records it.
 # Usage: fm-promote.sh <task-id> --mode <no-mistakes|direct-PR|local-only> --yolo <on|off>
 #          [--plan-report <path> | --planning-exception <one-line|precedent-following> --planning-reason <text>]
 set -eu
@@ -216,10 +215,8 @@ elif [ "$PLANNING_EXCEPTION_SET" -eq 1 ]; then
   PLANNING_DISPOSITION="exception:$PLANNING_EXCEPTION"
   PLANNING_REASON_RECORD=$PLANNING_REASON
   echo "PLANNING EXCEPTION: $ID $PLANNING_EXCEPTION: $PLANNING_REASON" >&2
-elif PLANNING_PLAN_REPORT=$(fm_planning_canonical_plan_report "$ID/report.md" "$DATA" "$ID" 2>/dev/null); then
-  PLANNING_DISPOSITION=plan
 else
-  echo "error: planning gate refused $ID: this scout has no completed report at $DATA/$ID/report.md to implement. Finish the report, name another completed report with --plan-report, or pass --planning-exception <one-line|precedent-following> --planning-reason <why>." >&2
+  echo "error: planning gate refused $ID: this promotion names no plan. Pass --plan-report $DATA/$ID/report.md once this scout's own report is complete, name another completed report with --plan-report, or pass --planning-exception <one-line|precedent-following> --planning-reason <why>." >&2
   exit 1
 fi
 if [ "$PLANNING_DISPOSITION" = plan ]; then
