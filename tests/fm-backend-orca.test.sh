@@ -15,6 +15,14 @@ TMP_ROOT=$(fm_test_tmproot fm-backend-orca-tests)
 SPAWN_HOME="$TMP_ROOT/user-home"
 mkdir -p "$SPAWN_HOME"
 
+# A ship task carries the retro receipt its worker wrote before validation
+# (bin/fm-retro-lib.sh); this suite is about the Orca lifecycle, so its ship
+# fixtures satisfy that gate the way a real one does.
+write_retro_receipt() {  # <data-dir> <id>
+  mkdir -p "$1/$2"
+  printf 'Retro: quick\nReason: orca lifecycle fixture ship task\n' > "$1/$2/retro.md"
+}
+
 write_spawn_brief() {  # <data-dir> <id>
   local data=$1 id=$2
   cat > "$data/$id/brief.md" <<'EOF'
@@ -24,6 +32,8 @@ Exercise Orca dispatch.
 
 ## Firstmate spec
 Verify the Orca lifecycle behavior under test.
+
+Planning gate: exception=one-line reason=orca dispatch fixture brief
 EOF
 }
 
@@ -999,6 +1009,7 @@ test_ship_teardown_refuses_orca_missing_worktree_path() {
     "window=fm-$id" "endpoint_task_id=$id" "terminal=term-missing-ship" "worktree=$wt" "project=$proj" \
     "harness=claude" "kind=ship" "mode=no-mistakes" "yolo=off" \
     "backend=orca" "orca_worktree_id=wt-missing-ship"
+  write_retro_receipt "$data" "$id"
   orca_case missing-ship-path
   neutral=$(neutral_fm_root "$CASE_DIR/neutral")
   set +e
@@ -1030,6 +1041,7 @@ test_ship_teardown_removes_orca_worktree_when_id_path_matches() {
     "window=fm-$id" "endpoint_task_id=$id" "terminal=term-ship-match" "worktree=$wt" "project=$proj" \
     "harness=claude" "kind=ship" "mode=local-only" "yolo=off" \
     "backend=orca" "orca_worktree_id=wt-ship-match"
+  write_retro_receipt "$data" "$id"
   orca_case ship-match
   printf '{"ok":true,"result":{"worktree":{"id":"wt-ship-match","path":"%s"}}}\n' "$wt" > "$RESP/1.out"
   neutral=$(neutral_fm_root "$CASE_DIR/neutral")
@@ -1065,6 +1077,7 @@ test_ship_teardown_refuses_orca_unresolvable_worktree_id() {
     "window=fm-$id" "endpoint_task_id=$id" "terminal=term-ship-unresolved" "worktree=$wt" "project=$proj" \
     "harness=claude" "kind=ship" "mode=local-only" "yolo=off" \
     "backend=orca" "orca_worktree_id=wt-ship-unresolved"
+  write_retro_receipt "$data" "$id"
   orca_case ship-unresolved
   printf '1\n' > "$RESP/1.exit"
   neutral=$(neutral_fm_root "$CASE_DIR/neutral")
@@ -1104,6 +1117,7 @@ test_ship_teardown_refuses_orca_id_path_mismatch() {
     "window=fm-$id" "endpoint_task_id=$id" "terminal=term-ship-mismatch" "worktree=$wt" "project=$proj" \
     "harness=claude" "kind=ship" "mode=local-only" "yolo=off" \
     "backend=orca" "orca_worktree_id=wt-ship-mismatch"
+  write_retro_receipt "$data" "$id"
   orca_case ship-mismatch
   printf '{"ok":true,"result":{"worktree":{"id":"wt-ship-mismatch","path":"%s"}}}\n' "$other_wt" > "$RESP/1.out"
   neutral=$(neutral_fm_root "$CASE_DIR/neutral")

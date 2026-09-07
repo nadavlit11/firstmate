@@ -271,9 +271,9 @@ The receipt records the tier the work earned (`quick`, `full`, or a reasoned `sk
 Project-owned lessons - a rule for the project's `AGENTS.md`, a `.claude/review-rubrics/<lens>.md` check, a regression test, a doc fix - are committed in the task's own branch, so they ship with the change that produced them.
 Lessons that belong to this home are recorded on the receipt as candidates and applied by firstmate to `data/learnings.md` or `data/captain.md`, because a worker cannot write outside its own copy.
 
-A `skip` is available only to a task that shipped under a planning exemption and stayed inside it; a planned ship, or a task that grew past one commit, past one changed file, or into a `feat:`/`fix:` commit, must complete at least a quick retro.
+A `skip` is not freely available: a task that was planned, or that grew past the exemption it shipped under, must complete a retro, and `bin/fm-retro-lib.sh` owns the receipt format and that exact eligibility test.
 Scouts and persistent secondmates are not retro-gated: a scout's deliverable is already knowledge, and a secondmate is not one task.
-`bin/fm-retro-lib.sh` owns the receipt format and that eligibility test; the internal [`retro` skill](../.agents/skills/retro/SKILL.md) owns the judgment - which tier applies, which lessons are worth keeping, and where each one belongs.
+The internal [`retro` skill](../.agents/skills/retro/SKILL.md) owns the judgment - which tier applies, which lessons are worth keeping, and where each one belongs.
 The escape hatch is the same one every other cleanup gate has: `bin/fm-teardown.sh --force` is explicit discard authority and carries past this gate too.
 
 ## Startup memory budget (config/startup-memory-budget)

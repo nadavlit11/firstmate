@@ -53,6 +53,8 @@ Exercise backend dispatch for $2.
 
 ## Firstmate spec
 Verify backend selection without changing task intent.
+
+Planning gate: exception=one-line reason=backend dispatch fixture brief
 EOF
 }
 
