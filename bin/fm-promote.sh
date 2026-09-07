@@ -284,7 +284,7 @@ $PROMOTION_ASK_USER_BLOCK
 8. $PLANNING_NOTE
 EOF
   printf '\n'
-  fm_dod_block "$MODE" "$ID" "$BASE" "$PROMOTE_PROJ"
+  fm_dod_block "$MODE" "$ID" "$BASE" "$PROMOTE_PROJ" "$DATA"
 } > "$TMP" || { echo "error: could not render ship instructions for mode=$MODE" >&2; exit 1; }
 mv "$TMP" "$INSTRUCTIONS"
 TMP=

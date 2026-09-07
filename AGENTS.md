@@ -576,6 +576,8 @@ These skills are not captain-invocable; load them only at their precise triggers
 - `seo-review` - load before filing, dispatching, running, or relaying a recurring Search Console review for click-bateva or bateva-shelanu, when one comes due on its time gate, and before answering any question about its cadence, its pull, or where its target-term lists live.
 - `firstmate-codexapp` - load before coordinating a visible Codex Desktop thread, evaluating a Codex App backend request, or reconciling Codex Desktop host-tool smoke evidence for Firstmate work.
 - `overnight-watch` - load when the captain announces a sleep stretch and hands over the queue ("I'm going to sleep", "move forward, make decisions, don't wait for me", "update me in the morning"); it owns the awake-time pre-flight, the night's authority envelope, dispatch pacing, queue continuity through the whole night, the recurring night incidents, and the mandatory morning-report shape.
+- `retro` - load before starting validation or opening a PR on a ship task, and when a cleanup refuses for a missing or invalid retro receipt.
+  A ship's lessons must land in its own branch, before validation, or the change that produced them ships without them.
 - `firstmate-coding-guidelines` - load before changing firstmate's shared, tracked material, as defined by section 1's list, whether editing directly or briefing a crewmate for a firstmate-repo task.
 
 ## 14. Relay

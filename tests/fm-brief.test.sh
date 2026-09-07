@@ -1297,6 +1297,54 @@ test_plan_report_must_be_nonempty_regular_and_inside_data() {
 }
 
 
+# --- retro trigger (.agents/skills/retro) ------------------------------------
+# A ship's lessons must land in its own branch before validation, so every ship
+# brief carries the trigger and the exact receipt path; a scout's deliverable is
+# already knowledge and a charter is not a build, so neither carries it.
+
+test_ship_brief_triggers_retro_before_definition_of_done() {
+  local home brief mode id
+  home="$TMP_ROOT/retro-trigger"
+  mkdir -p "$home/data"
+
+  for mode in no-mistakes direct-PR local-only; do
+    id="retro-trigger-$mode"
+    FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" some-proj --base main --mode "$mode" \
+      --planning-exception one-line --planning-reason 'retro trigger scaffold' >/dev/null 2>&1 \
+      || fail "retro: $mode ship brief should scaffold"
+    brief="$home/data/$id/brief.md"
+    # shellcheck disable=SC2016  # single quotes are deliberate: the backticks must stay literal
+    assert_grep 'Load the `retro` skill' "$brief" \
+      "retro: the $mode ship brief does not trigger the retro skill"
+    assert_grep "write the receipt to \`$home/data/$id/retro.md\`" "$brief" \
+      "retro: the $mode ship brief does not name this task's exact receipt path"
+    assert_grep "Do it now, not after" "$brief" \
+      "retro: the $mode ship brief does not place the retro before validation"
+  done
+  pass "every ship mode's definition of done triggers the retro before it validates or ships"
+}
+
+test_scout_and_secondmate_briefs_do_not_trigger_ship_retro() {
+  local home
+  home="$TMP_ROOT/retro-nonship"
+  mkdir -p "$home/data"
+
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" retro-scout-brief some-proj --base main --scout >/dev/null 2>&1 \
+    || fail "retro: scout brief should scaffold"
+  # shellcheck disable=SC2016  # single quotes are deliberate: the backticks must stay literal
+  assert_no_grep 'Load the `retro` skill' "$home/data/retro-scout-brief/brief.md" \
+    "retro: a scout brief must not carry the ship retro trigger"
+
+  FM_SECONDMATE_CHARTER='Own the fixture domain.' \
+    FM_HOME="$home" "$ROOT/bin/fm-brief.sh" retro-sm-brief --secondmate --no-projects >/dev/null 2>&1 \
+    || fail "retro: secondmate charter should scaffold"
+  # shellcheck disable=SC2016  # single quotes are deliberate: the backticks must stay literal
+  assert_no_grep 'Load the `retro` skill' "$home/data/retro-sm-brief/brief.md" \
+    "retro: a secondmate charter must not carry the ship retro trigger"
+  pass "scout briefs and secondmate charters carry no ship retro trigger"
+}
+
+
 test_documented_global_replace_leaves_the_herdr_gate_intact
 test_herdr_lab_contract_applies_to_scouts_but_not_secondmates
 test_secondmate_no_projects_charter
@@ -1312,3 +1360,5 @@ test_ship_brief_records_canonical_plan_report
 test_ship_brief_records_typed_planning_exception
 test_planning_flags_are_refused_for_scout_and_secondmate
 test_plan_report_must_be_nonempty_regular_and_inside_data
+test_ship_brief_triggers_retro_before_definition_of_done
+test_scout_and_secondmate_briefs_do_not_trigger_ship_retro

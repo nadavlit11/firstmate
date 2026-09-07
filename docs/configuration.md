@@ -264,6 +264,18 @@ Fleet-local operational facts and gotchas live locally in `data/learnings.md`; i
 The file is created lazily on first learning and follows the internal [`stow` skill's](../.agents/skills/stow/SKILL.md) aging-tier and cold-archive contract: inspect the current file first and curate it instead of appending forever.
 There is no shared learnings file by captain decision.
 
+## Ship retro receipts (data/<task-id>/retro.md)
+
+Every ship task writes a retro receipt at `data/<task-id>/retro.md` before its work is validated or its PR is opened, and cleanup refuses to remove a ship task that has none.
+The receipt records the tier the work earned (`quick`, `full`, or a reasoned `skip`), why that tier applies, and where each lesson went.
+Project-owned lessons - a rule for the project's `AGENTS.md`, a `.claude/review-rubrics/<lens>.md` check, a regression test, a doc fix - are committed in the task's own branch, so they ship with the change that produced them.
+Lessons that belong to this home are recorded on the receipt as candidates and applied by firstmate to `data/learnings.md` or `data/captain.md`, because a worker cannot write outside its own copy.
+
+A `skip` is available only to a task that shipped under a planning exemption and stayed inside it; a planned ship, or a task that grew past one commit, past one changed file, or into a `feat:`/`fix:` commit, must complete at least a quick retro.
+Scouts and persistent secondmates are not retro-gated: a scout's deliverable is already knowledge, and a secondmate is not one task.
+`bin/fm-retro-lib.sh` owns the receipt format and that eligibility test; the internal [`retro` skill](../.agents/skills/retro/SKILL.md) owns the judgment - which tier applies, which lessons are worth keeping, and where each one belongs.
+The escape hatch is the same one every other cleanup gate has: `bin/fm-teardown.sh --force` is explicit discard authority and carries past this gate too.
+
 ## Startup memory budget (config/startup-memory-budget)
 
 `config/startup-memory-budget` is the primary-authoritative per-home allowance for the startup prompt-memory surface: `data/captain.md`, `data/captain-shared.md`, and `data/learnings.md` together.

@@ -11,7 +11,6 @@ set -u
 # shellcheck source=tests/fixtures.sh
 . "$(dirname "${BASH_SOURCE[0]}")/fixtures.sh"
 
-SPAWN="$ROOT/bin/fm-spawn.sh"
 TMP_ROOT=$(fm_test_tmproot fm-spawn-planning-gate)
 
 make_case() { # <name> <task-id>...
@@ -35,6 +34,7 @@ make_case() { # <name> <task-id>...
 }
 
 read_case() {
+  # shellcheck disable=SC2034  # CASE_DIR is part of the shared record shape
   IFS='|' read -r CASE_DIR HOME_DIR PROJ_DIR WT_DIR FAKEBIN_DIR LAUNCH_LOG <<EOF
 $1
 EOF
@@ -54,7 +54,7 @@ run_ship() {
 
 test_ship_spawn_refuses_missing_planning_line() {
   local rec id out status
-  id=planning-missing-p1
+  id='planning-missing-p1'
   rec=$(make_case planning-missing)
   read_case "$rec"
   fm_test_spawn_brief "$HOME_DIR" "$id" "brief for $id" ""
@@ -71,7 +71,7 @@ test_ship_spawn_refuses_missing_planning_line() {
 
 test_ship_spawn_revalidates_plan_report_before_mutation() {
   local rec id out status
-  id=planning-vanished-p2
+  id='planning-vanished-p2'
   rec=$(make_case planning-vanished "$id")
   read_case "$rec"
   # The report existed when the brief was scaffolded and is gone now: the spawn
@@ -90,7 +90,7 @@ test_ship_spawn_revalidates_plan_report_before_mutation() {
 
 test_ship_spawn_refuses_duplicate_or_malformed_planning_line() {
   local rec id out status
-  id=planning-dup-p3
+  id='planning-dup-p3'
   rec=$(make_case planning-dup "$id")
   read_case "$rec"
   printf '%s\n' "Planning gate: exception=one-line reason=second opinion" \
@@ -104,7 +104,7 @@ test_ship_spawn_refuses_duplicate_or_malformed_planning_line() {
   assert_contains "$out" "records 2 'Planning gate:' lines" "the refusal did not name the duplication"
   assert_absent "$HOME_DIR/state/$id.meta" "the refusal must precede any task record"
 
-  id=planning-malformed-p3b
+  id='planning-malformed-p3b'
   rec=$(make_case planning-malformed)
   read_case "$rec"
   fm_test_spawn_brief "$HOME_DIR" "$id" "brief for $id" "Planning gate: whatever"
@@ -117,7 +117,7 @@ test_ship_spawn_refuses_duplicate_or_malformed_planning_line() {
 
 test_ship_spawn_accepts_completed_prior_scout_report() {
   local rec id out status
-  id=planning-ok-p4
+  id='planning-ok-p4'
   rec=$(make_case planning-ok "$id")
   read_case "$rec"
 
@@ -133,7 +133,7 @@ test_ship_spawn_accepts_completed_prior_scout_report() {
 
 test_ship_spawn_surfaces_and_records_planning_exception() {
   local rec id out status
-  id=planning-exc-p5
+  id='planning-exc-p5'
   rec=$(make_case planning-exc)
   read_case "$rec"
   fm_test_spawn_brief "$HOME_DIR" "$id" "brief for $id" \
@@ -155,7 +155,7 @@ test_ship_spawn_surfaces_and_records_planning_exception() {
 
 test_scout_and_secondmate_spawns_are_not_planning_gated() {
   local rec id out status
-  id=planning-scout-p6
+  id='planning-scout-p6'
   rec=$(make_case planning-scout)
   read_case "$rec"
   fm_test_spawn_brief "$HOME_DIR" "$id" "brief for $id" ""
@@ -170,7 +170,7 @@ test_scout_and_secondmate_spawns_are_not_planning_gated() {
 
 test_relaunch_revalidates_recorded_planning_provenance() {
   local rec id out status
-  id=planning-relaunch-p7
+  id='planning-relaunch-p7'
   rec=$(make_case planning-relaunch "$id")
   read_case "$rec"
 
@@ -189,8 +189,8 @@ test_relaunch_revalidates_recorded_planning_provenance() {
 
 test_batch_checks_every_brief_independently() {
   local rec id1 id2 out status
-  id1=planning-batch-a-p8
-  id2=planning-batch-b-p8
+  id1='planning-batch-a-p8'
+  id2='planning-batch-b-p8'
   rec=$(make_case planning-batch "$id1")
   read_case "$rec"
   fm_test_spawn_brief "$HOME_DIR" "$id2" "brief for $id2" ""

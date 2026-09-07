@@ -209,6 +209,8 @@ SUB_HOME_PARENT_MARKER=".fm-secondmate-parent"
 . "$SCRIPT_DIR/fm-pending-reply-lib.sh"
 # shellcheck source=bin/fm-nm-run-lib.sh
 . "$SCRIPT_DIR/fm-nm-run-lib.sh"
+# shellcheck source=bin/fm-retro-lib.sh
+. "$SCRIPT_DIR/fm-retro-lib.sh"
 if [ "$#" -lt 1 ] || ! fm_task_id_path_safe "$1"; then
   echo "error: invalid teardown request" >&2
   exit 2
@@ -784,6 +786,12 @@ CLEANUP_RECOVERY=$TEARDOWN_CLEANUP_RECOVERY
 KIND=$TEARDOWN_META_KIND
 MODE=$(grep '^mode=' "$META" | cut -d= -f2- || true)
 [ -n "$MODE" ] || MODE=no-mistakes
+BASE_REF=$(fm_meta_get "$META" base)
+# The planning disposition decides whether this ship may skip its retro
+# (bin/fm-retro-lib.sh). A record written before the planning gate existed has
+# neither field, and is treated as planned rather than exempt.
+RETRO_PLANNING=$(fm_meta_get "$META" planning_exception)
+[ -n "$RETRO_PLANNING" ] || RETRO_PLANNING=plan
 PUBLIC_FOLLOWUP_HOME=$FM_HOME
 PUBLIC_FOLLOWUP_STATE=$STATE
 PUBLIC_FOLLOWUP_WORK_HOME=main
@@ -2684,6 +2692,16 @@ if [ "$KIND" = scout ] && [ "$FORCE" != "--force" ]; then
     echo "Inventory its report and any visual review through bin/fm-captain-hold.sh before teardown." >&2
     exit 1
   fi
+fi
+
+# A ship's lessons belong in the branch that produced them, so the retro is
+# owned by the worker before validation; this is the destructive-boundary
+# backstop for the direct-PR and local-only paths and for workers that shipped
+# before the receipt existed. Scouts deliver a report and persistent secondmates
+# are not one task, so neither is retro-gated. --force is explicit discard
+# authority and carries past this the way it carries past the scout report gate.
+if [ "$KIND" = ship ] && [ "$FORCE" != "--force" ] && [ "$CLEANUP_RECOVERY" != orca ]; then
+  fm_retro_validate "$DATA" "$ID" "$WT" "$BASE_REF" "$RETRO_PLANNING" || exit 1
 fi
 
 # A public commitment is not kept until its final reply lands in the ORIGINAL

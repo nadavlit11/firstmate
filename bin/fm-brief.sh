@@ -555,7 +555,7 @@ esac
 # for itself.
 PROJ_DIR="${FM_PROJECTS_OVERRIDE:-$FM_HOME/projects}/$REPO"
 [ -d "$PROJ_DIR" ] || PROJ_DIR=
-DOD=$(fm_dod_block "$MODE" "$ID" "$BASE" "$PROJ_DIR") || exit 1
+DOD=$(fm_dod_block "$MODE" "$ID" "$BASE" "$PROJ_DIR" "$DATA") || exit 1
 
 cat > "$BRIEF" <<EOF
 You are a crewmate: an autonomous worker agent managed by firstmate. Work on your own; do not wait for a human.
