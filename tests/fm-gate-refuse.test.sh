@@ -306,6 +306,11 @@ SH
     "window=firstmate:fm-task-x1" "endpoint_task_id=task-x1" \
     "worktree=$case_dir/wt" "project=$case_dir/project" \
     "kind=ship" "mode=no-mistakes" "spawn_gen=spawn-gate-refuse-task-x1"
+  # A ship task carries the retro receipt its worker wrote before validation
+  # (bin/fm-retro-lib.sh); this suite is about the gate-agent refusal, so its
+  # fixture satisfies that cleanup gate the way a real ship does.
+  mkdir -p "$case_dir/data/task-x1"
+  printf 'Retro: quick\nReason: gate-refuse fixture ship task\n' > "$case_dir/data/task-x1/retro.md"
   touch "$case_dir/state/.last-watcher-beat"
   printf '%s\n' "$case_dir"
 }
