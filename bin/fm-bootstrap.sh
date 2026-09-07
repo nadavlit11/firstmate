@@ -10,6 +10,7 @@
 #                 "BACKEND_INVALID: <name> (known: <names>)",
 #                 "STARTUP_MEMORY_BUDGET: invalid config/startup-memory-budget - <reason>",
 #                 "CREW_DISPATCH: invalid config/crew-dispatch.json - <reason>",
+#                 "SECONDMATE_HARNESS: invalid config/secondmate-harness - <reason>",
 #                 "FLEET_SYNC: <repo>: skipped|recovered|STUCK: <detail>",
 #                 "HOME_SUMMARY: <ledger never published|not republished since
 #                 <stamp>>; <n> failed attempt(s) ... last: <recorded failure>",
@@ -1127,6 +1128,11 @@ crew_dispatch_validate() {
     def malformed_optional_fields($items):
       ($items | any(has("model") and (((.model | type) != "string") or (.model | length) == 0)))
       or ($items | any(has("effort") and (((.effort | type) != "string") or (.effort | length) == 0)));
+    def non_low_efforts:
+      configured_profiles
+      | map(.effort)
+      | map(select(. != null and (. | type) == "string" and . != "low"))
+      | unique;
     def bad_efforts:
       configured_profiles
       | map({h: .harness, e: .effort})
@@ -1159,6 +1165,7 @@ crew_dispatch_validate() {
         | map(select(. as $h | verified($h) | not))
         | unique) as $bad_harnesses
       | if ($bad_harnesses | length) > 0 then "unverified harness: " + ($bad_harnesses | join(", "))
+        elif (non_low_efforts | length) > 0 then "profile effort \u0027" + (non_low_efforts | join(", ")) + "\u0027 is not low; standing config cannot authorize higher effort. Remove it or use a one-spawn --effort-override-reason after an explicit current captain exception"
         elif (bad_efforts | length) > 0 then "invalid effort: " + (bad_efforts | join(", "))
         else empty
         end
@@ -1434,6 +1441,19 @@ detect_local_tools() {
   fi
 }
 
+# config/secondmate-harness carries an optional third effort token. Standing
+# configuration can confirm low but never raise it (bin/fm-spawn.sh's EFFORT
+# GATE), and both the local and the remote secondmate spawn refuse a non-low
+# token, so report it here rather than letting a session discover it at dispatch.
+secondmate_harness_validate() {
+  local token
+  token=$("$FM_ROOT/bin/fm-harness.sh" secondmate-effort 2>/dev/null || true)
+  case "$token" in
+    ''|low) return 0 ;;
+  esac
+  echo "SECONDMATE_HARNESS: invalid config/secondmate-harness - effort token '$token' is not low; standing config cannot authorize higher effort. Remove it or use a one-spawn --effort-override-reason after an explicit current captain exception"
+}
+
 detect_local_config() {
   # Worktree-tangle check: the firstmate primary checkout (FM_ROOT) must sit on its
   # default branch, not a feature branch (see fm-tangle-lib.sh). Scoped to the
@@ -1465,6 +1485,7 @@ detect_local_config() {
     echo "MISSING_MANUAL: cursor-agent (instructions: $(manual_install_url cursor-agent))"
   fi
   crew_dispatch_validate
+  secondmate_harness_validate
   if [ "${FM_BOOTSTRAP_VERBOSE_FACTS:-0}" = 1 ] \
     && ! fm_backlog_backend_manual "$CONFIG" && fm_tasks_axi_compatible; then
     echo "BOOTSTRAP_INFO: tasks-axi available"

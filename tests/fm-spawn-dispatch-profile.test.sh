@@ -71,7 +71,7 @@ make_spawn_case() {
 
 enable_dispatch_profile() {
   local home=$1
-  printf '%s\n' '{"rules":[{"when":"current events","use":{"harness":"grok","model":"grok-4","effort":"high"}}],"default":{"harness":"codex","model":"gpt-5","effort":"medium"}}' \
+  printf '%s\n' '{"rules":[{"when":"current events","use":{"harness":"grok","model":"grok-4","effort":"low"}}],"default":{"harness":"codex","model":"gpt-5","effort":"low"}}' \
     > "$home/config/crew-dispatch.json"
 }
 
@@ -128,12 +128,13 @@ test_no_profile_keeps_claude_profile_defaults() {
   status=$?
   expect_code 0 "$status" "claude spawn without profile flags should succeed"
   assert_contains "$out" "spawned $id harness=claude" "spawn did not report claude"
-  assert_meta_profile "$HOME_DIR/state/$id.meta" claude default default
+  assert_meta_profile "$HOME_DIR/state/$id.meta" claude default low
+  assert_no_grep "effort_override_reason=" "$HOME_DIR/state/$id.meta" "an unexceptional spawn must record no effort override reason"
 
   launch=$(cat "$LAUNCH_LOG")
-  expected="env -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false CLAUDE_CODE_SEND_FEEDBACK=0 claude --dangerously-skip-permissions --settings '{\"feedbackDrafts\":\"off\"}' \"\$('${ROOT}/bin/fm-operational-input.sh' encode launch-brief < '$HOME_DIR/data/$id/launch-brief.md')\""
+  expected="env -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false CLAUDE_CODE_SEND_FEEDBACK=0 claude --dangerously-skip-permissions --settings '{\"feedbackDrafts\":\"off\"}' --effort 'low' \"\$('${ROOT}/bin/fm-operational-input.sh' encode launch-brief < '$HOME_DIR/data/$id/launch-brief.md')\""
   [ "$launch" = "$expected" ] || fail "no-profile claude launch did not use the canonical launch kind"$'\n'"expected: $expected"$'\n'"actual:   $launch"
-  pass "no --model/--effort records defaults and types the claude launch instructions"
+  pass "an omitted --effort launches and records low, not the harness default"
 }
 
 test_non_cursor_launch_clears_inherited_cursor_markers() {
@@ -339,7 +340,7 @@ test_active_dispatch_profile_allows_explicit_harness() {
   enable_dispatch_profile "$HOME_DIR"
 
   out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" \
-    "$id" "$PROJ_DIR" --harness codex --model gpt-5 --effort high)
+    "$id" "$PROJ_DIR" --harness codex --model gpt-5 --effort high --effort-override-reason 'captain exception recorded for this test')
   status=$?
   expect_code 0 "$status" "explicit harness should satisfy active dispatch-profile requirement"
   assert_contains "$out" "spawned $id harness=codex" "spawn did not report explicit codex harness"
@@ -358,7 +359,7 @@ test_active_dispatch_profile_allows_positional_harness() {
   enable_dispatch_profile "$HOME_DIR"
 
   out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" \
-    "$id" "$PROJ_DIR" codex --model gpt-5 --effort high)
+    "$id" "$PROJ_DIR" codex --model gpt-5 --effort high --effort-override-reason 'captain exception recorded for this test')
   status=$?
   expect_code 0 "$status" "positional harness should satisfy active dispatch-profile requirement"
   assert_contains "$out" "spawned $id harness=codex" "spawn did not report positional codex harness"
@@ -374,11 +375,11 @@ test_active_dispatch_profile_allows_raw_launch_command() {
   enable_dispatch_profile "$HOME_DIR"
 
   out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" \
-    "$id" "$PROJ_DIR" "custom-agent --flag")
+    "$id" "$PROJ_DIR" "custom-agent --flag" --effort-override-reason 'a raw launch command has no enforceable low-effort axis')
   status=$?
   expect_code 0 "$status" "raw launch command should satisfy active dispatch-profile requirement"
   assert_contains "$out" "spawned $id harness=custom-agent" "spawn did not report raw command harness"
-  assert_meta_profile "$HOME_DIR/state/$id.meta" custom-agent default default
+  assert_meta_profile "$HOME_DIR/state/$id.meta" custom-agent default low
   launch=$(cat "$LAUNCH_LOG")
   [ "$launch" = "custom-agent --flag" ] || fail "raw launch command changed"$'\n'"actual: $launch"
   pass "active crew-dispatch profile allows the raw launch-command escape hatch"
@@ -390,7 +391,7 @@ test_claude_threads_model_and_effort() {
   rec=$(make_spawn_case profile-claude claude "$id")
   read_case_record "$rec"
 
-  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --model sonnet --effort high)
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --model sonnet --effort high --effort-override-reason 'captain exception recorded for this test')
   status=$?
   expect_code 0 "$status" "claude spawn with profile flags should succeed"
   assert_meta_profile "$HOME_DIR/state/$id.meta" claude sonnet high
@@ -407,7 +408,7 @@ test_codex_threads_model_and_effort() {
   rec=$(make_spawn_case profile-codex codex "$id")
   read_case_record "$rec"
 
-  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --model gpt-5 --effort high)
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --model gpt-5 --effort high --effort-override-reason 'captain exception recorded for this test')
   status=$?
   expect_code 0 "$status" "codex spawn with profile flags should succeed"
   assert_meta_profile "$HOME_DIR/state/$id.meta" codex gpt-5 high
@@ -423,7 +424,7 @@ test_codex_omits_invalid_max_effort() {
   rec=$(make_spawn_case profile-codex-max codex "$id")
   read_case_record "$rec"
 
-  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --model gpt-5 --effort max)
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --model gpt-5 --effort max --effort-override-reason 'this adapter has no enforceable low-effort axis')
   status=$?
   expect_code 0 "$status" "codex spawn with unsupported max effort should omit the effort flag"
   assert_meta_profile "$HOME_DIR/state/$id.meta" codex gpt-5 max
@@ -440,7 +441,7 @@ test_grok_threads_model_and_reasoning_effort() {
   rec=$(make_spawn_case profile-grok grok "$id")
   read_case_record "$rec"
 
-  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --model grok-4 --effort high)
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --model grok-4 --effort high --effort-override-reason 'captain exception recorded for this test')
   status=$?
   expect_code 0 "$status" "grok spawn with profile flags should succeed"
   assert_meta_profile "$HOME_DIR/state/$id.meta" grok grok-4 high
@@ -457,7 +458,7 @@ test_grok_omits_invalid_max_reasoning_effort() {
   rec=$(make_spawn_case profile-grok-max grok "$id")
   read_case_record "$rec"
 
-  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --model grok-4 --effort max)
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --model grok-4 --effort max --effort-override-reason 'this adapter has no enforceable low-effort axis')
   status=$?
   expect_code 0 "$status" "grok spawn with unsupported max reasoning effort should omit the effort flag"
   assert_meta_profile "$HOME_DIR/state/$id.meta" grok grok-4 max
@@ -476,7 +477,7 @@ test_grok_omits_invalid_xhigh_reasoning_effort() {
   read_case_record "$rec"
 
   # grok 0.2.99 rejects xhigh (accepted set is only low|medium|high).
-  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --model grok-4 --effort xhigh)
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --model grok-4 --effort xhigh --effort-override-reason 'this adapter has no enforceable low-effort axis')
   status=$?
   expect_code 0 "$status" "grok spawn with unsupported xhigh reasoning effort should omit the effort flag"
   assert_meta_profile "$HOME_DIR/state/$id.meta" grok grok-4 xhigh
@@ -495,7 +496,7 @@ test_cursor_threads_model_workspace_and_omits_effort_axis() {
   read_case_record "$rec"
 
   out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" \
-    --model cursor-grok-4.5-high --effort high)
+    --model cursor-grok-4.5-high --effort high --effort-override-reason 'this adapter has no enforceable low-effort axis')
   status=$?
   expect_code 0 "$status" "cursor spawn with a model-qualified reasoning class should succeed"
   assert_meta_profile "$HOME_DIR/state/$id.meta" cursor cursor-grok-4.5-high high
@@ -548,13 +549,13 @@ test_cursor_failed_catalog_probe_does_not_block_spawn() {
 
   FM_TEST_CURSOR_LIST_STATUS=124 \
     out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" \
-      --model cursor-catalog-unreachable)
+      --model cursor-catalog-unreachable --effort-override-reason 'cursor has no enforceable low-effort axis')
   status=$?
   expect_code 0 "$status" "cursor spawn should fail open when the bounded catalog query fails"
   launch=$(cat "$LAUNCH_LOG")
   assert_contains "$launch" "--model 'cursor-catalog-unreachable'" \
     "failed catalog lookup incorrectly removed the requested model"
-  assert_meta_profile "$HOME_DIR/state/$id.meta" cursor cursor-catalog-unreachable default
+  assert_meta_profile "$HOME_DIR/state/$id.meta" cursor cursor-catalog-unreachable low
   pass "cursor preserves the requested model when its live catalog is unreachable"
 }
 
@@ -564,7 +565,7 @@ test_opencode_threads_model_and_ignores_effort_axis() {
   rec=$(make_spawn_case profile-opencode opencode "$id")
   read_case_record "$rec"
 
-  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --model anthropic/claude-sonnet-4-5 --effort high)
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --model anthropic/claude-sonnet-4-5 --effort high --effort-override-reason 'this adapter has no enforceable low-effort axis')
   status=$?
   expect_code 0 "$status" "opencode spawn with model and ignored effort should succeed"
   assert_meta_profile "$HOME_DIR/state/$id.meta" opencode anthropic/claude-sonnet-4-5 high
@@ -584,7 +585,7 @@ test_pi_threads_model_and_max_effort() {
   read_case_record "$rec"
 
   out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" \
-    --model openai-codex/gpt-5.6-sol --effort max)
+    --model openai-codex/gpt-5.6-sol --effort max --effort-override-reason 'captain exception recorded for this test')
   status=$?
   expect_code 0 "$status" "pi spawn with max effort should succeed"
   assert_meta_profile "$HOME_DIR/state/$id.meta" pi openai-codex/gpt-5.6-sol max
@@ -605,7 +606,7 @@ test_pi_signed_threads_shared_pi_profile_and_preserves_identity() {
   read_case_record "$rec"
 
   out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" \
-    --model openai-codex/gpt-5.6-sol --effort max)
+    --model openai-codex/gpt-5.6-sol --effort max --effort-override-reason 'captain exception recorded for this test')
   status=$?
   expect_code 0 "$status" "pi-signed spawn with max effort should succeed"
   assert_contains "$out" "spawned $id harness=pi-signed" "pi-signed spawn did not preserve its visible identity"
@@ -699,9 +700,9 @@ test_pi_signed_persistent_secondmate_uses_pi_extensions_and_identity() {
   expect_code 0 "$status" "pi-signed persistent secondmate spawn should succeed"
   assert_contains "$out" "spawned $id harness=pi-signed kind=secondmate" \
     "pi-signed secondmate spawn did not preserve its runtime identity"
-  assert_meta_profile "$HOME_DIR/state/$id.meta" pi-signed default default
+  assert_meta_profile "$HOME_DIR/state/$id.meta" pi-signed default low
   launch=$(cat "$LAUNCH_LOG")
-  assert_contains "$launch" "FM_PI_HARNESS=pi-signed '$FAKEBIN_DIR/pi-signed' --tui-mode regular -e '$sm/.pi/extensions/fm-primary-turnend-guard.ts' -e '$sm/.pi/extensions/fm-primary-pi-watch.ts'" \
+  assert_contains "$launch" "FM_PI_HARNESS=pi-signed '$FAKEBIN_DIR/pi-signed' --tui-mode regular --thinking 'low' -e '$sm/.pi/extensions/fm-primary-turnend-guard.ts' -e '$sm/.pi/extensions/fm-primary-pi-watch.ts'" \
     "pi-signed secondmate did not force the regular TUI with Pi's primary extension launch shape"
   pass "pi-signed is a distinct persistent secondmate runtime with shared Pi supervision semantics"
 }
@@ -715,7 +716,7 @@ test_batch_forwards_shared_profile_flags() {
   enable_dispatch_profile "$HOME_DIR"
 
   out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" \
-    "$id1=$PROJ_DIR" "$id2=$PROJ_DIR" --harness codex --model gpt-5 --effort high)
+    "$id1=$PROJ_DIR" "$id2=$PROJ_DIR" --harness codex --model gpt-5 --effort high --effort-override-reason 'captain exception recorded for this test')
   status=$?
   expect_code 0 "$status" "batch spawn with shared profile flags should succeed"
   assert_contains "$out" "spawned $id1 harness=codex" "first batch task did not use shared harness"
@@ -791,8 +792,172 @@ test_active_dispatch_profile_does_not_block_secondmate_launch() {
   expect_code 0 "$status" "secondmate spawn should be exempt from the dispatch-profile explicit harness requirement"
   assert_contains "$out" "spawned $id harness=codex kind=secondmate" "secondmate launch did not use secondmate harness resolution"
   assert_grep "kind=secondmate" "$HOME_DIR/state/$id.meta" "secondmate meta missing kind=secondmate"
-  assert_meta_profile "$HOME_DIR/state/$id.meta" codex default default
+  assert_meta_profile "$HOME_DIR/state/$id.meta" codex default low
   pass "active crew-dispatch profile does not block secondmate launches"
+}
+
+# --- effort gate (bin/fm-spawn.sh, EFFORT GATE) ------------------------------
+# The captain's standing rule is that every spawned agent runs on low. These
+# tests pin the gate that enforces it through the spawn's own interface: what it
+# launches with, what it records, and what it refuses.
+
+test_effort_defaults_to_low_for_supported_harnesses() {
+  local rec id out status launch harness expected
+  for harness in codex grok pi; do
+    id="profile-effort-default-$harness-z40"
+    rec=$(make_spawn_case "profile-effort-default-$harness" "$harness" "$id")
+    read_case_record "$rec"
+
+    out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
+    status=$?
+    expect_code 0 "$status" "$harness spawn without --effort should succeed"
+    assert_grep "effort=low" "$HOME_DIR/state/$id.meta" "$harness spawn did not record effort=low"
+    launch=$(cat "$LAUNCH_LOG")
+    case "$harness" in
+      codex) expected="model_reasoning_effort=\"low\"" ;;
+      grok) expected="--reasoning-effort 'low'" ;;
+      pi) expected="--thinking 'low'" ;;
+    esac
+    assert_contains "$launch" "$expected" "$harness launch did not carry its low-effort flag"
+  done
+  pass "an omitted --effort launches and records low on every effort-capable harness"
+}
+
+test_non_low_effort_requires_current_reason() {
+  local rec id out status
+  id=profile-effort-nonlow-z41
+  rec=$(make_spawn_case profile-effort-nonlow claude "$id")
+  read_case_record "$rec"
+
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --effort high)
+  status=$?
+  expect_code 1 "$status" "a non-low effort with no reason must refuse"
+  assert_contains "$out" "effort gate refused $id: --effort high is above low" \
+    "refusal did not name the effort gate and the requested level"
+  assert_absent "$HOME_DIR/state/$id.meta" "the effort gate must refuse before any task record is written"
+  [ ! -s "$LAUNCH_LOG" ] || fail "the effort gate must refuse before any launch"
+  pass "a non-low effort with no current reason is refused before any mutation"
+}
+
+test_non_low_effort_reason_is_visible_and_recorded() {
+  local rec id out status
+  id=profile-effort-reason-z42
+  rec=$(make_spawn_case profile-effort-reason claude "$id")
+  read_case_record "$rec"
+
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" \
+    --effort xhigh --effort-override-reason 'captain authorized xhigh for this ambiguous investigation')
+  status=$?
+  expect_code 0 "$status" "a non-low effort with a current reason should launch"
+  assert_contains "$out" "EFFORT OVERRIDE: $id launches at xhigh: captain authorized xhigh for this ambiguous investigation" \
+    "the accepted exception was not printed for the operator"
+  assert_grep "effort=xhigh" "$HOME_DIR/state/$id.meta" "the exceptional level was not recorded"
+  assert_grep "effort_override_reason=captain authorized xhigh for this ambiguous investigation" \
+    "$HOME_DIR/state/$id.meta" "the exceptional reason was not recorded"
+  pass "an accepted effort exception is printed and recorded with its reason"
+}
+
+test_effort_override_reason_is_refused_with_low() {
+  local rec id out status
+  id=profile-effort-reason-low-z43
+  rec=$(make_spawn_case profile-effort-reason-low claude "$id")
+  read_case_record "$rec"
+
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" \
+    --effort low --effort-override-reason 'nothing to authorize')
+  status=$?
+  expect_code 1 "$status" "a reason with an enforceable low must refuse"
+  assert_contains "$out" "has nothing to authorize" "refusal did not explain the empty exception"
+  assert_absent "$HOME_DIR/state/$id.meta" "the refusal must happen before any task record is written"
+  pass "an override reason on an already-enforced low is refused as an empty exception"
+}
+
+test_standing_config_cannot_authorize_non_low_effort() {
+  local rec id out status
+  id=profile-effort-config-z44
+  rec=$(make_spawn_case profile-effort-config claude "$id")
+  read_case_record "$rec"
+  printf '%s\n' '{"default":{"harness":"claude","model":"sonnet","effort":"high"}}' \
+    > "$HOME_DIR/config/crew-dispatch.json"
+
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --harness claude)
+  status=$?
+  expect_code 0 "$status" "a configured profile effort must not change this spawn's outcome"
+  assert_grep "effort=low" "$HOME_DIR/state/$id.meta" \
+    "a configured non-low profile effort reached the task record"
+  assert_contains "$(cat "$LAUNCH_LOG")" "--effort 'low'" \
+    "a configured non-low profile effort reached the launch command"
+  pass "a dispatch-profile effort value cannot raise a spawn above low"
+}
+
+test_harness_without_effort_axis_refuses_without_capability_exception() {
+  local rec id out status
+  id=profile-effort-noaxis-z45
+  rec=$(make_spawn_case profile-effort-noaxis cursor "$id")
+  read_case_record "$rec"
+
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" \
+    --model cursor-grok-4.5-high)
+  status=$?
+  expect_code 1 "$status" "an adapter with no low-effort axis must refuse without a capability reason"
+  assert_contains "$out" "harness cursor has no verified low-effort launch axis" \
+    "refusal did not name the missing capability"
+  assert_absent "$HOME_DIR/state/$id.meta" "the capability refusal must happen before any task record is written"
+
+  id=profile-effort-noaxis-ok-z45b
+  rec=$(make_spawn_case profile-effort-noaxis-ok cursor "$id")
+  read_case_record "$rec"
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" \
+    --model cursor-grok-4.5-high --effort-override-reason 'cursor has no enforceable low-effort axis')
+  status=$?
+  expect_code 0 "$status" "a written capability reason should permit the axis-less adapter"
+  assert_grep "effort_override_reason=cursor has no enforceable low-effort axis" \
+    "$HOME_DIR/state/$id.meta" "the capability exception was not recorded"
+  pass "an adapter with no low-effort axis is refused unless a written capability reason is given"
+}
+
+test_relaunch_does_not_inherit_non_low_authority() {
+  local rec id out status
+  id=profile-effort-relaunch-z46
+  rec=$(make_spawn_case profile-effort-relaunch claude "$id")
+  read_case_record "$rec"
+
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" \
+    --effort high --effort-override-reason 'captain exception for the first launch')
+  status=$?
+  expect_code 0 "$status" "the exceptional first launch should succeed"
+  assert_grep "effort_override_reason=captain exception for the first launch" \
+    "$HOME_DIR/state/$id.meta" "the first launch did not record its exception"
+
+  out=$(run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" --relaunch)
+  status=$?
+  expect_code 0 "$status" "a plain relaunch should succeed at low"
+  assert_grep "effort=low" "$HOME_DIR/state/$id.meta" \
+    "the relaunch inherited the previous non-low effort instead of returning to low"
+  assert_no_grep "effort_override_reason=" "$HOME_DIR/state/$id.meta" \
+    "the relaunch carried the previous launch's exception forward as fresh authority"
+  assert_contains "$(cat "$LAUNCH_LOG")" "--effort 'low'" "the relaunch did not launch at low"
+  pass "a relaunch does not inherit a previous non-low effort as fresh authority"
+}
+
+test_batch_forwards_effort_override_reason() {
+  local rec id1 id2 out status
+  id1=profile-effort-batch-a-z47
+  id2=profile-effort-batch-b-z47
+  rec=$(make_spawn_case profile-effort-batch claude "$id1" "$id2")
+  read_case_record "$rec"
+
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" \
+    "$id1=$PROJ_DIR" "$id2=$PROJ_DIR" --effort high \
+    --effort-override-reason 'captain exception covering this batch')
+  status=$?
+  expect_code 0 "$status" "a batch with a forwarded exception should launch every pair"
+  assert_contains "$out" "spawned $id1" "batch did not report the first pair"
+  assert_contains "$out" "spawned $id2" "batch did not report the second pair"
+  assert_grep "effort=high" "$HOME_DIR/state/$id1.meta" "first batch pair did not record the level"
+  assert_grep "effort_override_reason=captain exception covering this batch" \
+    "$HOME_DIR/state/$id2.meta" "second batch pair did not record the shared reason"
+  pass "batch dispatch forwards the exceptional effort and its reason to every pair"
 }
 
 test_no_profile_keeps_claude_profile_defaults
@@ -826,5 +991,13 @@ test_claude_forwards_firstmate_config_dir_when_set
 test_claude_omits_config_dir_prefix_when_unset
 test_non_claude_harness_ignores_config_dir
 test_active_dispatch_profile_does_not_block_secondmate_launch
+test_effort_defaults_to_low_for_supported_harnesses
+test_non_low_effort_requires_current_reason
+test_non_low_effort_reason_is_visible_and_recorded
+test_effort_override_reason_is_refused_with_low
+test_standing_config_cannot_authorize_non_low_effort
+test_harness_without_effort_axis_refuses_without_capability_exception
+test_relaunch_does_not_inherit_non_low_authority
+test_batch_forwards_effort_override_reason
 
 echo "# all fm-spawn-dispatch-profile tests passed"

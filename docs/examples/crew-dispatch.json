@@ -13,14 +13,14 @@
     {
       "when": "The task is a big or ambiguous multi-file feature, a risky refactor, or work that requires holding many moving parts in mind.",
       "use": [
-        { "harness": "claude", "model": "claude-sonnet-5", "effort": "high" },
-        { "harness": "codex", "model": "gpt-5.5", "effort": "high" }
+        { "harness": "claude", "model": "claude-sonnet-5" },
+        { "harness": "codex", "model": "gpt-5.5" }
       ],
-      "why": "Use a strong coding profile for big, ambiguous work; resolve the alternatives through quota-array-dispatch."
+      "why": "Use a strong coding profile for big, ambiguous work; resolve the alternatives through quota-array-dispatch. Effort is not a profile choice: every spawn runs at low unless the captain makes an explicit per-spawn exception."
     }
   ],
   "default": [
-    { "harness": "codex", "model": "gpt-5.5", "effort": "medium" },
-    { "harness": "pi", "model": "anthropic/claude-sonnet-5", "effort": "medium" }
+    { "harness": "codex", "model": "gpt-5.5" },
+    { "harness": "pi", "model": "anthropic/claude-sonnet-5" }
   ]
 }
