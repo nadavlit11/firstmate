@@ -61,6 +61,12 @@
 # settled. `--data-state all` includes fresh data and is recorded as such in
 # manifest.json; whenever the API reports a first incomplete date, that date
 # is carried into the manifest and printed on stderr rather than swallowed.
+# That horizon and the response aggregation type describe the moment a request
+# was made, not the days they cover, so neither is cached: both are taken from
+# responses received during this run. A run served entirely from cache asked
+# Google nothing, so it reports `firstIncompleteDate: null` with
+# `firstIncompleteDateObserved: false` and warns nothing, rather than replaying
+# a horizon that may have passed months ago.
 #
 # Cost and the row cap. A pull asks for one day at a time, which is what
 # Google recommends over long ranges, and caches each day's rows under
@@ -572,8 +578,14 @@ cmd_pull() {
 
   local dim day n result cache_file fresh_days=0 cached_days=0
   local aggregations='{}'
+  # A day's rows are a stable historical fact and are cached. The freshness
+  # horizon and the aggregation type are state Google reports at request time,
+  # so they are read only from responses actually received during THIS run; a
+  # cached day carries no such claim, and one written by an older version is
+  # ignored rather than replayed as current.
   for dim in "${dim_keys[@]}"; do
     : > "$tmp/$dim.ndjson"
+    : > "$tmp/$dim.live.ndjson"
     mkdir -p "$cache_root/$dim"
     for (( n = d0; n <= d1; n++ )); do
       day=$(day_date "$n")
@@ -582,9 +594,10 @@ cmd_pull() {
         cached_days=$(( cached_days + 1 ))
       else
         result=$(query_rows "$site" "$day" "$day" "$(dims_for "$dim")" "$state" "$max") || exit $?
+        printf '%s\n' "$result" >> "$tmp/$dim.live.ndjson"
         # Write through a temp file so an interrupted run never leaves a
         # half-written day that a later run would trust as complete.
-        printf '%s\n' "$result" > "$cache_file.partial"
+        printf '%s' "$result" | jq -c '{rows, truncated}' > "$cache_file.partial"
         mv "$cache_file.partial" "$cache_file"
         fresh_days=$(( fresh_days + 1 ))
       fi
@@ -596,16 +609,19 @@ cmd_pull() {
       warn "$dim hit the --max-rows ceiling of $max; the table is a top-N, not the full set"
     fi
     if [ "$first_incomplete" = null ]; then
-      first_incomplete=$(jq -sc '[.[] | .firstIncompleteDate | select(. != null)] | (sort | first) // null' < "$tmp/$dim.ndjson")
+      first_incomplete=$(jq -sc '[.[] | .firstIncompleteDate | select(. != null)] | (sort | first) // null' < "$tmp/$dim.live.ndjson")
     fi
     # Google aggregates a page-dimension result byPage and the others
     # byProperty, so the page table's totals are NOT comparable with the query
     # or date tables'"'"'. Record which one produced each table rather than
     # leaving a reader to assume one property-wide baseline.
     aggregations=$(jq -c --arg d "$dim" \
-      --argjson a "$(jq -sc '[.[] | .aggregation | select(. != null)] | first // null' < "$tmp/$dim.ndjson")" \
+      --argjson a "$(jq -sc '[.[] | .aggregation | select(. != null)] | first // null' < "$tmp/$dim.live.ndjson")" \
       '. + {($d): $a}' <<< "$aggregations")
   done
+
+  local observed=false
+  [ "$fresh_days" -gt 0 ] && observed=true
 
   aggregate < "$tmp/query.ndjson" > "$tmp/query.agg.json"
   aggregate < "$tmp/page.ndjson" > "$tmp/page.agg.json"
@@ -628,6 +644,7 @@ cmd_pull() {
     --arg truncated "${truncated_dims# }" \
     --argjson maxRows "$max" \
     --argjson firstIncompleteDate "$first_incomplete" \
+    --argjson firstIncompleteDateObserved "$observed" \
     --argjson aggregation "$aggregations" \
     --argjson freshDays "$fresh_days" --argjson cachedDays "$cached_days" \
     --argjson queryRows "$(jq length < "$tmp/query.agg.json")" \
@@ -639,6 +656,7 @@ cmd_pull() {
       maxRowsPerDimension: $maxRows,
       truncatedDimensions: (if $truncated == "" then [] else ($truncated | split(" ")) end),
       firstIncompleteDate: $firstIncompleteDate,
+      firstIncompleteDateObserved: $firstIncompleteDateObserved,
       responseAggregationType: $aggregation,
       dayDimensionsQueried: $freshDays, dayDimensionsReadFromCache: $cachedDays,
       queryRows: $queryRows, pageRows: $pageRows,

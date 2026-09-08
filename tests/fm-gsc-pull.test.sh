@@ -19,7 +19,8 @@
 #     and --refresh overrides that
 #   - --max-rows truncation is recorded and warned, never silent
 #   - paging follows startRow past one page
-#   - the API's first incomplete date reaches the manifest
+#   - the API's first incomplete date reaches the manifest, and a fully cached
+#     run reports no horizon rather than replaying a stale one
 #   - each unhappy path gets its own exit code: API disabled (6), not
 #     authorized (3), quota (4), revoked token (3), network failure (5)
 #   - only an exact `http://<loopback-host>:<port>` test endpoint override is
@@ -212,6 +213,21 @@ run_pull "$HOME1" "$OUT2" || fail "second pull failed: $(cat "$TMP_ROOT/stderr.t
   || fail "the second pull did not read every day/dimension from cache"
 assert_grep "$HEB_Q1" "$OUT2/שאילתות.csv" "the Hebrew query survived a cache round-trip"
 pass "a repeated review re-reads cached days instead of re-querying the same history"
+
+# The freshness horizon the first pull observed (2026-09-06) must not be
+# replayed by a later, fully cache-hit run over an overlapping range: that run
+# asked Google nothing, so it has no current horizon to report.
+[ "$(jq -r .firstIncompleteDate "$OUT2/manifest.json")" = null ] \
+  || fail "a fully cached run replayed a stale first incomplete date"
+[ "$(jq -r .firstIncompleteDateObserved "$OUT2/manifest.json")" = false ] \
+  || fail "a fully cached run did not record that no live request was made"
+assert_not_contains "$(cat "$TMP_ROOT/stderr.txt")" "still incomplete" \
+  "a horizon that was not observed this run is not warned"
+[ "$(jq -r '.responseAggregationType | to_entries | map(select(.value != null)) | length' "$OUT2/manifest.json")" = 0 ] \
+  || fail "a fully cached run replayed a stale response aggregation type"
+[ "$(jq -r .firstIncompleteDateObserved "$OUT1/manifest.json")" = true ] \
+  || fail "a run that did query Google did not mark its horizon as observed"
+pass "request-time state is reported from this run's responses, never replayed from cache"
 
 OUT3="$TMP_ROOT/out3"
 run_pull "$HOME1" "$OUT3" --refresh || fail "refresh pull failed: $(cat "$TMP_ROOT/stderr.txt")"

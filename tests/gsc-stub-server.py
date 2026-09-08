@@ -85,9 +85,6 @@ def analytics(body):
     elif dims == ["date"]:
         rows = [{"keys": [start], "clicks": 6.0, "impressions": 400.0,
                  "ctr": 0.015, "position": 17.5}]
-    elif dims == ["query", "page"]:
-        rows = [{"keys": [HEB_Q1, HEB_PAGE], "clicks": 5.0,
-                 "impressions": 100.0, "ctr": 0.05, "position": 10.0}]
     else:
         rows = []
 
