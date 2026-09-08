@@ -1476,8 +1476,14 @@ secondmate_harness_validate() {
   # SECONDMATE_LIVENESS respawn failure. A WARNING, never a bootstrap failure:
   # such a pin may already be running under a written exception this home
   # recorded, and a home that was legally set up must not be refused on update.
+  # bin/fm-harness.sh answers "unknown" when no adapter identity could be
+  # resolved (and nothing at all when the resolver itself fails). Neither is a
+  # concrete adapter, so neither is evidence that low cannot be proven - only a
+  # named adapter is worth warning about.
   harness=$("$SCRIPT_DIR/fm-harness.sh" secondmate 2>/dev/null || true)
-  [ -n "$harness" ] || return 0
+  case "$harness" in
+    ''|unknown) return 0 ;;
+  esac
   if ! fm_control_harness_enforces_effort "$harness" low; then
     echo "SECONDMATE_HARNESS: warning the resolved secondmate harness is '$harness', which has no verified low-effort launch axis; a spawn selecting it refuses unless that invocation carries --effort-override-reason naming the capability gap, or this mate's own record already carries one from an earlier exception. It resolves through config/secondmate-harness, then config/crew-harness, then the primary's own harness - correct whichever of those supplies it, or respawn once with a written exception so the recorded reason keeps the mate recoverable"
   fi
