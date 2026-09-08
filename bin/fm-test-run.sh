@@ -101,6 +101,13 @@
 # split it across separate runners, so two of its stateful scripts still never
 # share a machine. This script owns <n>: a lane whose <n> disagrees with the
 # configured shard count is refused, so a CI matrix cannot silently drop a shard.
+#
+# Environment the runner imposes on every selected script: it exports
+# GIT_CONFIG_COUNT/KEY_0/VALUE_0 to pin init.defaultBranch=main, so fixture
+# repositories start on main regardless of the host's own setting and spawn
+# fixtures that request --base main behave the same locally and in CI. That
+# export replaces any GIT_CONFIG_COUNT the caller already set.
+#
 # --changed is conservative: it over-selects related families rather than
 # under-selecting, and never expands to the complete suite unless --all. The one
 # place it is deliberately narrow is a bin/ path with no curated family: a test
@@ -109,9 +116,7 @@
 # recorded family-level coupling still expands to the whole family.
 set -eu
 
-# Fixture repositories must start on main because spawn fixtures request
-# --base main. Pinning it here keeps local and CI runs independent of the host's
-# init.defaultBranch setting.
+# Fixture default-branch pin; see the Environment note in the header above.
 export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=init.defaultBranch GIT_CONFIG_VALUE_0=main
 
 now_ms() {
