@@ -196,6 +196,37 @@ A Secondmate on a remote route is covered the same way: the primary resolves and
 The presence flag is session-scoped enablement, so it transfers at launch and is left unchanged by live convergence into a running home.
 See [`trace-context.md`](trace-context.md) for carrier semantics, supported routes, the manual fleet-restart requirement, the session boundary, and safety limits; `bin/fm-trace-context-lib.sh`'s header owns the exact mechanics, and [`verification/trace-context.md`](verification/trace-context.md) records repeatable evidence.
 
+## Tavily web retrieval (config/tavily.env)
+
+The optional local, gitignored `config/tavily.env` gives spawned crewmates and scouts a consistent web-retrieval layer instead of ad-hoc fetching.
+It holds one line, `TAVILY_API_KEY=<key>`, and should be mode `0600`.
+That exact form is the only one read: the line must start at column one with `TAVILY_API_KEY=`, the value is taken as written with surrounding whitespace trimmed, and it is never quoted or prefixed with `export`.
+The file is parsed rather than sourced, so any other line - a comment, another variable, anything else - is ignored rather than executed; an empty or whitespace-only value counts as no key at all.
+The file has exactly four outcomes, and the three unusable ones are kept apart because each sends you somewhere different.
+*Absent* - no file, no `TAVILY_API_KEY` line, or an empty value - means nobody set a key; that is not a fault, so it stays completely silent and there is nothing to do about it.
+*Malformed* means a key line is there in some other spelling - quoted value, `export` prefix, leading indentation, CRLF ending, or a value carrying internal whitespace such as a trailing inline comment - so the contents are wrong: rewrite the line in the accepted form.
+*Unreadable* means the file exists but cannot be read, so the contents may be perfectly fine and the permissions or ownership are wrong: make it mode `0600` owned by the user running the fleet, rather than touching the key.
+Malformed and unreadable each yield no key rather than one that would fail every call with an untraceable 401, and spawning prints one warning naming the file and its own remedy, never the value; scaffolding a brief says nothing, because it makes no Tavily claim at all.
+Absence is the ordinary state: a home without the file spawns exactly as it did before this capability existed, with no warning and no failure.
+
+With the key present, a spawned worker on `claude` or `codex` gets Tavily's official remote MCP server: `tavily_search`, `tavily_extract`, `tavily_map`, and `tavily_crawl`.
+`tavily_research` is withheld at launch, per harness, and its absence is enforced by the harness rather than requested of the worker: the free tier is 1,000 credits a month and one Research call costs up to 250 of them, so four calls could spend the fleet's month.
+Search costs 1 credit (2 for advanced), Extract 1 per 5 URLs, and Map 1 per 10 pages.
+Credits reset on the 1st with no card on file and no overflow: when they run out mid-month the tool calls simply start failing, workers keep running without web retrieval, and nothing is billed.
+
+Every other harness is deliberately unwired.
+A harness only qualifies once it can both load the server and withhold one named tool; without the second half the prohibition would be a request rather than a control, and Tavily's own endpoint exposes no tool filter.
+So a crewmate on `opencode`, `pi`, `grok`, `kimi`, `cursor`, `gemini`, or `muse` gets no Tavily at all, whatever this file says, and its worker is told nothing about Tavily either.
+The worker-facing lines are appended by `bin/fm-spawn.sh` to the launch brief it hands the worker, not written into the scaffolded `brief.md`: a scaffold happens before the harness is resolved, so the claim is made at launch time from the same decision that composes the launch flags, and a brief can never promise tools its launch does not grant.
+`bin/fm-brief.sh` therefore never mentions Tavily and takes no harness input.
+A secondmate agent is not wired either; a secondmate home that should have Tavily needs its own `config/tavily.env`, which is also why this file is deliberately absent from the inherited-config set - a credential never crosses a home boundary on firstmate's initiative.
+
+Two consequences worth stating plainly.
+Every query a worker runs leaves the machine to a third party: Tavily sees the search terms and the URLs, so work that must not leave the building should not be researched through it.
+And the key stays in `config/`, which is gitignored wholesale; it never reaches a launch command, a brief, a status line, or an error message, because it is read from the file at exec time by `bin/fm-tavily-exec.sh` rather than passed as an argument.
+
+`bin/fm-tavily-lib.sh`'s header owns the exact wiring contract, and [`verification/tavily.md`](verification/tavily.md) records the live evidence that each harness's withholding control actually holds.
+
 ## Turn-end pane-churn absorb (config/turnend-churn-absorb)
 
 The optional local, gitignored `config/turnend-churn-absorb` presence flag opts this home into a default-off third form of positive work evidence in watcher triage.

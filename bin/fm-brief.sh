@@ -15,6 +15,11 @@
 # Usage: fm-brief.sh <task-id> <repo-name> --base <ref> --mode <no-mistakes|direct-PR|local-only> [--herdr-lab]
 #        fm-brief.sh <task-id> <repo-name> --base <ref> --scout [--herdr-lab]
 #        fm-brief.sh <task-id> --secondmate {<project>...|--no-projects}
+#   Nothing here is harness-specific. A scaffold happens before the spawn picks a
+#   harness, so any claim about harness-provided tooling would be a guess; the
+#   optional Tavily web-retrieval contract is therefore appended at LAUNCH time by
+#   bin/fm-spawn.sh, which knows the resolved harness (bin/fm-tavily-lib.sh owns
+#   that wording and that decision).
 #   --scout writes the scout contract instead: the deliverable is a report at
 #   data/<task-id>/report.md (no branch, no push, no PR) and the worktree is scratch.
 #   --secondmate writes a persistent secondmate charter. The project list

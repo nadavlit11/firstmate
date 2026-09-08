@@ -64,9 +64,9 @@ Each shard is still strictly serial in itself, and separate runners mean no two 
 `.github/workflows/ci.yml` derives the same `n` from `strategy.job-total` rather than a literal, so changing the shard count in either file without the other fails the lane loudly instead of leaving part of the required suite unrun.
 
 Assignment is longest-processing-time bin packing over per-script duration hints embedded in `bin/fm-test-run.sh`.
-The 146 current hints retain the prior slowest measurements and fold in the `fm-test-timing-portable-serial-*` artifacts from three complete fork CI runs on 2026-09-05, [33995216023](https://github.com/nadavlit11/firstmate/actions/runs/33995216023), [33980652309](https://github.com/nadavlit11/firstmate/actions/runs/33980652309), and [33976726003](https://github.com/nadavlit11/firstmate/actions/runs/33976726003), plus every completed serial shard from [34225440935](https://github.com/nadavlit11/firstmate/actions/runs/34225440935) on 2026-09-08.
+The 148 current hints retain the prior slowest measurements and fold in the `fm-test-timing-portable-serial-*` artifacts from three complete fork CI runs on 2026-09-05, [33995216023](https://github.com/nadavlit11/firstmate/actions/runs/33995216023), [33980652309](https://github.com/nadavlit11/firstmate/actions/runs/33980652309), and [33976726003](https://github.com/nadavlit11/firstmate/actions/runs/33976726003), plus every completed serial shard from [34225440935](https://github.com/nadavlit11/firstmate/actions/runs/34225440935) on 2026-09-08; the two `tests/fm-tavily*` scripts carry conservative pre-measurement estimates until their first green run.
 The last run omitted shard 4 because that job reached the unchanged 20-minute cap, so no value was lowered and its retained or earlier-run measurements remain in force.
-Those per-script maxima total 4701714 ms of conservative balance weight, and every current portable-serial script has a hint.
+Those per-script maxima total 4776735 ms of conservative balance weight, and every current portable-serial script has a hint.
 Taking the slowest retained value rather than a single run keeps the balance honest on a slow runner.
 Hints only affect balance: the coverage guard keeps the partition complete and disjoint whatever they say, so a stale hint costs a slower shard rather than lost coverage.
 Balance is still worth keeping current, because enough unmeasured scripts let one shard carry more than twice another shard's real work and reach the job cap while another runner sits idle.
@@ -76,12 +76,12 @@ Refresh the hints whenever the serial lane gains scripts, rather than waiting fo
 
 | Lane | Script count | Estimated duration |
 |---|---:|---:|
-| `portable-serial-1of5` | 28 | 940334 ms (~15.67 min) |
-| `portable-serial-2of5` | 29 | 940347 ms (~15.67 min) |
-| `portable-serial-3of5` | 30 | 940341 ms (~15.67 min) |
-| `portable-serial-4of5` | 29 | 940346 ms (~15.67 min) |
-| `portable-serial-5of5` | 30 | 940346 ms (~15.67 min) |
-| imbalance | | 13 ms |
+| `portable-serial-1of5` | 29 | 955348 ms (~15.92 min) |
+| `portable-serial-2of5` | 29 | 955346 ms (~15.92 min) |
+| `portable-serial-3of5` | 29 | 955342 ms (~15.92 min) |
+| `portable-serial-4of5` | 31 | 955357 ms (~15.92 min) |
+| `portable-serial-5of5` | 30 | 955342 ms (~15.92 min) |
+| imbalance | | 15 ms |
 
 The current table is generated from the runner's retained maxima.
 Before this refresh, fork shard 4 took 15m18s, 17m41s, and 16m18s in the three complete source runs, then reached the 20-minute cap in the partial run while the other current-head serial shards completed in about 9.5-14.2 minutes.
@@ -126,7 +126,7 @@ Portable shards, each portable serial shard, and the Herdr lane upload runner-ge
 | Lane | Bound | Rationale |
 |---|---|---|
 | portable parallel 1/2 | job `timeout-minutes: 10` | The measured shard sums are about three minutes and the timeout is a hang tripwire. |
-| portable serial 1-5 | job `timeout-minutes: 20` | Each balanced shard carries about 15.67 minutes of conservative assignment weight; the cap remains unchanged so a future overrun stays visible as balance or runtime evidence rather than being masked. |
+| portable serial 1-5 | job `timeout-minutes: 20` | Each balanced shard carries about 15.92 minutes of conservative assignment weight; the cap remains unchanged so a future overrun stays visible as balance or runtime evidence rather than being masked. |
 | Herdr | family-run step `timeout-minutes: 20`; job `timeout-minutes: 75` backstop | Healthy runs finished around 7 minutes before this lane gained `fm-backend-herdr-focus-flash-e2e`, which measures about 2 minutes against a real lab locally, so the step bound is still the hang tripwire (cleanup and timing artifacts still upload) while the job cap stays a last-resort backstop. Refresh this figure from the lane's uploaded timing artifact. |
 
 Timeouts are hang tripwires rather than expected healthy durations.
