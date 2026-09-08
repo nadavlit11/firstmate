@@ -12,9 +12,16 @@
 # charters still use a single `{TASK}` charter fill. Firstmate may adjust other
 # sections when the task genuinely deviates (e.g. working an existing external
 # PR instead of shipping a new one).
-# Usage: fm-brief.sh <task-id> <repo-name> --base <ref> --mode <no-mistakes|direct-PR|local-only> [--herdr-lab]
-#        fm-brief.sh <task-id> <repo-name> --base <ref> --scout [--herdr-lab]
+# Usage: fm-brief.sh <task-id> <repo-name> --base <ref> --mode <no-mistakes|direct-PR|local-only> [--herdr-lab] [--harness <harness>]
+#        fm-brief.sh <task-id> <repo-name> --base <ref> --scout [--herdr-lab] [--harness <harness>]
 #        fm-brief.sh <task-id> --secondmate {<project>...|--no-projects}
+#   --harness names the harness the task will actually be spawned on, and is
+#   needed only when the caller already knows the spawn will override the
+#   standing crewmate harness. Omitted, it resolves the same way bin/fm-spawn.sh
+#   does with no per-spawn harness (`bin/fm-harness.sh crew`). It affects the
+#   optional Tavily lines only: those are emitted just for a harness the launch
+#   can really wire the server into, so the brief never advertises a tool the
+#   worker will not have.
 #   --scout writes the scout contract instead: the deliverable is a report at
 #   data/<task-id>/report.md (no branch, no push, no PR) and the worktree is scratch.
 #   --secondmate writes a persistent secondmate charter. The project list
@@ -101,10 +108,6 @@ esac
 . "$SCRIPT_DIR/fm-tavily-lib.sh"
 PAUSED_VERB=${FM_CLASSIFY_PAUSED_VERB:-$FM_CLASSIFY_PAUSED_VERB_DEFAULT}
 
-# Tell the worker about Tavily only when this home actually has it, so a brief
-# never advertises a tool the launch cannot grant. bin/fm-tavily-lib.sh owns the
-# wording and the withheld-endpoint contract; the presence gate here is read
-# against the same config directory bin/fm-spawn.sh resolves the key from.
 TAVILY_LINES=
 
 resolve_directory_input() {
@@ -136,9 +139,6 @@ if [ -n "${FM_CONFIG_OVERRIDE:-}" ]; then
 else
   CONFIG="$FM_HOME/config"
 fi
-if fm_tavily_key_present "$CONFIG"; then
-  TAVILY_LINES=$'\n'$(fm_tavily_brief_lines)
-fi
 KIND=ship
 HERDR_LAB=0
 NO_PROJECTS=0
@@ -146,6 +146,7 @@ MODE=
 MODE_SET=0
 BASE=
 BASE_SET=0
+HARNESS=
 POS=()
 want_value=
 for a in "$@"; do
@@ -156,6 +157,7 @@ for a in "$@"; do
     case "$want_value" in
       mode) MODE=$a; MODE_SET=1 ;;
       base) BASE=$a; BASE_SET=1 ;;
+      harness) HARNESS=$a ;;
       *) echo "error: internal parser state for --$want_value" >&2; exit 1 ;;
     esac
     want_value=
@@ -170,6 +172,8 @@ for a in "$@"; do
     --mode=*) MODE=${a#--mode=}; MODE_SET=1 ;;
     --base) want_value=base ;;
     --base=*) BASE=${a#--base=}; BASE_SET=1 ;;
+    --harness) want_value=harness ;;
+    --harness=*) HARNESS=${a#--harness=} ;;
     # yolo never reaches the worker: it is firstmate's merge authority, not a
     # brief input. Refuse it loudly so it is never silently dropped here and then
     # believed to have been recorded.
@@ -178,6 +182,17 @@ for a in "$@"; do
   esac
 done
 [ -z "$want_value" ] || { echo "error: --$want_value requires a value" >&2; exit 1; }
+
+# Tell the worker about Tavily only when the harness this task will actually
+# launch on will be handed it, so a brief never advertises a tool the launch
+# cannot grant. bin/fm-tavily-lib.sh owns the wording, the withheld-endpoint
+# contract, and the decision itself; this only supplies the two inputs. The
+# harness defaults to the standing crewmate resolution bin/fm-spawn.sh lands on
+# when no per-spawn harness is given, and --harness names it when the caller
+# already knows the spawn will override that default.
+[ -n "$HARNESS" ] || HARNESS=$("$FM_ROOT/bin/fm-harness.sh" crew) || HARNESS=
+TAVILY_TEXT=$(fm_tavily_brief_lines "$CONFIG" "$HARNESS")
+[ -z "$TAVILY_TEXT" ] || TAVILY_LINES=$'\n'$TAVILY_TEXT
 
 # Ship delivery mode is an explicit per-task decision (AGENTS.md section 7). A
 # missing or invalid value stops the scaffold rather than silently defaulting.

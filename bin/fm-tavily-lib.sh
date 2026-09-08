@@ -66,26 +66,21 @@ fm_tavily_key_file() {  # <config-dir>
 # Print the key from <key-file>, or nothing. The ONE parser, used by
 # bin/fm-tavily-exec.sh. The file is parsed, never sourced: it is a credential
 # store, not a script, and sourcing it would execute whatever it contains.
-# Accepts `TAVILY_API_KEY=value`, an optional `export` prefix, and optional
-# surrounding single or double quotes. The first assignment wins.
+# The ONLY accepted form is the documented one: a line `TAVILY_API_KEY=<value>`
+# starting at column one, with whitespace trimmed from both ends of the value.
+# No `export` prefix, no quoting, no indentation - any other line is skipped, so
+# a comment or an unrelated variable in the file is simply ignored. The first
+# such assignment wins; an empty or whitespace-only value counts as no key.
 fm_tavily_read_key() {  # <key-file>
   local file=$1 line value
   [ -f "$file" ] && [ -r "$file" ] || return 0
   while IFS= read -r line || [ -n "$line" ]; do
-    line=${line%$'\r'}
-    line="${line#"${line%%[![:space:]]*}"}"
-    case "$line" in
-      "export "*) line=${line#export }; line="${line#"${line%%[![:space:]]*}"}" ;;
-    esac
     case "$line" in
       "$FM_TAVILY_KEY_VAR"=*) value=${line#*=} ;;
       *) continue ;;
     esac
+    value="${value#"${value%%[![:space:]]*}"}"
     value="${value%"${value##*[![:space:]]}"}"
-    case "$value" in
-      \"*\") value=${value#\"}; value=${value%\"} ;;
-      \'*\') value=${value#\'}; value=${value%\'} ;;
-    esac
     [ -n "$value" ] || return 0
     printf '%s\n' "$value"
     return 0
@@ -144,10 +139,21 @@ fm_tavily_launch_flags() {  # <harness>
   esac
 }
 
-# The worker-facing contract, as brief lines. Kept here rather than in
-# bin/fm-brief.sh so the tools a worker is told about and the tools the launch
-# actually grants cannot drift apart.
-fm_tavily_brief_lines() {
+# True when a worker spawned from <config-dir> onto <harness> will actually be
+# handed the server: both the key and the harness wiring must be there. This is
+# the ONE owner of "does this worker get Tavily"; bin/fm-spawn.sh gates its
+# launch flags on the same two facts.
+fm_tavily_available() {  # <config-dir> <harness>
+  fm_tavily_harness_supported "$2" && fm_tavily_key_present "$1"
+}
+
+# The worker-facing contract, as brief lines, for a worker spawned from
+# <config-dir> onto <harness>; nothing at all when that worker gets no Tavily.
+# Kept here rather than in bin/fm-brief.sh so the tools a worker is told about
+# and the tools the launch actually grants cannot drift apart - on the harness
+# axis as much as the key axis.
+fm_tavily_brief_lines() {  # <config-dir> <harness>
+  fm_tavily_available "$1" "$2" || return 0
   cat <<'TXT'
    Tavily web retrieval is available to you as MCP tools: tavily_search for current
    information, tavily_extract for the full text of specific URLs, tavily_map and

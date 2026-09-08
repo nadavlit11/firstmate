@@ -69,9 +69,24 @@ test_key_file_parsing() {
   out=$(fm_tavily_read_key "$dir/plain")
   [ "$out" = "$SECRET" ] || fail "a plain assignment did not parse: '$out'"
 
-  printf 'export TAVILY_API_KEY="%s"  \n' "$SECRET" > "$dir/quoted"
+  printf 'TAVILY_API_KEY=  %s  \n' "$SECRET" > "$dir/padded"
+  out=$(fm_tavily_read_key "$dir/padded")
+  [ "$out" = "$SECRET" ] || fail "a padded value was not trimmed on both sides: '$out'"
+
+  # Only the documented form is read. Each of these is a spelling nobody is
+  # asked to write, and accepting one would either 401 later or widen the
+  # parser's surface for no requirement.
+  printf 'export TAVILY_API_KEY=%s\n' "$SECRET" > "$dir/exported"
+  out=$(fm_tavily_read_key "$dir/exported")
+  [ -z "$out" ] || fail "an 'export' prefix was accepted: '$out'"
+
+  printf 'TAVILY_API_KEY="%s"\n' "$SECRET" > "$dir/quoted"
   out=$(fm_tavily_read_key "$dir/quoted")
-  [ "$out" = "$SECRET" ] || fail "an exported, quoted, padded assignment did not parse: '$out'"
+  [ "$out" = '"'"$SECRET"'"' ] || fail "a quoted value was unwrapped rather than taken literally: '$out'"
+
+  printf '  TAVILY_API_KEY=%s\n' "$SECRET" > "$dir/indented"
+  out=$(fm_tavily_read_key "$dir/indented")
+  [ -z "$out" ] || fail "an indented assignment was accepted: '$out'"
 
   printf '# comment\nOTHER=x\nTAVILY_API_KEY=%s\n' "$SECRET" > "$dir/mixed"
   out=$(fm_tavily_read_key "$dir/mixed")
@@ -263,7 +278,7 @@ test_brief_mentions_tavily_only_when_the_home_has_it() {
   local dir home brief
   dir="$TMP_ROOT/brief"
   home="$dir/home"
-  fm_test_spawn_home "$home"
+  fm_test_spawn_home "$home" claude
 
   FM_HOME="$home" "$ROOT/bin/fm-brief.sh" tv-off demo --base main --mode no-mistakes >/dev/null \
     || fail "scaffolding a brief without a key failed"
@@ -290,6 +305,35 @@ test_brief_mentions_tavily_only_when_the_home_has_it() {
   pass "briefs advertise Tavily only where the home actually has it, and never carry the key"
 }
 
+# The key is only half the gate: an unwired harness gets no server at launch, so
+# a brief written for one must not describe tools that worker will not have.
+test_brief_stays_silent_on_an_unwired_harness() {
+  local dir home
+  dir="$TMP_ROOT/brief-unwired"
+  home="$dir/home"
+  fm_test_spawn_home "$home" opencode
+  write_key "$home"
+
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" tv-standing demo --base main --mode no-mistakes >/dev/null \
+    || fail "scaffolding a brief on an unwired standing harness failed"
+  assert_no_grep 'tavily_search' "$home/data/tv-standing/brief.md" \
+    "a brief for an unwired standing harness advertised Tavily anyway"
+  assert_no_grep 'Tavily web retrieval' "$home/data/tv-standing/brief.md" \
+    "a brief for an unwired standing harness described a capability the launch cannot grant"
+
+  # An explicit --harness overrides the standing resolution, in both directions.
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" tv-override demo --base main --mode no-mistakes --harness claude >/dev/null \
+    || fail "scaffolding a brief with an explicit wired harness failed"
+  assert_grep 'tavily_search' "$home/data/tv-override/brief.md" \
+    "an explicit wired harness did not get the Tavily lines"
+
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" tv-override-off demo --base main --scout --harness gemini >/dev/null \
+    || fail "scaffolding a scout brief with an explicit unwired harness failed"
+  assert_no_grep 'tavily_search' "$home/data/tv-override-off/brief.md" \
+    "an explicit unwired harness still got the Tavily lines"
+  pass "a brief describes Tavily only when the harness it will launch on can be wired for it"
+}
+
 test_key_file_parsing
 test_exec_wrapper_injects_without_printing
 test_claude_launch_wires_tavily_and_withholds_research
@@ -299,3 +343,4 @@ test_absent_key_leaves_the_launch_untouched
 test_empty_key_file_is_absence_not_failure
 test_unwired_harness_gets_nothing
 test_brief_mentions_tavily_only_when_the_home_has_it
+test_brief_stays_silent_on_an_unwired_harness

@@ -200,6 +200,8 @@ See [`trace-context.md`](trace-context.md) for carrier semantics, supported rout
 
 The optional local, gitignored `config/tavily.env` gives spawned crewmates and scouts a consistent web-retrieval layer instead of ad-hoc fetching.
 It holds one line, `TAVILY_API_KEY=<key>`, and should be mode `0600`.
+That exact form is the only one read: the line must start at column one with `TAVILY_API_KEY=`, the value is taken as written with surrounding whitespace trimmed, and it is never quoted or prefixed with `export`.
+The file is parsed rather than sourced, so any other line - a comment, another variable, anything else - is ignored rather than executed; an empty or whitespace-only value counts as no key at all.
 Absence is the ordinary state: a home without the file spawns exactly as it did before this capability existed, with no warning and no failure.
 
 With the key present, a spawned worker on `claude` or `codex` gets Tavily's official remote MCP server: `tavily_search`, `tavily_extract`, `tavily_map`, and `tavily_crawl`.
@@ -209,7 +211,8 @@ Credits reset on the 1st with no card on file and no overflow: when they run out
 
 Every other harness is deliberately unwired.
 A harness only qualifies once it can both load the server and withhold one named tool; without the second half the prohibition would be a request rather than a control, and Tavily's own endpoint exposes no tool filter.
-So a crewmate on `opencode`, `pi`, `grok`, `kimi`, `cursor`, `gemini`, or `muse` gets no Tavily at all, whatever this file says.
+So a crewmate on `opencode`, `pi`, `grok`, `kimi`, `cursor`, `gemini`, or `muse` gets no Tavily at all, whatever this file says, and the brief scaffolded for such a worker says nothing about Tavily either.
+`bin/fm-brief.sh` resolves the harness the same way a spawn with no explicit harness does, and takes `--harness <harness>` when the caller already knows the spawn will override that standing default.
 A secondmate agent is not wired either; a secondmate home that should have Tavily needs its own `config/tavily.env`, which is also why this file is deliberately absent from the inherited-config set - a credential never crosses a home boundary on firstmate's initiative.
 
 Two consequences worth stating plainly.
