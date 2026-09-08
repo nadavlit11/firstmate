@@ -204,7 +204,7 @@ That exact form is the only one read: the line must start at column one with `TA
 The file is parsed rather than sourced, so any other line - a comment, another variable, anything else - is ignored rather than executed; an empty or whitespace-only value counts as no key at all.
 The file has exactly four outcomes, and the three unusable ones are kept apart because each sends you somewhere different.
 *Absent* - no file, no `TAVILY_API_KEY` line, or an empty value - means nobody set a key; that is not a fault, so it stays completely silent and there is nothing to do about it.
-*Malformed* means a key line is there in some other spelling - quoted value, `export` prefix, leading indentation, CRLF ending - so the contents are wrong: rewrite the line in the accepted form.
+*Malformed* means a key line is there in some other spelling - quoted value, `export` prefix, leading indentation, CRLF ending, or a value carrying internal whitespace such as a trailing inline comment - so the contents are wrong: rewrite the line in the accepted form.
 *Unreadable* means the file exists but cannot be read, so the contents may be perfectly fine and the permissions or ownership are wrong: make it mode `0600` owned by the user running the fleet, rather than touching the key.
 Malformed and unreadable each yield no key rather than one that would fail every call with an untraceable 401, and spawning or scaffolding a brief prints one warning naming the file and its own remedy, never the value.
 Absence is the ordinary state: a home without the file spawns exactly as it did before this capability existed, with no warning and no failure.
@@ -217,8 +217,8 @@ Credits reset on the 1st with no card on file and no overflow: when they run out
 Every other harness is deliberately unwired.
 A harness only qualifies once it can both load the server and withhold one named tool; without the second half the prohibition would be a request rather than a control, and Tavily's own endpoint exposes no tool filter.
 So a crewmate on `opencode`, `pi`, `grok`, `kimi`, `cursor`, `gemini`, or `muse` gets no Tavily at all, whatever this file says, and the brief scaffolded for such a worker says nothing about Tavily either.
-`bin/fm-brief.sh` resolves the harness the same way a spawn with no explicit harness does, and takes `--harness <harness>` when the caller already knows the spawn will override that standing default.
-On a home with `config/crew-dispatch.json`, that standing resolution is not what the spawn launches on, so a ship or scout scaffold with a usable Tavily key and no `--harness` refuses rather than guessing, exactly as `bin/fm-spawn.sh` already refuses the same derivation; the same home with no usable key scaffolds unchanged, because there are then no Tavily lines to get wrong.
+The worker-facing lines are appended by `bin/fm-spawn.sh` to the launch brief it hands the worker, not written into the scaffolded `brief.md`: a scaffold happens before the harness is resolved, so the claim is made at launch time from the same decision that composes the launch flags, and a brief can never promise tools its launch does not grant.
+`bin/fm-brief.sh` therefore never mentions Tavily and takes no harness input.
 A secondmate agent is not wired either; a secondmate home that should have Tavily needs its own `config/tavily.env`, which is also why this file is deliberately absent from the inherited-config set - a credential never crosses a home boundary on firstmate's initiative.
 
 Two consequences worth stating plainly.

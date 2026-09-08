@@ -15,7 +15,11 @@
 #   ship or scout spawn also refuses leftover `{TASK}` / `{FIRSTMATE_SPEC}`
 #   placeholders, an empty Task, or an incomplete pair of Task subsections.
 #   For a no-mistakes ship, spawn renders `launch-brief.md` with the current
-#   `--intent` contract and the extracted captain intent. A legacy mixed Task is
+#   `--intent` contract and the extracted captain intent; a ship or scout whose
+#   launch wires Tavily gets the worker-facing web-retrieval section appended to
+#   that same launch brief, decided from the resolved harness so it cannot promise
+#   tools the launch does not grant. Both overlays compose into one file.
+#   A legacy mixed Task is
 #   accepted there only under bin/fm-dod-lib.sh's provenance-marking rules;
 #   unmarked legacy Tasks stop for migration rather than becoming intent. That
 #   library owns the parsing and intent rules. When the explicit mode carries
@@ -1967,6 +1971,7 @@ if [ "$KIND" = ship ] || [ "$KIND" = scout ]; then
     echo "error: $BRIEF must contain nonempty ## Captain's intent and ## Firstmate spec subsections (or a nonempty legacy # Task body) before spawn" >&2
     exit 1
   fi
+  INTENT_OVERLAY=0
   if [ "$KIND" = ship ] && [ "$MODE" = no-mistakes ]; then
     if fm_brief_task_heading_present "$BRIEF" "## Captain's intent"; then
       CAPTAIN_INTENT=$(fm_brief_task_heading_body "$BRIEF" "## Captain's intent")
@@ -1978,16 +1983,27 @@ if [ "$KIND" = ship ] || [ "$KIND" = scout ]; then
         exit 1
       fi
     fi
+    INTENT_OVERLAY=1
+  fi
+  # The Tavily section is decided HERE, from the resolved harness, on exactly the
+  # condition that composes the launch flags below, so what the worker is told and
+  # what the launch grants cannot disagree. bin/fm-tavily-lib.sh owns both.
+  TAVILY_OVERLAY=0
+  if [ "$RAW_LAUNCH" != 1 ] && fm_tavily_available "$CONFIG" "$HARNESS"; then
+    TAVILY_OVERLAY=1
+  fi
+  if [ "$INTENT_OVERLAY" = 1 ] || [ "$TAVILY_OVERLAY" = 1 ]; then
     SOURCE_BRIEF=$BRIEF
     BRIEF="$DATA/$ID/launch-brief.md"
     BRIEF_TMP="$DATA/$ID/.launch-brief.md.${BASHPID:-$$}"
     {
       cat "$SOURCE_BRIEF"
-      fm_brief_intent_overlay "$CAPTAIN_INTENT"
-    } > "$BRIEF_TMP" || { rm -f -- "$BRIEF_TMP"; echo "error: could not render current intent contract for $SOURCE_BRIEF" >&2; exit 1; }
+      if [ "$INTENT_OVERLAY" = 1 ]; then fm_brief_intent_overlay "$CAPTAIN_INTENT"; fi
+      if [ "$TAVILY_OVERLAY" = 1 ]; then fm_tavily_brief_lines "$CONFIG" "$HARNESS"; fi
+    } > "$BRIEF_TMP" || { rm -f -- "$BRIEF_TMP"; echo "error: could not render the launch brief for $SOURCE_BRIEF" >&2; exit 1; }
     if ! mv "$BRIEF_TMP" "$BRIEF"; then
       rm -f -- "$BRIEF_TMP"
-      echo "error: could not publish current intent contract for $SOURCE_BRIEF" >&2
+      echo "error: could not publish the launch brief for $SOURCE_BRIEF" >&2
       exit 1
     fi
   fi
@@ -3315,7 +3331,7 @@ TAVILY_KEY_FILE=
 if [ "$RAW_LAUNCH" != 1 ] && [ "$KIND" != secondmate ]; then
   TAVILY_NOTICE=$(fm_tavily_notice "$CONFIG")
   [ -z "$TAVILY_NOTICE" ] || printf '%s\n' "$TAVILY_NOTICE" >&2
-  if fm_tavily_harness_supported "$HARNESS" && fm_tavily_key_present "$CONFIG"; then
+  if fm_tavily_available "$CONFIG" "$HARNESS"; then
     TAVILY_KEY_FILE=$(fm_tavily_key_file "$CONFIG")
     TAVILYFLAGS=$(fm_tavily_launch_flags "$HARNESS")
   fi

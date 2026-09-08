@@ -12,16 +12,14 @@
 # charters still use a single `{TASK}` charter fill. Firstmate may adjust other
 # sections when the task genuinely deviates (e.g. working an existing external
 # PR instead of shipping a new one).
-# Usage: fm-brief.sh <task-id> <repo-name> --base <ref> --mode <no-mistakes|direct-PR|local-only> [--herdr-lab] [--harness <harness>]
-#        fm-brief.sh <task-id> <repo-name> --base <ref> --scout [--herdr-lab] [--harness <harness>]
+# Usage: fm-brief.sh <task-id> <repo-name> --base <ref> --mode <no-mistakes|direct-PR|local-only> [--herdr-lab]
+#        fm-brief.sh <task-id> <repo-name> --base <ref> --scout [--herdr-lab]
 #        fm-brief.sh <task-id> --secondmate {<project>...|--no-projects}
-#   --harness names the harness the task will actually be spawned on, and is
-#   needed only when the caller already knows the spawn will override the
-#   standing crewmate harness. Omitted, it resolves the same way bin/fm-spawn.sh
-#   does with no per-spawn harness (`bin/fm-harness.sh crew`). It affects the
-#   optional Tavily lines only: those are emitted just for a harness the launch
-#   can really wire the server into, so the brief never advertises a tool the
-#   worker will not have.
+#   Nothing here is harness-specific. A scaffold happens before the spawn picks a
+#   harness, so any claim about harness-provided tooling would be a guess; the
+#   optional Tavily web-retrieval contract is therefore appended at LAUNCH time by
+#   bin/fm-spawn.sh, which knows the resolved harness (bin/fm-tavily-lib.sh owns
+#   that wording and that decision).
 #   --scout writes the scout contract instead: the deliverable is a report at
 #   data/<task-id>/report.md (no branch, no push, no PR) and the worktree is scratch.
 #   --secondmate writes a persistent secondmate charter. The project list
@@ -104,11 +102,7 @@ esac
 . "$SCRIPT_DIR/fm-classify-lib.sh"
 # shellcheck source=bin/fm-dod-lib.sh
 . "$SCRIPT_DIR/fm-dod-lib.sh"
-# shellcheck source=bin/fm-tavily-lib.sh
-. "$SCRIPT_DIR/fm-tavily-lib.sh"
 PAUSED_VERB=${FM_CLASSIFY_PAUSED_VERB:-$FM_CLASSIFY_PAUSED_VERB_DEFAULT}
-
-TAVILY_LINES=
 
 resolve_directory_input() {
   local name=$1 path=$2 resolved
@@ -134,11 +128,6 @@ if [ -n "${FM_STATE_OVERRIDE:-}" ]; then
 else
   STATE="$FM_HOME/state"
 fi
-if [ -n "${FM_CONFIG_OVERRIDE:-}" ]; then
-  CONFIG=$(resolve_directory_input FM_CONFIG_OVERRIDE "$FM_CONFIG_OVERRIDE") || exit 1
-else
-  CONFIG="$FM_HOME/config"
-fi
 KIND=ship
 HERDR_LAB=0
 NO_PROJECTS=0
@@ -146,7 +135,6 @@ MODE=
 MODE_SET=0
 BASE=
 BASE_SET=0
-HARNESS=
 POS=()
 want_value=
 for a in "$@"; do
@@ -157,7 +145,6 @@ for a in "$@"; do
     case "$want_value" in
       mode) MODE=$a; MODE_SET=1 ;;
       base) BASE=$a; BASE_SET=1 ;;
-      harness) HARNESS=$a ;;
       *) echo "error: internal parser state for --$want_value" >&2; exit 1 ;;
     esac
     want_value=
@@ -172,8 +159,6 @@ for a in "$@"; do
     --mode=*) MODE=${a#--mode=}; MODE_SET=1 ;;
     --base) want_value=base ;;
     --base=*) BASE=${a#--base=}; BASE_SET=1 ;;
-    --harness) want_value=harness ;;
-    --harness=*) HARNESS=${a#--harness=} ;;
     # yolo never reaches the worker: it is firstmate's merge authority, not a
     # brief input. Refuse it loudly so it is never silently dropped here and then
     # believed to have been recorded.
@@ -183,30 +168,6 @@ for a in "$@"; do
 done
 [ -z "$want_value" ] || { echo "error: --$want_value requires a value" >&2; exit 1; }
 
-# Tell the worker about Tavily only when the harness this task will actually
-# launch on will be handed it, so a brief never advertises a tool the launch
-# cannot grant. bin/fm-tavily-lib.sh owns the wording, the withheld-endpoint
-# contract, the key-file verdict, and the decision itself; this only supplies the
-# two inputs. A secondmate charter carries no Tavily lines and bin/fm-spawn.sh
-# never wires a secondmate, so nothing below is resolved on that path.
-if [ "$KIND" != secondmate ]; then
-  TAVILY_NOTICE=$(fm_tavily_notice "$CONFIG")
-  [ -z "$TAVILY_NOTICE" ] || printf '%s\n' "$TAVILY_NOTICE" >&2
-  # The harness defaults to the standing crewmate resolution bin/fm-spawn.sh
-  # lands on when no per-spawn harness is given, and --harness names it when the
-  # caller already knows the spawn will override that default. A dispatch profile
-  # makes that default a lie - bin/fm-spawn.sh refuses the same derivation for the
-  # same reason - so with a usable key there is nothing honest to derive from and
-  # the scaffold stops instead of guessing. With no usable key there are no Tavily
-  # lines to get wrong, so those homes keep scaffolding exactly as before.
-  if [ -z "$HARNESS" ] && [ -f "$CONFIG/crew-dispatch.json" ] && fm_tavily_key_present "$CONFIG"; then
-    echo "error: config/crew-dispatch.json is active and this home has a Tavily key - pass --harness <harness> naming the harness resolved from the dispatch rules, the same one you will pass to bin/fm-spawn.sh, so the brief cannot advertise tools that launch will not grant." >&2
-    exit 1
-  fi
-  [ -n "$HARNESS" ] || HARNESS=$("$FM_ROOT/bin/fm-harness.sh" crew) || HARNESS=
-  TAVILY_TEXT=$(fm_tavily_brief_lines "$CONFIG" "$HARNESS")
-  [ -z "$TAVILY_TEXT" ] || TAVILY_LINES=$'\n'$TAVILY_TEXT
-fi
 
 # Ship delivery mode is an explicit per-task decision (AGENTS.md section 7). A
 # missing or invalid value stops the scaffold rather than silently defaulting.
@@ -452,7 +413,7 @@ The report is the only thing that survives, so anything worth keeping must be in
 2. Stay inside this worktree; the only files you may write outside it are the report and the status file below.
 3. Use gh-axi for GitHub operations.
    For browser operations use your own harness's browser tooling: on Codex its native browser and computer-use tools, on Claude the claude-in-chrome tools.
-   Do NOT use chrome-devtools-axi for browser operations while the fm-chrome-devtools-attach-chrome152 defect is open - it cannot attach to Chrome 152 at all.$TAVILY_LINES
+   Do NOT use chrome-devtools-axi for browser operations while the fm-chrome-devtools-attach-chrome152 defect is open - it cannot attach to Chrome 152 at all.
 4. Report status by appending one line:
    \`echo "{state}: {one short line}" >> $STATUS_FILE\`
    States: working, needs-decision, blocked, $PAUSED_VERB, done, failed.
@@ -538,7 +499,7 @@ $RULE1
 2. Stay inside this worktree; modify nothing outside it.
 3. Use gh-axi for GitHub operations.
    For browser operations use your own harness's browser tooling: on Codex its native browser and computer-use tools, on Claude the claude-in-chrome tools.
-   Do NOT use chrome-devtools-axi for browser operations while the fm-chrome-devtools-attach-chrome152 defect is open - it cannot attach to Chrome 152 at all.$TAVILY_LINES
+   Do NOT use chrome-devtools-axi for browser operations while the fm-chrome-devtools-attach-chrome152 defect is open - it cannot attach to Chrome 152 at all.
 4. Report status by appending one line:
    \`echo "{state}: {one short line}" >> $STATUS_FILE\`
    States: working, needs-decision, blocked, $PAUSED_VERB, done, failed.

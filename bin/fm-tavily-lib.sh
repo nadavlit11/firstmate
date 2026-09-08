@@ -6,9 +6,16 @@
 # Tavily is a hosted web-access API with an official remote MCP server. This
 # library is the ONE owner of how that server is wired into a spawned worker:
 # where the key lives, which harnesses can take it, the exact launch flags, and
-# the worker-facing contract. bin/fm-spawn.sh and bin/fm-brief.sh call in here
-# rather than restating any of it; docs/configuration.md owns the operator-facing
-# setup, credit ceiling, and privacy note.
+# the worker-facing contract. bin/fm-spawn.sh calls in here rather than restating
+# any of it; docs/configuration.md owns the operator-facing setup, credit ceiling,
+# and privacy note.
+#
+# The worker-facing lines are appended to the LAUNCH brief by bin/fm-spawn.sh,
+# not written into the scaffolded brief.md by bin/fm-brief.sh. A scaffold happens
+# before the harness is resolved, so a claim made there would be a guess that a
+# later per-spawn harness could contradict; emitting at launch time, from the
+# same decision that composes the launch flags, makes that whole drift class
+# impossible rather than policed.
 #
 # The capability is PRESENCE-GATED and OPTIONAL. A home with no readable
 # config/tavily.env spawns exactly as it did before this file existed: no flags,
@@ -72,7 +79,9 @@ fm_tavily_key_file() {  # <config-dir>
 # sourcing it would execute whatever it contains.
 #
 # The ONLY accepted form is the documented one: a line `TAVILY_API_KEY=<value>`
-# starting at column one, with whitespace trimmed from both ends of the value.
+# starting at column one, with whitespace trimmed from both ends of the value and
+# none left inside it - a Tavily key carries no whitespace, so an annotated line
+# like `TAVILY_API_KEY=tvly-abc # captain key` is a near-miss, not a key.
 # No `export` prefix, no quoting, no indentation, no CR line ending. A line that
 # is not an assignment of this variable at all - a comment, another variable -
 # is simply skipped, and so is an assignment whose value is empty, so a seeded
@@ -112,7 +121,7 @@ fm_tavily_scan() {  # <key-file>
     [ -n "$value" ] || continue
     if [ "$probe" = "$line" ]; then
       case "$value" in
-        \"*|\'*) malformed=1; continue ;;
+        \"*|\'*|*[[:space:]]*) malformed=1; continue ;;
       esac
       printf 'ok\n%s\n' "$value"
       return 0
@@ -220,20 +229,24 @@ fm_tavily_available() {  # <config-dir> <harness>
   fm_tavily_harness_supported "$2" && fm_tavily_key_present "$1"
 }
 
-# The worker-facing contract, as brief lines, for a worker spawned from
-# <config-dir> onto <harness>; nothing at all when that worker gets no Tavily.
-# Kept here rather than in bin/fm-brief.sh so the tools a worker is told about
+# The worker-facing contract, as a titled launch-brief section, for a worker
+# spawned from <config-dir> onto <harness>; nothing at all when that worker gets
+# no Tavily. bin/fm-spawn.sh appends this to the launch brief under exactly the
+# condition that composes the launch flags, so the tools a worker is told about
 # and the tools the launch actually grants cannot drift apart - on the harness
 # axis as much as the key axis.
 fm_tavily_brief_lines() {  # <config-dir> <harness>
   fm_tavily_available "$1" "$2" || return 0
   cat <<'TXT'
-   Tavily web retrieval is available to you as MCP tools: tavily_search for current
-   information, tavily_extract for the full text of specific URLs, tavily_map and
-   tavily_crawl for a site's structure. Prefer them over ad-hoc fetching when you
-   need to read the web. They spend a small shared monthly credit budget, so search
-   deliberately rather than in bulk. tavily_research is deliberately withheld - it
-   can cost up to 250 credits in one call, a quarter of the fleet's month; do not
-   look for another route to it.
+
+## Web retrieval
+
+Tavily web retrieval is available to you as MCP tools: tavily_search for current
+information, tavily_extract for the full text of specific URLs, tavily_map and
+tavily_crawl for a site's structure. Prefer them over ad-hoc fetching when you
+need to read the web. They spend a small shared monthly credit budget, so search
+deliberately rather than in bulk. tavily_research is deliberately withheld - it
+can cost up to 250 credits in one call, a quarter of the fleet's month; do not
+look for another route to it.
 TXT
 }

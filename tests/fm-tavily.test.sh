@@ -283,102 +283,124 @@ test_unwired_harness_gets_nothing() {
   pass "a harness without a verified withholding control is left unwired"
 }
 
-# --- the brief --------------------------------------------------------------
+# --- the worker-facing lines ------------------------------------------------
 
-test_brief_mentions_tavily_only_when_the_home_has_it() {
-  local dir home brief
+# A scaffold happens before the harness is resolved, so brief.md must make no
+# claim about harness-provided tooling at all - whatever the home's key state.
+test_scaffolded_brief_never_mentions_tavily() {
+  local dir home id
   dir="$TMP_ROOT/brief"
   home="$dir/home"
   fm_test_spawn_home "$home" claude
 
   FM_HOME="$home" "$ROOT/bin/fm-brief.sh" tv-off demo --base main --mode no-mistakes >/dev/null \
     || fail "scaffolding a brief without a key failed"
-  brief="$home/data/tv-off/brief.md"
-  # Matched on the tool names and the capability sentence rather than the bare
-  # word, which also occurs in this suite's own temporary paths.
-  assert_no_grep 'tavily_search' "$brief" "a home with no key advertised Tavily to the worker"
-  assert_no_grep 'Tavily web retrieval' "$brief" \
-    "a home with no key described a capability it does not have"
-
   write_key "$home"
   FM_HOME="$home" "$ROOT/bin/fm-brief.sh" tv-on demo --base main --mode no-mistakes >/dev/null \
     || fail "scaffolding a brief with a key failed"
-  brief="$home/data/tv-on/brief.md"
-  assert_grep 'tavily_search' "$brief" "the brief did not tell the worker Tavily is available"
-  assert_grep 'tavily_research is deliberately withheld' "$brief" \
-    "the brief did not carry the Research prohibition"
-  assert_no_grep "$SECRET" "$brief" "the API key was written into a brief"
-
   FM_HOME="$home" "$ROOT/bin/fm-brief.sh" tv-scout demo --base main --scout >/dev/null \
     || fail "scaffolding a scout brief with a key failed"
-  assert_grep 'tavily_search' "$home/data/tv-scout/brief.md" \
-    "a scout brief did not tell the worker Tavily is available"
-  pass "briefs advertise Tavily only where the home actually has it, and never carry the key"
-}
 
-# The key is only half the gate: an unwired harness gets no server at launch, so
-# a brief written for one must not describe tools that worker will not have.
-test_brief_stays_silent_on_an_unwired_harness() {
-  local dir home
-  dir="$TMP_ROOT/brief-unwired"
-  home="$dir/home"
-  fm_test_spawn_home "$home" opencode
-  write_key "$home"
-
-  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" tv-standing demo --base main --mode no-mistakes >/dev/null \
-    || fail "scaffolding a brief on an unwired standing harness failed"
-  assert_no_grep 'tavily_search' "$home/data/tv-standing/brief.md" \
-    "a brief for an unwired standing harness advertised Tavily anyway"
-  assert_no_grep 'Tavily web retrieval' "$home/data/tv-standing/brief.md" \
-    "a brief for an unwired standing harness described a capability the launch cannot grant"
-
-  # An explicit --harness overrides the standing resolution, in both directions.
-  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" tv-override demo --base main --mode no-mistakes --harness claude >/dev/null \
-    || fail "scaffolding a brief with an explicit wired harness failed"
-  assert_grep 'tavily_search' "$home/data/tv-override/brief.md" \
-    "an explicit wired harness did not get the Tavily lines"
-
-  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" tv-override-off demo --base main --scout --harness gemini >/dev/null \
-    || fail "scaffolding a scout brief with an explicit unwired harness failed"
-  assert_no_grep 'tavily_search' "$home/data/tv-override-off/brief.md" \
-    "an explicit unwired harness still got the Tavily lines"
-  pass "a brief describes Tavily only when the harness it will launch on can be wired for it"
-}
-
-# A dispatch profile means config/crew-harness is NOT what the spawn launches on,
-# so there is nothing honest to derive from: the scaffold must refuse rather than
-# write a brief whose Tavily claim the launch may not honour.
-test_brief_refuses_to_guess_under_a_dispatch_profile() {
-  local dir home out status
-  dir="$TMP_ROOT/brief-dispatch"
-  home="$dir/home"
-  fm_test_spawn_home "$home" claude
+  # A dispatch profile is no longer a special case for scaffolding, because a
+  # brief that makes no harness-specific claim cannot make a wrong one.
   printf '{}\n' > "$home/config/crew-dispatch.json"
-  write_key "$home"
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" tv-dispatch demo --base main --mode no-mistakes >/dev/null \
+    || fail "a dispatch-profile scaffold with a key was refused"
 
-  out=$(FM_HOME="$home" "$ROOT/bin/fm-brief.sh" tv-dispatch demo --base main --mode no-mistakes 2>&1)
+  for id in tv-off tv-on tv-scout tv-dispatch; do
+    [ -f "$home/data/$id/brief.md" ] || fail "$id was not scaffolded"
+    # Matched on the tool names and the capability sentence rather than the bare
+    # word, which also occurs in this suite's own temporary paths.
+    assert_no_grep 'tavily_search' "$home/data/$id/brief.md" \
+      "$id: a scaffolded brief advertised Tavily before any harness was resolved"
+    assert_no_grep 'Tavily web retrieval' "$home/data/$id/brief.md" \
+      "$id: a scaffolded brief described a capability no scaffold can vouch for"
+    assert_no_grep "$SECRET" "$home/data/$id/brief.md" "$id: the API key was written into a brief"
+  done
+  pass "a scaffolded brief never mentions Tavily, whatever the home's key or config"
+}
+
+# The brief the worker is actually handed is the one named in the launch command.
+launched_brief_path() {
+  sed -n 's/.*encode launch-brief < \([^ )"]*\).*/\1/p' "$LAUNCH_LOG" | head -1 | tr -d "'"
+}
+
+test_launch_brief_carries_tavily_on_a_wired_harness() {
+  local rec id out status brief
+  id=tv-launchbrief-t9
+  rec=$(make_case launchbrief claude "$id")
+  read_case_record "$rec"
+  write_key "$HOME_DIR"
+
+  out=$(run_spawn "$id" --mode no-mistakes --yolo off)
   status=$?
-  [ "$status" -ne 0 ] || fail "a dispatch-profile scaffold with a key guessed a harness instead of refusing"
-  [ ! -e "$home/data/tv-dispatch/brief.md" ] \
-    || fail "the refused scaffold still wrote a brief"
-  case "$out" in
-    *--harness*) : ;;
-    *) fail "the refusal did not name --harness: $out" ;;
-  esac
+  expect_code 0 "$status" "a claude spawn with a Tavily key should succeed"
+  brief=$(launched_brief_path)
+  [ -n "$brief" ] && [ -f "$brief" ] || fail "could not find the brief the launch hands the worker: '$brief'"
 
-  # The explicit harness the dispatch rules resolved to is accepted, and decides.
-  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" tv-dispatch-ok demo --base main --mode no-mistakes --harness opencode >/dev/null \
-    || fail "a dispatch-profile scaffold with an explicit harness failed"
-  assert_no_grep 'tavily_search' "$home/data/tv-dispatch-ok/brief.md" \
-    "a dispatch-resolved unwired harness still got the Tavily lines"
+  # The launch wires the server AND the worker is told so, from one decision.
+  assert_grep 'mcp.tavily.com' "$LAUNCH_LOG" "the launch did not wire the server"
+  assert_grep 'tavily_search' "$brief" "the launched worker was not told Tavily is available"
+  assert_grep 'tavily_research is deliberately withheld' "$brief" \
+    "the launched brief did not carry the Research prohibition"
+  assert_no_grep "$SECRET" "$brief" "the API key was written into the launched brief"
 
-  # With no usable key there are no Tavily lines to get wrong, so an unrelated
-  # caller on a dispatch-profile home must not start needing --harness.
-  rm -f "$home/config/tavily.env"
-  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" tv-dispatch-nokey demo --base main --mode no-mistakes >/dev/null \
-    || fail "a dispatch-profile scaffold with no key was refused"
-  [ -e "$home/data/tv-dispatch-nokey/brief.md" ] || fail "the keyless dispatch scaffold wrote no brief"
-  pass "a dispatch-profile home refuses to guess a harness only when a key makes the guess matter"
+  # A no-mistakes ship also carries its intent contract: both overlays compose
+  # into the one file the worker receives.
+  assert_grep '# Current no-mistakes intent contract' "$brief" \
+    "the launched brief lost the intent contract overlay"
+  # The scaffolded source brief is untouched; only the derived launch brief carries it.
+  assert_no_grep 'tavily_search' "$HOME_DIR/data/$id/brief.md" \
+    "the Tavily section leaked back into the scaffolded brief"
+  pass "a wired launch hands the worker a brief that carries the Tavily contract"
+}
+
+# The case that used to drift: the harness the spawn resolves is unwired, so the
+# worker must be told nothing - by construction, not by a check.
+test_unwired_launch_tells_the_worker_nothing() {
+  local rec id out status brief
+  id=tv-nodrift-t10
+  rec=$(make_case nodrift opencode "$id")
+  read_case_record "$rec"
+  write_key "$HOME_DIR"
+
+  out=$(run_spawn "$id" --mode no-mistakes --yolo off)
+  status=$?
+  expect_code 0 "$status" "a spawn on an unwired harness should still succeed"
+  brief=$(launched_brief_path)
+  [ -n "$brief" ] && [ -f "$brief" ] || fail "could not find the brief the launch hands the worker: '$brief'"
+  assert_no_grep 'mcp.tavily.com' "$LAUNCH_LOG" "an unwired harness was wired anyway"
+  assert_no_grep 'tavily_search' "$brief" \
+    "the worker was told about tools its unwired launch never granted"
+  pass "an unwired launch tells the worker nothing about Tavily"
+}
+
+# The exact reported sequence: scaffold with no harness input at all, then spawn
+# with an explicit --harness the standing configuration did not predict.
+test_explicit_harness_override_cannot_drift_from_the_brief() {
+  local rec id out status brief
+  id=tv-override-t11
+  rec=$(make_case override claude "$id")
+  read_case_record "$rec"
+  write_key "$HOME_DIR"
+  rm -f "$HOME_DIR/data/$id/brief.md"
+  FM_HOME="$HOME_DIR" "$ROOT/bin/fm-brief.sh" "$id" demo --base main --mode no-mistakes >/dev/null \
+    || fail "scaffolding the brief failed"
+  # Firstmate fills these before dispatch; spawn refuses a brief that still has them.
+  sed -e 's/{TASK}/Investigate the thing./' -e 's/{FIRSTMATE_SPEC}/Exercise the spawn behavior under test./' \
+    "$HOME_DIR/data/$id/brief.md" > "$HOME_DIR/data/$id/brief.filled" \
+    && mv "$HOME_DIR/data/$id/brief.filled" "$HOME_DIR/data/$id/brief.md" \
+    || fail "could not fill the scaffolded brief"
+
+  out=$(run_spawn "$id" --mode no-mistakes --yolo off --harness opencode)
+  status=$?
+  expect_code 0 "$status" "spawning with an explicit unwired harness should succeed: $out"
+  brief=$(launched_brief_path)
+  [ -n "$brief" ] && [ -f "$brief" ] || fail "could not find the brief the launch hands the worker: '$brief'"
+  assert_no_grep 'mcp.tavily.com' "$LAUNCH_LOG" "the overridden harness was wired anyway"
+  assert_no_grep 'tavily_search' "$brief" \
+    "a scaffold-then-override sequence still told the worker about Tavily"
+  pass "an explicit harness override cannot leave the worker holding a stale Tavily claim"
 }
 
 # --- absent vs malformed ----------------------------------------------------
@@ -415,7 +437,7 @@ test_key_status_separates_absence_from_a_broken_spelling() {
   [ -z "$notice" ] || fail "a well-formed key produced a diagnostic: '$notice'"
 
   local spelling
-  for spelling in 'TAVILY_API_KEY="%s"\n' 'export TAVILY_API_KEY=%s\n' '  TAVILY_API_KEY=%s\n' 'TAVILY_API_KEY=%s\r\n'; do
+  for spelling in 'TAVILY_API_KEY="%s"\n' 'export TAVILY_API_KEY=%s\n' '  TAVILY_API_KEY=%s\n' 'TAVILY_API_KEY=%s\r\n' 'TAVILY_API_KEY=%s # captain key\n'; do
     # shellcheck disable=SC2059  # the loop variable IS the format being exercised
     printf "$spelling" "$SECRET" > "$home/config/tavily.env"
     status=$(fm_tavily_key_status "$home/config")
@@ -531,6 +553,7 @@ test_absent_key_leaves_the_launch_untouched
 test_empty_key_file_is_absence_not_failure
 test_unwired_harness_gets_nothing
 test_malformed_key_leaves_the_launch_unwired_and_says_so
-test_brief_mentions_tavily_only_when_the_home_has_it
-test_brief_stays_silent_on_an_unwired_harness
-test_brief_refuses_to_guess_under_a_dispatch_profile
+test_scaffolded_brief_never_mentions_tavily
+test_launch_brief_carries_tavily_on_a_wired_harness
+test_unwired_launch_tells_the_worker_nothing
+test_explicit_harness_override_cannot_drift_from_the_brief
