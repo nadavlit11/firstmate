@@ -165,7 +165,7 @@ emit_finished_result() {
   failed_action=$(jq -er '
     if (.data | type) != "array" then error("missing actions")
     else ([.data[] | select(.status == "failed")] | last) as $f
-      | if $f == null then "" else ($f.type // $f.name // "unknown") end
+      | if $f == null then "" else ((($f.type // "") | select(. != "")) // (($f.name // "") | select(. != "")) // "unknown") end
     end
   ' "$actions_body" 2>/dev/null) || {
     emit_build_result action-detail-error "Codemagic build status is finished, but the v3 actions response was invalid" finished "$polls"

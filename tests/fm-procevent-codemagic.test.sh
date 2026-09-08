@@ -41,6 +41,8 @@ case "$url" in
       many) printf '{"data":[],"total_pages":2}' > "$body"; printf '200'; exit 0 ;;
       post) printf '{"data":[{"type":"building_ios","status":"success"},{"type":"post_publish","status":"failed"}],"total_pages":1}' > "$body"; printf '200'; exit 0 ;;
       typeless) printf '{"data":[{"name":"Build ipa","status":"failed"}],"total_pages":1}' > "$body"; printf '200'; exit 0 ;;
+      blanktype) printf '{"data":[{"type":"","name":"Build ipa","status":"failed"}],"total_pages":1}' > "$body"; printf '200'; exit 0 ;;
+      blankboth) printf '{"data":[{"type":"","name":"","status":"failed"}],"total_pages":1}' > "$body"; printf '200'; exit 0 ;;
       early) printf '{"data":[{"type":"building_ios","status":"failed"}],"total_pages":1}' > "$body"; printf '200'; exit 0 ;;
       transient)
         count=0
@@ -149,6 +151,18 @@ printf '%s\n' "$out" | grep -qx 'failed_action: Build ipa' \
   || fail "a failed action without a type lost its documented action name"
 ok "a failed action without a type reports its action name"
 
+out=$(run_poll finished blanktype)
+printf '%s\n' "$out" | grep -qx 'status: post-processing-failed' \
+  || fail "a failed action with a blank type was reported as a successful build"
+printf '%s\n' "$out" | grep -qx 'failed_action: Build ipa' \
+  || fail "a failed action with a blank type lost its documented action name"
+out=$(run_poll finished blankboth)
+printf '%s\n' "$out" | grep -qx 'status: post-processing-failed' \
+  || fail "a failed action with neither type nor name was reported as a successful build"
+printf '%s\n' "$out" | grep -qx 'failed_action: unknown' \
+  || fail "a failed action with neither type nor name lacked an explicit label"
+ok "a failed action with blank identifiers still fails the build"
+
 rm -f "$ACTION_COUNT"
 out=$(run_poll finished transient)
 printf '%s\n' "$out" | grep -qx 'status: finished' \
@@ -224,7 +238,7 @@ for malformed in 'CODEMAGIC_API_TOKEN=tok\n# a comment\n' 'CODEMAGIC_API_TOKEN=t
     || fail "malformed Codemagic config was reported as unconfigured"
 done
 printf 'CODEMAGIC_API_TOKEN=super-secret-test-token' > "$HOME_DIR/config/codemagic.env"
-FM_HOME="$HOME_DIR" PATH="$FAKEBIN:$PATH" "$BIN/fm-procevent-codemagic.sh" arm build_123 >/dev/null 2>&1 \
+FM_HOME="$HOME_DIR" FM_PROCEVENT_CLAIM_ROOT="$LAB/claims" PATH="$FAKEBIN:$PATH" "$BIN/fm-procevent-codemagic.sh" arm build_123 >/dev/null 2>&1 \
   || fail "a valid single-line token config without a trailing newline was rejected"
 rm -f "$HOME_DIR/config/codemagic.env"
 mv "$HOME_DIR/config/codemagic.env.saved" "$HOME_DIR/config/codemagic.env"
