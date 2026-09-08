@@ -109,6 +109,11 @@
 # recorded family-level coupling still expands to the whole family.
 set -eu
 
+# Fixture repositories must start on main because spawn fixtures request
+# --base main. Pinning it here keeps local and CI runs independent of the host's
+# init.defaultBranch setting.
+export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=init.defaultBranch GIT_CONFIG_VALUE_0=main
+
 now_ms() {
   if command -v python3 >/dev/null 2>&1; then
     python3 -c 'import time; print(int(time.time() * 1000))'
