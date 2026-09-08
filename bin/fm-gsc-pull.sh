@@ -30,8 +30,7 @@
 #       one the credential cannot see, whatever the console shows.
 #
 #   fm-gsc-pull.sh pull --site <property> --start <YYYY-MM-DD> --end <YYYY-MM-DD>
-#                       [--out <dir>] [--data-state final|all]
-#                       [--max-rows <n>]
+#                       [--out <dir>] [--max-rows <n>]
 #       Pull search analytics for one property and write an export directory.
 #       --site takes the property exactly as Search Console names it, such as
 #       `sc-domain:clickbateva.co.il`; run `sites` to see the exact strings.
@@ -41,7 +40,7 @@
 #   שאילתות.csv   top queries      - header `השאילתות המובילות,קליקים,הופעות,שיעור קליקים,מקום`
 #   דפים.csv      top pages        - header `הדפים המובילים,קליקים,הופעות,שיעור קליקים,מקום`
 #   תרשים.csv     per-day totals   - header `תאריך,קליקים,הופעות,שיעור קליקים,מקום`
-#   manifest.json   provenance: property, range, data state, row counts,
+#   manifest.json   provenance: property, range, row counts,
 #                   whether any dimension hit --max-rows, and the API's own
 #                   first_incomplete_date when it reported one.
 # The three Hebrew-named CSVs match the column order and the `NN.NN%` /
@@ -52,11 +51,10 @@
 # vocabulary into a file the review reads as if it came from Google.
 #
 # Freshness. Search Console data is incomplete for roughly the last two to
-# three days. `--data-state final` is the default and asks Google for
-# finalized data only, so a review never reports a still-moving day as
-# settled. `--data-state all` includes fresh data and is recorded as such in
-# manifest.json; whenever the API reports a first incomplete date, that date
-# is carried into the manifest and printed on stderr rather than swallowed.
+# three days. Every row request asks Google for finalized data only, so a
+# review never reports a still-moving day as settled; whenever the API reports
+# a first incomplete date, that date is carried into the manifest and printed
+# on stderr rather than swallowed.
 # That horizon describes the moment a request was made, not the days it covers,
 # so it is never cached. Every run observes it once, with a single cheap
 # `dataState: all` request over the range, and reports it as
@@ -72,7 +70,10 @@
 # claim that everything is settled: the trailing three days of the documented
 # settling window are assumed incomplete instead, and the manifest records
 # `firstIncompleteDateSource` as `assumed-conservative-default` rather than
-# passing the assumption off as a date Google gave. That assumed window is measured on
+# passing the assumption off as a date Google gave. When that assumed window
+# falls entirely outside the requested range - a wholly historical pull -
+# nothing in the range can be unsettled, so no warning is emitted and the
+# horizon fields are recorded as `not-applicable`. That assumed window is measured on
 # the Search Console reporting timezone (America/Los_Angeles), the calendar its
 # days actually end on, not on the machine clock. A settled day is a stable historical fact and is served
 # from disk forever. A cache entry from before this flag existed carries no
@@ -359,8 +360,8 @@ api_call() {  # <method> <url> [<json-body>]
 
 # One dimension set, one date range, paged to completion or to max_rows.
 # Emits a JSON object: {rows:[...], truncated:bool, aggregation:string|null}
-query_rows() {  # <property> <start> <end> <dimensions-json> <data-state> <max-rows>
-  local site=$1 start=$2 end=$3 dims=$4 state=$5 max=$6
+query_rows() {  # <property> <start> <end> <dimensions-json> <max-rows>
+  local site=$1 start=$2 end=$3 dims=$4 max=$5
   local url start_row=0 total_rows=0 truncated=false hit_cap=false aggregation=null
   local acc='[]' payload page page_rows page_count want
   url="$API_BASE/sites/$(jq -rn --arg s "$site" '$s|@uri')/searchAnalytics/query"
@@ -370,10 +371,10 @@ query_rows() {  # <property> <start> <end> <dimensions-json> <data-state> <max-r
     [ "$want" -gt "$PAGE_LIMIT" ] && want=$PAGE_LIMIT
     if [ "$want" -le 0 ]; then hit_cap=true; break; fi
     payload=$(jq -cn \
-      --arg start "$start" --arg end "$end" --arg type "$SEARCH_TYPE" --arg state "$state" \
+      --arg start "$start" --arg end "$end" --arg type "$SEARCH_TYPE" \
       --argjson dims "$dims" --argjson limit "$want" --argjson startRow "$start_row" \
       '{startDate:$start, endDate:$end, dimensions:$dims, type:$type,
-        dataState:$state, rowLimit:$limit, startRow:$startRow}')
+        dataState:"final", rowLimit:$limit, startRow:$startRow}')
     # `exit` inside a command substitution ends only that subshell, so the
     # failure code has to be carried out by hand at every nesting level or an
     # API error would come back as an empty page and loop forever.
@@ -399,10 +400,10 @@ query_rows() {  # <property> <start> <end> <dimensions-json> <data-state> <max-r
   # call the dimension truncated only if one comes back.
   if [ "$hit_cap" = true ]; then
     payload=$(jq -cn \
-      --arg start "$start" --arg end "$end" --arg type "$SEARCH_TYPE" --arg state "$state" \
+      --arg start "$start" --arg end "$end" --arg type "$SEARCH_TYPE" \
       --argjson dims "$dims" --argjson startRow "$max" \
       '{startDate:$start, endDate:$end, dimensions:$dims, type:$type,
-        dataState:$state, rowLimit:1, startRow:$startRow}')
+        dataState:"final", rowLimit:1, startRow:$startRow}')
     page=$(api_call POST "$url" "$payload") || exit $?
     page_count=$(printf '%s' "$page" | jq '.rows // [] | length')
     case "$page_count" in
@@ -572,7 +573,7 @@ cmd_sites() {
 
 cmd_pull() {
   need_tool curl; need_tool jq; need_tool awk
-  local site="" start="" end="" out="" state=final
+  local site="" start="" end="" out=""
   local max=$PAGE_LIMIT
 
   while [ $# -gt 0 ]; do
@@ -581,7 +582,6 @@ cmd_pull() {
       --start) start=${2:-}; shift 2 ;;
       --end) end=${2:-}; shift 2 ;;
       --out) out=${2:-}; shift 2 ;;
-      --data-state) state=${2:-}; shift 2 ;;
       --max-rows) max=${2:-}; shift 2 ;;
       *) die "unexpected argument: $1" ;;
     esac
@@ -590,7 +590,6 @@ cmd_pull() {
   [ -n "$site" ] || die "pull needs --site <property> (run 'sites' to list them)"
   date_valid "$start" || die "pull needs --start <YYYY-MM-DD>"
   date_valid "$end" || die "pull needs --end <YYYY-MM-DD>"
-  case "$state" in final|all) ;; *) die "--data-state must be final or all" ;; esac
   case "$max" in ''|*[!0-9]*) die "--max-rows must be a positive integer" ;; esac
   [ "$max" -ge 1 ] || die "--max-rows must be at least 1"
 
@@ -607,7 +606,7 @@ cmd_pull() {
   local cache_root
   # The cap is part of the key: a day pulled under a low --max-rows is a
   # top-N, not that day, and must not be re-served as if it were complete.
-  cache_root="$FM_HOME/data/gsc-cache/$(site_slug "$site")/$SEARCH_TYPE/$state/max-$max"
+  cache_root="$FM_HOME/data/gsc-cache/$(site_slug "$site")/$SEARCH_TYPE/max-$max"
   local first_incomplete truncated_dims=""
   first_incomplete=$(observe_horizon "$site" "$start" "$end") || exit $?
   local -a dim_keys=(query page date)
@@ -633,9 +632,16 @@ cmd_pull() {
     # Google reporting no horizon is not Google reporting that everything is
     # settled. Fall back to the documented settling window - the trailing three
     # days, inclusive - so a still-moving day is never captured as final.
-    horizon_source=assumed-conservative-default
     horizon=$(assumed_horizon)
-    warn "Search Console reported no incomplete-data horizon; assuming data from $horizon onward is not yet settled"
+    if [[ $horizon > $end ]]; then
+      # The assumed window lies entirely after the requested range, so nothing
+      # in this pull can be unsettled. Announcing a caveat that cannot apply
+      # here teaches a reader to discount it when it is real.
+      horizon_source=not-applicable
+    else
+      horizon_source=assumed-conservative-default
+      warn "Search Console reported no incomplete-data horizon; assuming data from $horizon onward is not yet settled"
+    fi
   else
     horizon=$(printf '%s' "$first_incomplete" | jq -r .)
   fi
@@ -655,7 +661,7 @@ cmd_pull() {
          && [ "$(jq -r 'if .provisional == false then "settled" else "unusable" end' < "$cache_file")" = settled ]; then
         cached_days=$(( cached_days + 1 ))
       else
-        result=$(query_rows "$site" "$day" "$day" "$(dims_for "$dim")" "$state" "$max") || exit $?
+        result=$(query_rows "$site" "$day" "$day" "$(dims_for "$dim")" "$max") || exit $?
         printf '%s\n' "$result" >> "$tmp/$dim.live.ndjson"
         # Write through a temp file so an interrupted run never leaves a
         # half-written day that a later run would trust as complete.
@@ -696,12 +702,13 @@ cmd_pull() {
 
   jq -n \
     --arg site "$site" --arg start "$start" --arg end "$end" \
-    --arg state "$state" --arg type "$SEARCH_TYPE" \
+    --arg type "$SEARCH_TYPE" \
     --arg generated "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     --arg truncated "${truncated_dims# }" \
     --argjson maxRows "$max" \
     --argjson firstIncompleteDate "$first_incomplete" \
-    --arg horizonSource "$horizon_source" --arg provisionalFrom "$horizon" \
+    --arg horizonSource "$horizon_source" \
+    --argjson provisionalFrom "$(if [ "$horizon_source" = not-applicable ]; then printf null; else jq -n --arg h "$horizon" '$h'; fi)" \
     --argjson aggregation "$aggregations" \
     --argjson freshDays "$fresh_days" --argjson cachedDays "$cached_days" \
     --argjson queryRows "$(jq length < "$tmp/query.agg.json")" \
@@ -709,7 +716,7 @@ cmd_pull() {
     '{
       source: "Google Search Console API (searchAnalytics.query), read-only",
       property: $site, startDate: $start, endDate: $end,
-      searchType: $type, dataState: $state,
+      searchType: $type, dataState: "final",
       maxRowsPerDimension: $maxRows,
       truncatedDimensions: (if $truncated == "" then [] else ($truncated | split(" ")) end),
       firstIncompleteDate: $firstIncompleteDate,

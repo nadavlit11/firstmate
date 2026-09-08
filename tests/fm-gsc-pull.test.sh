@@ -308,6 +308,23 @@ assert_grep "could not resolve the Search Console reporting timezone" "$TMP_ROOT
   || fail "the conservative widened window was not applied for an unresolvable timezone"
 pass "an unresolvable reporting timezone widens the window instead of passing UTC off as Pacific"
 
+# A wholly historical range cannot contain an unsettled day, so the assumed
+# window does not apply to it: no caveat on stderr, and no boundary date named
+# outside the range that was actually pulled.
+HOME1D=$(make_home home1d)
+OUT4F="$TMP_ROOT/out4f"
+( cd "$HOME1D" && FM_HOME="$HOME1D" FM_GSC_TEST_CLOCK="$CLOCK" "$GSC" pull \
+    --site sc-domain:example.co.il \
+    --start 2026-05-01 --end 2026-05-07 --out "$OUT4F" ) 2>"$TMP_ROOT/stderr.txt" \
+  || fail "historical-range pull failed: $(cat "$TMP_ROOT/stderr.txt")"
+assert_not_contains "$(cat "$TMP_ROOT/stderr.txt")" "no incomplete-data horizon" \
+  "a caveat that cannot apply to the pulled range is not announced"
+[ "$(jq -r .firstIncompleteDateSource "$OUT4F/manifest.json")" = "not-applicable" ] \
+  || fail "a wholly historical range should record the horizon as not applicable"
+[ "$(jq -r .provisionalFromDate "$OUT4F/manifest.json")" = null ] \
+  || fail "a date outside the pulled range was recorded as the provisional boundary"
+pass "a wholly historical range reports no assumed window and names no out-of-range date"
+
 # The reported branch must be distinguishable: a horizon Google actually sent
 # is used verbatim and recorded as reported.
 [ "$(jq -r .firstIncompleteDateSource "$OUT4A/manifest.json")" = "reported" ] \
