@@ -97,6 +97,8 @@ Exercise Herdr backend auto-detection.
 
 ## Firstmate spec
 Verify the real spawn path selects Herdr.
+
+Planning gate: exception=precedent-following reason=backend auto-detection integration fixture brief
 EOF
 
 PROJ="$TMP_ROOT/scratch-project"

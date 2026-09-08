@@ -96,6 +96,8 @@ Exercise primary-home Herdr placement.
 
 ## Firstmate spec
 Verify the crewmate uses its primary home's workspace.
+
+Planning gate: exception=precedent-following reason=Herdr primary-home integration fixture brief
 EOF
 
 SM_HOME="$TMP_ROOT/secondmate-home"
@@ -111,6 +113,8 @@ Exercise secondmate-owned Herdr placement.
 
 ## Firstmate spec
 Verify the crewmate uses its secondmate home's workspace.
+
+Planning gate: exception=precedent-following reason=Herdr secondmate-home integration fixture brief
 EOF
 
 make_scratch_project() {  # <dir>

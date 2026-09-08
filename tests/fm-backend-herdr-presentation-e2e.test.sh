@@ -392,6 +392,8 @@ $description
 
 ## Firstmate spec
 Verify projected workspace behavior for $id.
+
+Planning gate: exception=precedent-following reason=Herdr presentation integration fixture brief
 EOF
 }
 

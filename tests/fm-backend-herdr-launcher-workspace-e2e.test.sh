@@ -193,6 +193,8 @@ Exercise Herdr launcher placement for $2.
 
 ## Firstmate spec
 Verify the worker is placed in the correct workspace.
+
+Planning gate: exception=precedent-following reason=Herdr launcher placement integration fixture brief
 EOF
 }
 
