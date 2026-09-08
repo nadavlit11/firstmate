@@ -439,8 +439,18 @@ test_key_status_separates_absence_from_a_broken_spelling() {
   notice=$(fm_tavily_notice "$home/config")
   [ -z "$notice" ] || fail "a well-formed key produced a diagnostic: '$notice'"
 
-  local spelling
-  for spelling in 'TAVILY_API_KEY="%s"\n' 'export TAVILY_API_KEY=%s\n' '  TAVILY_API_KEY=%s\n' 'TAVILY_API_KEY=%s\r\n' 'TAVILY_API_KEY=%s # captain key\n'; do
+  # Each near-miss is paired with the cause the notice must name for it, so a
+  # spelling the scan rejects can never be answered by a message that sends the
+  # operator after some other cause.
+  local case_spec spelling cause
+  for case_spec in \
+    'TAVILY_API_KEY="%s"\n|no quotes' \
+    'export TAVILY_API_KEY=%s\n|no `export` prefix' \
+    '  TAVILY_API_KEY=%s\n|no leading whitespace' \
+    'TAVILY_API_KEY=%s\r\n|no CR line ending' \
+    'TAVILY_API_KEY=%s # captain key\n|nothing after the value'; do
+    spelling=${case_spec%%|*}
+    cause=${case_spec#*|}
     # shellcheck disable=SC2059  # the loop variable IS the format being exercised
     printf "$spelling" "$SECRET" > "$home/config/tavily.env"
     status=$(fm_tavily_key_status "$home/config")
@@ -457,10 +467,14 @@ test_key_status_separates_absence_from_a_broken_spelling() {
       *) fail "the diagnostic did not give the accepted form: '$notice'" ;;
     esac
     case "$notice" in
+      *"$cause"*) : ;;
+      *) fail "the diagnostic did not name this spelling's actual cause ('$cause'): '$notice'" ;;
+    esac
+    case "$notice" in
       *"$SECRET"*) fail "the diagnostic printed the key value" ;;
     esac
   done
-  pass "an unset key is silent absence while a broken spelling is a named, value-free diagnostic"
+  pass "an unset key is silent absence while a broken spelling names its own cause without the value"
 }
 
 # A key that exists but cannot be read is its own situation: the contents may be

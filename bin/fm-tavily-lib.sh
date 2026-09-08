@@ -161,7 +161,7 @@ fm_tavily_notice() {  # <config-dir>
   case "$(fm_tavily_key_status "$1")" in
     malformed)
       # shellcheck disable=SC2016  # the backticked literals are the operator-facing format, not expansions
-      printf 'warning: %s sets %s but not in the accepted form, so Tavily is unavailable; write it as exactly `%s=<value>` at the start of a line, with no quotes, no `export` prefix, no leading whitespace, and no CR line ending.\n' \
+      printf 'warning: %s sets %s but not in the accepted form, so Tavily is unavailable; write it as exactly `%s=<value>` at the start of a line, with no quotes, no `export` prefix, no leading whitespace, no CR line ending, and nothing after the value - not even a trailing comment.\n' \
         "$file" "$FM_TAVILY_KEY_VAR" "$FM_TAVILY_KEY_VAR"
       ;;
     unreadable)
