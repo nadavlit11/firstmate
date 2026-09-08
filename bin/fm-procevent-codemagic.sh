@@ -72,7 +72,8 @@ resolve_build() {
 read_api_key() {
   local line extra
   [ -f "$CONFIG_FILE" ] && [ ! -L "$CONFIG_FILE" ] || return 1
-  IFS= read -r line < "$CONFIG_FILE" || return 2
+  IFS= read -r line < "$CONFIG_FILE" || true
+  [ -n "$line" ] || return 2
   case "$line" in CODEMAGIC_API_TOKEN=?*) CODEMAGIC_API_TOKEN=${line#CODEMAGIC_API_TOKEN=} ;; *) return 2 ;; esac
   while IFS= read -r extra; do
     [ -z "$extra" ] || return 2
@@ -163,7 +164,8 @@ emit_finished_result() {
   fi
   failed_action=$(jq -er '
     if (.data | type) != "array" then error("missing actions")
-    else ([.data[] | select(.status == "failed") | .type] | last) // ""
+    else ([.data[] | select(.status == "failed")] | last) as $f
+      | if $f == null then "" else ($f.type // $f.name // "unknown") end
     end
   ' "$actions_body" 2>/dev/null) || {
     emit_build_result action-detail-error "Codemagic build status is finished, but the v3 actions response was invalid" finished "$polls"

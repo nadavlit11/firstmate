@@ -40,6 +40,7 @@ case "$url" in
       invalid) printf '{}' > "$body"; printf '200'; exit 0 ;;
       many) printf '{"data":[],"total_pages":2}' > "$body"; printf '200'; exit 0 ;;
       post) printf '{"data":[{"type":"building_ios","status":"success"},{"type":"post_publish","status":"failed"}],"total_pages":1}' > "$body"; printf '200'; exit 0 ;;
+      typeless) printf '{"data":[{"name":"Build ipa","status":"failed"}],"total_pages":1}' > "$body"; printf '200'; exit 0 ;;
       early) printf '{"data":[{"type":"building_ios","status":"failed"}],"total_pages":1}' > "$body"; printf '200'; exit 0 ;;
       transient)
         count=0
@@ -141,6 +142,13 @@ printf '%s\n' "$out" | grep -qx 'raw_status: finished' \
   || fail "a failed non-publishing action lost the raw terminal status"
 ok "a failed action of any phase reports its real action name"
 
+out=$(run_poll finished typeless)
+printf '%s\n' "$out" | grep -qx 'status: post-processing-failed' \
+  || fail "a failed action without a type was reported as a successful build"
+printf '%s\n' "$out" | grep -qx 'failed_action: Build ipa' \
+  || fail "a failed action without a type lost its documented action name"
+ok "a failed action without a type reports its action name"
+
 rm -f "$ACTION_COUNT"
 out=$(run_poll finished transient)
 printf '%s\n' "$out" | grep -qx 'status: finished' \
@@ -215,6 +223,9 @@ for malformed in 'CODEMAGIC_API_TOKEN=tok\n# a comment\n' 'CODEMAGIC_API_TOKEN=t
   printf '%s\n' "$err" | grep -Fq 'is malformed' \
     || fail "malformed Codemagic config was reported as unconfigured"
 done
+printf 'CODEMAGIC_API_TOKEN=super-secret-test-token' > "$HOME_DIR/config/codemagic.env"
+FM_HOME="$HOME_DIR" PATH="$FAKEBIN:$PATH" "$BIN/fm-procevent-codemagic.sh" arm build_123 >/dev/null 2>&1 \
+  || fail "a valid single-line token config without a trailing newline was rejected"
 rm -f "$HOME_DIR/config/codemagic.env"
 mv "$HOME_DIR/config/codemagic.env.saved" "$HOME_DIR/config/codemagic.env"
 ok "an unconfigured home has no implicit Codemagic behavior, and a malformed one says so"
