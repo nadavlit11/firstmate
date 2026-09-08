@@ -480,10 +480,19 @@ cmd_sites() {
   need_tool curl; need_tool jq
   require_config
   mint_token
-  local body
+  local body count
   body=$(api_call GET "$API_BASE/sites") || exit $?
+  count=$(printf '%s' "$body" | jq '.siteEntry // [] | length')
+  if [ "$count" = 0 ]; then
+    # An authorized credential with no properties returns 200 and an empty
+    # body. Printing nothing would be indistinguishable from a broken call,
+    # so say which of the two this is.
+    printf 'fm-gsc-pull: the credential works, but no Search Console property is shared with it yet.\n' >&2
+    printf 'Add it as a user on the property (Settings > Users and permissions > Add user).\n' >&2
+    return 0
+  fi
   printf '%s' "$body" \
-    | jq -r '.siteEntry // [] | .[] | [.permissionLevel, .siteUrl] | @tsv'
+    | jq -r '.siteEntry | .[] | [.permissionLevel, .siteUrl] | @tsv'
 }
 
 cmd_cache_path() {

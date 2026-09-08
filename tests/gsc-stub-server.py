@@ -11,6 +11,7 @@ The scenario is chosen by the FM_GSC_STUB_MODE environment variable:
   disabled  403 SERVICE_DISABLED
   denied    403 on the property (not a user / revoked)
   quota     429 rate limit
+  nosites   an authorized credential with no properties shared with it
   badtoken  400 invalid_grant from the token endpoint
 """
 import json
@@ -134,6 +135,11 @@ class Handler(BaseHTTPRequestHandler):
                 code, payload = err(403, "PERMISSION_DENIED", "SERVICE_DISABLED",
                                     "Google Search Console API has not been used in project 1 before or it is disabled.")
                 self._send(code, payload)
+                return
+            if MODE == "nosites":
+                # What Google actually returns for an authorized credential
+                # that no property has been shared with: 200 and an empty body.
+                self._send(200, {})
                 return
             self._send(200, {"siteEntry": [
                 {"siteUrl": "sc-domain:example.co.il", "permissionLevel": "siteOwner"},

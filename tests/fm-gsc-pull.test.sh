@@ -9,7 +9,8 @@
 #
 # Coverage:
 #   - absent config is an absent feature: `status` says so and exits 0
-#   - `sites` lists the properties the credential can read
+#   - `sites` lists the properties the credential can read, and says so
+#     explicitly when an authorized credential has none shared with it
 #   - a Hebrew query survives the API, the cache, and the CSV byte for byte
 #   - a range is aggregated the way Search Console aggregates one: clicks and
 #     impressions sum, CTR comes from those sums, position is impression-weighted
@@ -112,6 +113,14 @@ out=$(FM_HOME="$HOME1" "$GSC" sites)
 assert_contains "$out" "sc-domain:example.co.il" "sites lists the property"
 assert_contains "$out" "siteOwner" "sites reports the permission level"
 pass "sites lists the properties the credential can actually read"
+
+start_stub nosites
+HOME0=$(make_home home0)
+out=$( (cd "$HOME0" && FM_HOME="$HOME0" "$GSC" sites) 2>&1 ); code=$?
+expect_code 0 "$code" "an authorized credential with no properties"
+assert_contains "$out" "no Search Console property is shared" \
+  "an empty property list explains itself instead of printing nothing"
+pass "a credential with no property shared says so, rather than printing an empty list"
 
 # --- the happy path, Hebrew, and aggregation --------------------------------
 
