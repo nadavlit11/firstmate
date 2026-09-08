@@ -125,6 +125,7 @@ HOST=()
 HARNESS=()
 MODEL=()
 EFFORT=()
+OVERRIDE_REASON=()
 RESTART_PID=()
 RESTART_RESULT=()
 
@@ -161,11 +162,17 @@ report_unreached() {  # <id> <reason>
 
 restart_mate() {  # <array-index>
   local i=$1 id restart_out restart_rc restart_reason ran_on
+  local -a relaunch_args
   id=${IDS[$i]}
   if [ "${PLACEMENT[i]}" = remote ]; then
+    relaunch_args=("$id" "${HARNESS[i]}" "${MODEL[i]:-default}" "${EFFORT[i]:-default}")
+    # The remote host re-runs the effort gate, so the capability reason this mate
+    # was legally dispatched under has to cross with the request; it is the last
+    # positional, and omitting it leaves the older four-argument call untouched.
+    [ -z "${OVERRIDE_REASON[i]}" ] || relaunch_args+=("${OVERRIDE_REASON[i]}")
     restart_out=$(FM_HOME="$FM_HOME" "$SCRIPT_DIR/fm-on.sh" "$id" \
       fm-remote-secondmate-control.sh relaunch \
-      "$id" "${HARNESS[i]}" "${MODEL[i]:-default}" "${EFFORT[i]:-default}" < /dev/null 2>&1)
+      "${relaunch_args[@]}" < /dev/null 2>&1)
     restart_rc=$?
   else
     restart_out=$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
@@ -256,6 +263,7 @@ while [ "$i" -lt "${#IDS[@]}" ]; do
   HARNESS[i]=""
   MODEL[i]=""
   EFFORT[i]=""
+  OVERRIDE_REASON[i]=""
   if ! fm_secondmate_restart_capable "$STATE/$id.meta"; then
     REASON[i]=$FM_SECONDMATE_RESTART_REASON
     i=$((i + 1))
@@ -279,6 +287,17 @@ while [ "$i" -lt "${#IDS[@]}" ]; do
       ''|low|medium|high|xhigh|max) ;;
       *) EFFORT[i]="" ;;
     esac
+    # An adapter with no verified low-effort axis was legally dispatched under a
+    # written capability reason, so the mate stays recoverable: the reason this
+    # home recorded travels with the relaunch. It is carried ONLY as capability
+    # cover for the same harness at low, the same narrowing bin/fm-control.sh
+    # applies, so it can never authorize a different adapter or a higher level -
+    # those need a fresh reason typed into the verb.
+    if [ "${HARNESS[i]}" = "$FM_SECONDMATE_RESTART_HARNESS" ]; then
+      case "${EFFORT[i]}" in
+        ''|low) OVERRIDE_REASON[i]=$(fm_meta_get "$STATE/$id.meta" effort_override_reason 2>/dev/null || true) ;;
+      esac
+    fi
   fi
 
   if ! corr=$(fm_pending_reply_create "$FM_HOME" "$STATE" "$id" \

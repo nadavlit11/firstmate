@@ -996,6 +996,44 @@ test_batch_forwards_effort_override_reason() {
   pass "batch dispatch forwards the exceptional effort and its reason to every pair"
 }
 
+# A liveness respawn arrives as a bare `fm-spawn.sh <id> --secondmate`, with no
+# flag able to carry the exception the mate was legally dispatched under, so the
+# recorded capability reason is what keeps it recoverable - narrowly: same
+# harness, low level, and an adapter that still cannot prove it.
+test_secondmate_respawn_reads_recorded_capability_cover() {
+  local rec id sm out status
+  id=profile-effort-respawn-z48
+  rec=$(make_spawn_case profile-effort-respawn opencode "$id")
+  read_case_record "$rec"
+  sm="$CASE_DIR/secondmate-home"
+  make_seeded_secondmate_home "$sm" "$id"
+
+  out=$(run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$sm" --secondmate \
+    --harness opencode --effort-override-reason 'opencode is required for this mate despite an unprovable effort axis')
+  status=$?
+  expect_code 0 "$status" "the authorized first secondmate launch should succeed: $out"
+  assert_grep "effort=unenforced:low" "$HOME_DIR/state/$id.meta" \
+    "the first launch recorded a level the launch command never carried"
+  assert_grep "effort_override_reason=opencode is required for this mate despite an unprovable effort axis" \
+    "$HOME_DIR/state/$id.meta" "the first launch did not record its capability exception"
+
+  out=$(run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$sm" --secondmate --harness opencode)
+  status=$?
+  expect_code 0 "$status" "a bare respawn of a legally dispatched axis-less mate must not be refused: $out"
+  assert_grep "effort=unenforced:low" "$HOME_DIR/state/$id.meta" \
+    "the respawn did not keep the record honest about the unenforced level"
+  assert_grep "effort_override_reason=opencode is required for this mate despite an unprovable effort axis" \
+    "$HOME_DIR/state/$id.meta" "the respawn dropped the capability cover it launched under"
+
+  out=$(run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$sm" --secondmate \
+    --harness opencode --effort high)
+  status=$?
+  expect_code 1 "$status" "a recorded capability reason must not authorize a non-low respawn"
+  assert_contains "$out" "effort gate refused $id" \
+    "the recorded reason was accepted as fresh authority for a higher level"
+  pass "a secondmate respawn adopts its recorded capability cover without inheriting authority"
+}
+
 test_no_profile_keeps_claude_profile_defaults
 test_non_cursor_launch_clears_inherited_cursor_markers
 test_relative_home_overrides_launch_with_absolute_cross_process_paths
@@ -1036,5 +1074,6 @@ test_harness_without_effort_axis_refuses_without_capability_exception
 test_a_level_the_adapter_cannot_accept_is_refused
 test_relaunch_does_not_inherit_non_low_authority
 test_batch_forwards_effort_override_reason
+test_secondmate_respawn_reads_recorded_capability_cover
 
 echo "# all fm-spawn-dispatch-profile tests passed"

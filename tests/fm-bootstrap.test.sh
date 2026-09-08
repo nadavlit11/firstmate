@@ -1203,6 +1203,34 @@ test_secondmate_harness_rejects_standing_non_low_effort() {
   pass "bootstrap refuses a secondmate harness pin that tries to make non-low effort standing policy"
 }
 
+# A pin whose adapter cannot prove the level it runs at is legal but costly: the
+# operator learns it here, at startup, instead of from a mysterious respawn
+# failure later. It is a warning - a home already running under a written
+# exception must keep starting normally.
+test_secondmate_harness_warns_about_an_axisless_pin() {
+  local case_dir fakebin out
+  case_dir="$TMP_ROOT/secondmate-harness-axisless"
+  mkdir -p "$case_dir/home/config"
+  printf '%s\n' manual > "$case_dir/home/config/backlog-backend"
+  printf '%s\n' kimi > "$case_dir/home/config/secondmate-harness"
+  fakebin=$(make_fake_toolchain "$case_dir")
+  add_real_jq "$fakebin"
+
+  out=$(PATH="$fakebin:$BASE_PATH" FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$case_dir/home" \
+    FM_FAKE_TREEHOUSE_LEASE_HELP=1 "$ROOT/bin/fm-bootstrap.sh")
+  expect_code 0 "$?" "an axis-less secondmate pin must warn, never fail bootstrap"
+  assert_contains "$out" "SECONDMATE_HARNESS: warning config/secondmate-harness pins 'kimi'" \
+    "an axis-less standing secondmate pin was not reported at startup"
+  assert_contains "$out" "--effort-override-reason" \
+    "the warning did not tell the operator how to make the pin usable"
+
+  printf '%s\n' claude > "$case_dir/home/config/secondmate-harness"
+  out=$(PATH="$fakebin:$BASE_PATH" FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$case_dir/home" \
+    FM_FAKE_TREEHOUSE_LEASE_HELP=1 "$ROOT/bin/fm-bootstrap.sh")
+  [ -z "$out" ] || fail "a harness that can enforce low is the ordinary case, got: $out"
+  pass "bootstrap warns about a secondmate pin whose adapter cannot enforce low"
+}
+
 test_bootstrap_reporting
 test_no_mistakes_min_version
 test_gh_axi_min_version
@@ -1233,3 +1261,4 @@ test_crew_dispatch_active_rules_are_verbose_bootstrap_info
 test_crew_dispatch_validation
 test_crew_dispatch_rejects_standing_non_low_effort
 test_secondmate_harness_rejects_standing_non_low_effort
+test_secondmate_harness_warns_about_an_axisless_pin

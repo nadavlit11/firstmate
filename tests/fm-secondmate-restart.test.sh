@@ -473,6 +473,32 @@ test_remote_mate_restarts_over_the_transport_hop() {
   pass "T6 a remote mate restarts through the host-local control plane over the fm-on hop"
 }
 
+# --- T6b: a remote mate's recorded capability cover crosses the hop ----------
+# An adapter with no verified low-effort axis was legally dispatched under a
+# written capability reason, so the remote host - which re-runs the same effort
+# gate - has to receive that authority with the relaunch, or the automatic
+# restart sweep can never move the mate again.
+test_remote_relaunch_carries_recorded_capability_cover() {
+  local dir out rc relaunch_line
+  dir=$(new_case remote-cover)
+  setup_remote_case "$dir" sm9 ok
+  export FM_FAKE_ANSWER_STATUS="$dir/home/state/sm9.status"
+  printf 'kimi\n' > "$dir/home/config/secondmate-harness"
+  sed 's/^harness=claude$/harness=kimi/' "$dir/home/state/sm9.meta" > "$dir/home/state/sm9.meta.new"
+  printf 'effort_override_reason=kimi is required for this mate despite an unprovable effort axis\n' \
+    >> "$dir/home/state/sm9.meta.new"
+  mv "$dir/home/state/sm9.meta.new" "$dir/home/state/sm9.meta"
+
+  out=$(run_restart "$dir" fm-sm9); rc=$?
+  unset FM_FAKE_ANSWER_STATUS
+
+  expect_code 0 "$rc" "a remote mate on an axis-less adapter should still restart"$'\n'"$out"
+  relaunch_line=$(grep '^fm-remote-secondmate-control.sh relaunch' "$dir/ssh.log" | head -1)
+  [ "$relaunch_line" = "fm-remote-secondmate-control.sh relaunch sm9 kimi default default kimi is required for this mate despite an unprovable effort axis" ] \
+    || fail "the recorded capability reason did not cross the hop as the relaunch's trailing argument: $relaunch_line"
+  pass "T6b a remote relaunch carries the mate's recorded capability reason across the host boundary"
+}
+
 # --- T7: an unreachable host is unknown, never a claimed reload --------------
 test_unreachable_host_is_reported_unknown() {
   local dir out rc
@@ -769,6 +795,7 @@ test_unknown_mate_is_accounted_for
 test_refused_restart_falls_back_without_claiming_a_reload
 test_local_restart_uses_the_home_pin_and_reports_what_ran
 test_remote_mate_restarts_over_the_transport_hop
+test_remote_relaunch_carries_recorded_capability_cover
 test_unreachable_host_is_reported_unknown
 test_concurrent_reply_cannot_release_persist_gate
 test_persist_waits_are_polled_together

@@ -1455,16 +1455,31 @@ detect_local_tools() {
 # GATE), and both the local and the remote secondmate spawn refuse a non-low
 # token, so report it here rather than letting a session discover it at dispatch.
 secondmate_harness_validate() {
-  local token
+  local token harness
   # Resolved next to THIS script rather than under FM_ROOT: the parsing owner is
   # bin/fm-harness.sh, and a home whose FM_ROOT points elsewhere must still get
   # this gate rather than silently skipping it, exactly as bin/fm-spawn.sh reads
   # the same token.
   token=$("$SCRIPT_DIR/fm-harness.sh" secondmate-effort 2>/dev/null || true)
   case "$token" in
-    ''|low) return 0 ;;
+    ''|low) ;;
+    *)
+      echo "SECONDMATE_HARNESS: invalid config/secondmate-harness - effort token '$token' is not low; standing config cannot authorize higher effort. Remove it or use a one-spawn --effort-override-reason after an explicit current captain exception"
+      return 0
+      ;;
   esac
-  echo "SECONDMATE_HARNESS: invalid config/secondmate-harness - effort token '$token' is not low; standing config cannot authorize higher effort. Remove it or use a one-spawn --effort-override-reason after an explicit current captain exception"
+  # Parity with the crew-dispatch validator above: a pinned adapter with no
+  # verified low-effort axis is refused by the effort gate at every spawn that
+  # selects it, so say so here instead of letting it surface later as a
+  # SECONDMATE_LIVENESS respawn failure. A WARNING, never a bootstrap failure:
+  # such a pin may already be running under a written exception this home
+  # recorded, and a home that was legally set up must not be refused on update.
+  harness=$("$SCRIPT_DIR/fm-harness.sh" secondmate 2>/dev/null || true)
+  case "$harness" in
+    opencode|kimi|cursor)
+      echo "SECONDMATE_HARNESS: warning config/secondmate-harness pins '$harness', which has no verified low-effort launch axis; a spawn selecting it refuses unless that invocation carries --effort-override-reason naming the capability gap, or this mate's own record already carries one from an earlier exception. Pin a harness that can enforce low, or respawn once with a written exception so the recorded reason keeps it recoverable"
+      ;;
+  esac
 }
 
 detect_local_config() {

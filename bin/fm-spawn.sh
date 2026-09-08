@@ -91,7 +91,12 @@
 #   recorded as low; the reason must state that the adapter has no enforceable
 #   axis, and it is capability cover, not permission to request a higher level.
 #   An accepted exception is printed on stderr before launch and recorded as
-#   effort_override_reason= in the task record.
+#   effort_override_reason= in the task record. A SECONDMATE respawn - which a
+#   liveness sweep issues as a bare `fm-spawn.sh <id> --secondmate` with no flags
+#   to carry authority - adopts that recorded reason as capability cover, but only
+#   for the same harness at low and only while that adapter still cannot prove the
+#   level, so a mate legally dispatched under an exception stays recoverable
+#   without the record ever becoming permission for a higher level.
 #   --backend <name> is the explicit runtime session-provider backend for this
 #   exact task only (docs/configuration.md "Runtime backend" owns when that flag
 #   is authorized). Without it, the script resolves FM_BACKEND, then
@@ -709,6 +714,31 @@ enforce_effort_gate() { # <task-id> <harness> <raw-launch 0|1>
   return 0
 }
 
+# An adapter with no verified axis for low was legally dispatched under a written
+# capability reason, so the mate it runs must stay automatically recoverable: a
+# liveness respawn arrives here as a plain `fm-spawn.sh <id> --secondmate` with no
+# flags to carry that authority. The recorded reason is therefore adopted as
+# capability cover under exactly the narrowing bin/fm-control.sh's relaunch uses -
+# same task, same harness, a low launch, and an adapter that cannot prove it - so
+# it never becomes inheritance: a non-low level, a changed harness, or an adapter
+# that CAN prove the level all fall through to the ordinary gate, which still
+# demands a fresh reason on this invocation.
+adopt_recorded_capability_cover() { # <task-id> <harness> <raw-launch 0|1>
+  local id=$1 harness=$2 raw=$3 meta recorded_reason
+  [ "$EFFORT_OVERRIDE_REASON_SET" -ne 1 ] || return 0
+  [ "$KIND" = secondmate ] || return 0
+  [ "$raw" != 1 ] || return 0
+  [ "$EFFORT" = low ] || return 0
+  ! harness_enforces_effort "$harness" "$EFFORT" || return 0
+  meta="$STATE/$id.meta"
+  [ -f "$meta" ] && [ ! -L "$meta" ] || return 0
+  [ "$(fm_meta_get "$meta" kind)" = secondmate ] || return 0
+  [ "$(fm_meta_get "$meta" harness)" = "$harness" ] || return 0
+  recorded_reason=$(fm_meta_get "$meta" effort_override_reason)
+  [ -n "$recorded_reason" ] || return 0
+  EFFORT_OVERRIDE_REASON=$recorded_reason
+}
+
 spawn_remote_secondmate() {
   local id=$1 remote host root home harness positional model effort backend out rc meta tmp
   local remote_backend remote_target remote_harness remote_herdr_session registry_lock remote_lock remote_generation
@@ -789,6 +819,7 @@ spawn_remote_secondmate() {
       return 1
       ;;
   esac
+  adopt_recorded_capability_cover "$id" "$harness" 0
   if ! enforce_effort_gate "$id" "$harness" 0; then
     fm_lock_release "$registry_lock" || true
     fm_lock_release "$SPAWN_TASK_LOCK" || true
@@ -1782,6 +1813,7 @@ fi
 # Every axis this spawn's effort could come from is now resolved, and nothing
 # below this point has created or mutated a worktree, an endpoint, or a task
 # record yet, so this is the fail-closed boundary for the effort gate.
+adopt_recorded_capability_cover "$ID" "$HARNESS" "$RAW_LAUNCH"
 enforce_effort_gate "$ID" "$HARNESS" "$RAW_LAUNCH" || exit 1
 
 secondmate_registry_value() {
