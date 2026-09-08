@@ -1010,8 +1010,10 @@ test_relaunch_without_an_effort_capability_reason_refuses_before_stop() {
   printf 'kimi' > "$dir/fake/becomes"
   out=$(run_control "$dir" rl-axis2 relaunch --harness kimi --note "switching runtime"); rc=$?
   expect_code 1 "$rc" "an axis-less adapter with no capability reason must refuse"
-  assert_contains "$out" "no verified low-effort launch axis" \
-    "the refusal should name the missing capability"
+  assert_contains "$out" "no verified launch axis for effort 'default'" \
+    "the refusal should name the missing capability and the level it was asked about"
+  assert_contains "$out" "it accepts none" \
+    "the refusal should name the levels the adapter does accept"
   [ "$(cat "$dir/fake/command")" = claude ] \
     || fail "the refusal must land before the running agent is stopped"
   [ "$(meta_field "$dir" rl-axis2 harness)" = claude ] \

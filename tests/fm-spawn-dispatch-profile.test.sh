@@ -379,7 +379,7 @@ test_active_dispatch_profile_allows_raw_launch_command() {
   status=$?
   expect_code 0 "$status" "raw launch command should satisfy active dispatch-profile requirement"
   assert_contains "$out" "spawned $id harness=custom-agent" "spawn did not report raw command harness"
-  assert_meta_profile "$HOME_DIR/state/$id.meta" custom-agent default low
+  assert_meta_profile "$HOME_DIR/state/$id.meta" custom-agent default unenforced:low
   launch=$(cat "$LAUNCH_LOG")
   [ "$launch" = "custom-agent --flag" ] || fail "raw launch command changed"$'\n'"actual: $launch"
   pass "active crew-dispatch profile allows the raw launch-command escape hatch"
@@ -427,7 +427,7 @@ test_codex_omits_invalid_max_effort() {
   out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --model gpt-5 --effort max --effort-override-reason 'this adapter has no enforceable low-effort axis')
   status=$?
   expect_code 0 "$status" "codex spawn with unsupported max effort should omit the effort flag"
-  assert_meta_profile "$HOME_DIR/state/$id.meta" codex gpt-5 max
+  assert_meta_profile "$HOME_DIR/state/$id.meta" codex gpt-5 unenforced:max
   launch=$(cat "$LAUNCH_LOG")
   assert_contains "$launch" "codex --model 'gpt-5' --dangerously-bypass-approvals-and-sandbox" \
     "codex launch did not preserve the model flag when max effort was omitted"
@@ -461,7 +461,7 @@ test_grok_omits_invalid_max_reasoning_effort() {
   out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --model grok-4 --effort max --effort-override-reason 'this adapter has no enforceable low-effort axis')
   status=$?
   expect_code 0 "$status" "grok spawn with unsupported max reasoning effort should omit the effort flag"
-  assert_meta_profile "$HOME_DIR/state/$id.meta" grok grok-4 max
+  assert_meta_profile "$HOME_DIR/state/$id.meta" grok grok-4 unenforced:max
   launch=$(cat "$LAUNCH_LOG")
   assert_contains "$launch" "grok --always-approve --model 'grok-4' \"\$('${ROOT}/bin/fm-operational-input.sh' encode launch-brief < " \
     "grok launch did not preserve the model flag and typed brief when max effort was omitted"
@@ -480,7 +480,7 @@ test_grok_omits_invalid_xhigh_reasoning_effort() {
   out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --model grok-4 --effort xhigh --effort-override-reason 'this adapter has no enforceable low-effort axis')
   status=$?
   expect_code 0 "$status" "grok spawn with unsupported xhigh reasoning effort should omit the effort flag"
-  assert_meta_profile "$HOME_DIR/state/$id.meta" grok grok-4 xhigh
+  assert_meta_profile "$HOME_DIR/state/$id.meta" grok grok-4 unenforced:xhigh
   launch=$(cat "$LAUNCH_LOG")
   assert_contains "$launch" "grok --always-approve --model 'grok-4' \"\$('${ROOT}/bin/fm-operational-input.sh' encode launch-brief < " \
     "grok launch did not preserve the model flag and typed brief when xhigh effort was omitted"
@@ -499,7 +499,7 @@ test_cursor_threads_model_workspace_and_omits_effort_axis() {
     --model cursor-grok-4.5-high --effort high --effort-override-reason 'this adapter has no enforceable low-effort axis')
   status=$?
   expect_code 0 "$status" "cursor spawn with a model-qualified reasoning class should succeed"
-  assert_meta_profile "$HOME_DIR/state/$id.meta" cursor cursor-grok-4.5-high high
+  assert_meta_profile "$HOME_DIR/state/$id.meta" cursor cursor-grok-4.5-high unenforced:high
   launch=$(cat "$LAUNCH_LOG")
   assert_contains "$launch" "--trust --yolo --model 'cursor-grok-4.5-high' --workspace '$WT_DIR'" \
     "cursor launch did not carry trust, autonomy, model, and exact workspace flags"
@@ -555,7 +555,7 @@ test_cursor_failed_catalog_probe_does_not_block_spawn() {
   launch=$(cat "$LAUNCH_LOG")
   assert_contains "$launch" "--model 'cursor-catalog-unreachable'" \
     "failed catalog lookup incorrectly removed the requested model"
-  assert_meta_profile "$HOME_DIR/state/$id.meta" cursor cursor-catalog-unreachable low
+  assert_meta_profile "$HOME_DIR/state/$id.meta" cursor cursor-catalog-unreachable unenforced:low
   pass "cursor preserves the requested model when its live catalog is unreachable"
 }
 
@@ -568,7 +568,7 @@ test_opencode_threads_model_and_ignores_effort_axis() {
   out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --model anthropic/claude-sonnet-4-5 --effort high --effort-override-reason 'this adapter has no enforceable low-effort axis')
   status=$?
   expect_code 0 "$status" "opencode spawn with model and ignored effort should succeed"
-  assert_meta_profile "$HOME_DIR/state/$id.meta" opencode anthropic/claude-sonnet-4-5 high
+  assert_meta_profile "$HOME_DIR/state/$id.meta" opencode anthropic/claude-sonnet-4-5 unenforced:high
   launch=$(cat "$LAUNCH_LOG")
   assert_contains "$launch" "opencode --model 'anthropic/claude-sonnet-4-5' --prompt" \
     "opencode launch did not thread model"
@@ -912,7 +912,44 @@ test_harness_without_effort_axis_refuses_without_capability_exception() {
   expect_code 0 "$status" "a written capability reason should permit the axis-less adapter"
   assert_grep "effort_override_reason=cursor has no enforceable low-effort axis" \
     "$HOME_DIR/state/$id.meta" "the capability exception was not recorded"
+  assert_not_contains "$(cat "$LAUNCH_LOG")" "--effort" "cursor has no effort flag to receive"
+  assert_grep "effort=unenforced:low" "$HOME_DIR/state/$id.meta" \
+    "a level the launch command never carried was recorded as if it had been"
   pass "an adapter with no low-effort axis is refused unless a written capability reason is given"
+}
+
+# The capability question is about the level actually requested, not about low.
+# grok accepts low|medium|high and codex stops at xhigh, so a level above their
+# verified axis reaches no flag - and recording it would claim reasoning the CLI
+# never received.
+test_a_level_the_adapter_cannot_accept_is_refused() {
+  local rec id out status
+  id=profile-effort-level-z47
+  rec=$(make_spawn_case profile-effort-level grok "$id")
+  read_case_record "$rec"
+
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" \
+    --model grok-4 --effort xhigh)
+  status=$?
+  expect_code 1 "$status" "grok cannot be pinned to xhigh, so the spawn must refuse"
+  assert_contains "$out" "harness grok has no verified xhigh-effort launch axis" \
+    "the refusal did not name the harness and the requested level"
+  assert_contains "$out" "it accepts low, medium, high" \
+    "the refusal did not name the levels the adapter does accept"
+  assert_absent "$HOME_DIR/state/$id.meta" "the capability refusal must land before any task record is written"
+  [ ! -s "$LAUNCH_LOG" ] || fail "the capability refusal must land before any launch"
+
+  id=profile-effort-level-codex-z47b
+  rec=$(make_spawn_case profile-effort-level-codex codex "$id")
+  read_case_record "$rec"
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" \
+    --model gpt-5 --effort max)
+  status=$?
+  expect_code 1 "$status" "codex cannot be pinned to max, so the spawn must refuse"
+  assert_contains "$out" "it accepts low, medium, high, xhigh" \
+    "the refusal did not name the levels codex does accept"
+  assert_absent "$HOME_DIR/state/$id.meta" "the capability refusal must land before any task record is written"
+  pass "a level an adapter has no verified axis for is refused, naming the levels it does accept"
 }
 
 test_relaunch_does_not_inherit_non_low_authority() {
@@ -996,6 +1033,7 @@ test_non_low_effort_reason_is_visible_and_recorded
 test_redundant_effort_reason_still_launches_at_low
 test_standing_config_cannot_authorize_non_low_effort
 test_harness_without_effort_axis_refuses_without_capability_exception
+test_a_level_the_adapter_cannot_accept_is_refused
 test_relaunch_does_not_inherit_non_low_authority
 test_batch_forwards_effort_override_reason
 

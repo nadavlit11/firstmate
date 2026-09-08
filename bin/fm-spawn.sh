@@ -507,6 +507,7 @@ esac
 # below is the single owner of what may raise it and of the adapter-capability
 # refusal.
 [ "$EFFORT_SET" -eq 1 ] || EFFORT=low
+EFFORT_RECORD=$EFFORT
 
 # --relaunch reuses an existing task's endpoint, worktree, project, and kind,
 # so every axis this block resolves for a fresh spawn instead comes from that
@@ -655,25 +656,52 @@ harness_enforces_effort() { # <harness> <effort>
   [ -n "$(effort_flag_for_harness "$1" "$2")" ]
 }
 
+# The levels an adapter can actually be pinned to, so a refusal can name a real
+# alternative instead of only saying no. Asks the mapping above rather than
+# restating its per-adapter sets.
+harness_effort_levels() { # <harness>
+  local harness=$1 level out=
+  for level in low medium high xhigh max; do
+    [ -z "$(effort_flag_for_harness "$harness" "$level")" ] || out="$out${out:+, }$level"
+  done
+  printf '%s\n' "${out:-none}"
+}
+
 # The effort gate (header, EFFORT GATE). Runs before this spawn creates or
 # mutates anything, for every kind and every backend, because it executes ahead
 # of worktree, endpoint, and remote-transfer work rather than inside any one of
 # them.
+#
+# THE RECORD MUST DESCRIBE WHAT WAS ACTUALLY SENT, NEVER WHAT WAS ASKED FOR.
+# The capability question is therefore asked about the level being requested,
+# not about low: an adapter that accepts low can still reject xhigh, and writing
+# effort=xhigh for a launch command that carried no effort flag is the same
+# false guarantee the captain rejected for low, only more misleading because the
+# operator believes they bought stronger reasoning. A level that reaches no flag
+# is refused; when a written reason deliberately covers the gap, EFFORT_RECORD
+# marks the level as unenforced so the record still describes reality.
 enforce_effort_gate() { # <task-id> <harness> <raw-launch 0|1>
-  local id=$1 harness=$2 raw=$3 enforced=0
+  local id=$1 harness=$2 raw=$3 enforced=0 accepted
   if [ "$raw" != 1 ] && harness_enforces_effort "$harness" "$EFFORT"; then
     enforced=1
   fi
-  if [ "$EFFORT" != low ]; then
-    if [ -z "$EFFORT_OVERRIDE_REASON" ]; then
-      echo "error: effort gate refused $id: --effort $EFFORT is above low. Every spawned agent defaults to low; retry with --effort $EFFORT --effort-override-reason '<why this task needs it>' only under an explicit current captain exception." >&2
-      return 1
+  if [ "$enforced" -eq 0 ] && [ -z "$EFFORT_OVERRIDE_REASON" ]; then
+    if [ "$raw" = 1 ]; then
+      accepted=none
+    else
+      accepted=$(harness_effort_levels "$harness")
     fi
-  elif [ "$enforced" -eq 0 ]; then
-    if [ -z "$EFFORT_OVERRIDE_REASON" ]; then
-      echo "error: effort gate refused $id: harness $harness has no verified low-effort launch axis. Select a harness that can enforce low, or pass --effort-override-reason '<why this adapter is required despite unprovable effort>'." >&2
-      return 1
-    fi
+    echo "error: effort gate refused $id: harness $harness has no verified $EFFORT-effort launch axis; it accepts $accepted. Choose a level that adapter accepts, select a harness that can enforce this one, or pass --effort-override-reason '<why this adapter is required despite unprovable effort>'." >&2
+    return 1
+  fi
+  if [ "$EFFORT" != low ] && [ -z "$EFFORT_OVERRIDE_REASON" ]; then
+    echo "error: effort gate refused $id: --effort $EFFORT is above low. Every spawned agent defaults to low; retry with --effort $EFFORT --effort-override-reason '<why this task needs it>' only under an explicit current captain exception." >&2
+    return 1
+  fi
+  if [ "$enforced" -eq 1 ]; then
+    EFFORT_RECORD=$EFFORT
+  else
+    EFFORT_RECORD="unenforced:$EFFORT"
   fi
   if [ -n "$EFFORT_OVERRIDE_REASON" ]; then
     echo "EFFORT OVERRIDE: $id launches at $EFFORT: $EFFORT_OVERRIDE_REASON" >&2
@@ -918,7 +946,7 @@ spawn_remote_secondmate() {
     echo "yolo=off"
     echo "tasktmp="
     echo "model=${model#-}"
-    echo "effort=$effort"
+    echo "effort=$EFFORT_RECORD"
     [ -z "$EFFORT_OVERRIDE_REASON" ] || echo "effort_override_reason=$EFFORT_OVERRIDE_REASON"
     echo "home=$home"
     echo "projects=$(secondmate_registry_field "$DATA/secondmates.md" "$id" projects)"
@@ -1086,7 +1114,7 @@ spawn_abort_cleanup() {
             [ -z "${BASE:-}" ] || echo "base=$BASE"
             echo "tasktmp=${TASK_TMP:-}"
             echo "model=${MODEL:-default}"
-            echo "effort=$EFFORT"
+            echo "effort=$EFFORT_RECORD"
             [ -z "$EFFORT_OVERRIDE_REASON" ] || echo "effort_override_reason=$EFFORT_OVERRIDE_REASON"
             echo "backend=orca"
             echo "orca_worktree_id=$ORCA_WORKTREE_ID"
@@ -3346,7 +3374,7 @@ preserve_relaunch_meta() {
   [ -z "$BASE" ] || echo "base=$BASE"
   echo "tasktmp=$TASK_TMP"
   echo "model=${MODEL:-default}"
-  echo "effort=$EFFORT"
+  echo "effort=$EFFORT_RECORD"
   [ -z "$EFFORT_OVERRIDE_REASON" ] || echo "effort_override_reason=$EFFORT_OVERRIDE_REASON"
   [ -z "$PLANNING_PLAN_REPORT" ] || echo "plan_report=$PLANNING_PLAN_REPORT"
   case "$PLANNING_DISPOSITION" in

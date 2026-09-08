@@ -703,14 +703,14 @@ resolve_relaunch_profile() {
     TARGET_EFFORT_OVERRIDE_REASON=$NEW_EFFORT_OVERRIDE_REASON
   elif [ "$TARGET_HARNESS" = "$PRIOR_HARNESS" ] \
       && { [ "$TARGET_EFFORT" = low ] || [ "$TARGET_EFFORT" = default ]; } \
-      && ! fm_control_harness_enforces_low_effort "$TARGET_HARNESS"; then
+      && ! fm_control_harness_enforces_effort "$TARGET_HARNESS" "$TARGET_EFFORT"; then
     TARGET_EFFORT_OVERRIDE_REASON=$PRIOR_EFFORT_OVERRIDE_REASON
   else
     TARGET_EFFORT_OVERRIDE_REASON=
   fi
-  if ! fm_control_harness_enforces_low_effort "$TARGET_HARNESS" \
+  if ! fm_control_harness_enforces_effort "$TARGET_HARNESS" "$TARGET_EFFORT" \
       && [ -z "$TARGET_EFFORT_OVERRIDE_REASON" ]; then
-    die "'$TARGET_HARNESS' has no verified low-effort launch axis and this relaunch carries no recorded capability reason, so the launch would be refused after the running agent had already been stopped; relaunch at low with --effort-override-reason '<why this adapter is required despite unprovable effort>' as capability cover, or relaunch onto an adapter that can enforce low. A non-low relaunch is a different request and needs --effort <level> and --effort-override-reason together"
+    die "'$TARGET_HARNESS' has no verified launch axis for effort '$TARGET_EFFORT' (it accepts $(fm_control_harness_effort_levels "$TARGET_HARNESS")) and this relaunch carries no recorded capability reason, so the launch would be refused after the running agent had already been stopped; choose a level that adapter accepts, relaunch onto an adapter that can enforce it, or pass --effort-override-reason '<why this adapter is required despite unprovable effort>' as capability cover. A non-low relaunch is a different request and needs --effort <level> and --effort-override-reason together"
   fi
   # The launch owner refuses a non-low effort that carries no written reason on
   # THIS invocation, but only after the agent is gone. Asking the same question

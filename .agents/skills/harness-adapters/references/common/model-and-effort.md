@@ -14,8 +14,9 @@ Never replace a higher-precedence model value.
 Effort has no such precedence chain, and there is no complexity-proportional fallback to apply.
 Every spawn runs at `low` unless the captain makes an explicit current exception, and only `AGENTS.md` section 4 and `../../../bin/fm-spawn.sh --help` own that rule and its flags.
 A dispatch profile or secondmate pin may confirm `low` and may not raise it; a configured higher level is refused at startup and at spawn rather than obeyed.
-Select a harness whose verified launch axis can carry `low`, because the spawn refuses an adapter that cannot prove it unless the captain's exception says the adapter has no enforceable axis.
-That refusal replaces the older record-and-omit behavior: a level a harness cannot accept is no longer recorded and silently dropped, because a recorded level the CLI never received is a false guarantee.
+Select a harness whose verified launch axis can carry the level you are asking for, because the spawn refuses an adapter that cannot prove it unless the captain's exception says the adapter has no enforceable axis.
+The question is asked about the level requested, not about `low`: grok's `--reasoning-effort` accepts only `low|medium|high` and codex stops at `xhigh`, so `--effort xhigh` on grok is refused and the refusal names the levels that adapter does accept.
+That replaces the older record-and-omit behavior: a level the launch command never carried is never recorded as a plain level, because a recorded level the CLI never received is a false guarantee. Where an exception deliberately accepts an adapter with no axis, the task record marks it `effort=unenforced:<level>` so the record still describes what was actually sent.
 
 ## Harness and provider identity
 

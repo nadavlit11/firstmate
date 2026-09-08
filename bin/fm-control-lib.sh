@@ -107,22 +107,45 @@ fm_control_harness_supports_kind() {  # <harness> <kind>
   return 0
 }
 
-# Which adapters have a VERIFIED low-effort launch axis - a flag that actually
-# reaches the launch command and pins the level. claude, codex, grok, pi,
-# pi-signed and muse do; opencode, kimi, cursor and gemini do not, and neither
-# does a raw launch command, so for those a recorded "low" is a claim nothing
-# enforces. bin/fm-spawn.sh refuses them without a written capability reason, and
-# the control plane asks the same question BEFORE it stops anything so a task
-# that cannot be relaunched is refused while its agent is still running.
-# bin/fm-spawn.sh's effort_flag_for_harness renders the flag itself, so these two
-# must agree; tests/fm-spawn-planning-gate.test.sh drives the launch owner's own
-# refusal for an axis-less adapter, which is the behaviour this predicate has to
-# predict correctly for the pre-stop check to be worth anything.
-fm_control_harness_enforces_low_effort() {  # <harness>
-  case "${1-}" in
-    claude|codex|grok|pi|pi-signed|muse) return 0 ;;
-    *) return 1 ;;
+# Which adapters have a VERIFIED launch axis for a GIVEN level - a flag that
+# actually reaches the launch command and pins that level. The question is asked
+# per level, not once for low, because an adapter can accept low and reject the
+# level actually being requested: grok's --reasoning-effort takes only low,
+# medium and high, and codex's model_reasoning_effort stops at xhigh. opencode,
+# kimi, cursor and gemini accept none of them, and neither does a raw launch
+# command, so for those a recorded level is a claim nothing enforces.
+# bin/fm-spawn.sh refuses an unprovable level without a written capability
+# reason, and the control plane asks the same question BEFORE it stops anything
+# so a task that cannot be relaunched is refused while its agent is still
+# running. bin/fm-spawn.sh's effort_flag_for_harness renders the flag itself, so
+# these two must agree; tests/fm-spawn-dispatch-profile.test.sh drives the launch
+# owner's own refusals, which is the behaviour this predicate has to predict
+# correctly for the pre-stop check to be worth anything.
+fm_control_harness_enforces_effort() {  # <harness> <level>
+  local harness=${1-} level=${2-}
+  case "$level" in
+    ''|default) level=low ;;
   esac
+  case "$harness" in
+    claude|pi|pi-signed|muse)
+      case "$level" in low|medium|high|xhigh|max) return 0 ;; esac ;;
+    codex)
+      case "$level" in low|medium|high|xhigh) return 0 ;; esac ;;
+    grok)
+      case "$level" in low|medium|high) return 0 ;; esac ;;
+  esac
+  return 1
+}
+
+# The levels an adapter can actually be pinned to, so a refusal can name a real
+# alternative instead of only saying no. Derived from the predicate above rather
+# than restating the sets a second time.
+fm_control_harness_effort_levels() {  # <harness>
+  local harness=${1-} level out=
+  for level in low medium high xhigh max; do
+    fm_control_harness_enforces_effort "$harness" "$level" && out="$out${out:+, }$level"
+  done
+  printf '%s\n' "${out:-none}"
 }
 
 # The key that cancels a running turn. Escape for every adapter except grok,
