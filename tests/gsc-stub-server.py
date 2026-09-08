@@ -14,6 +14,8 @@ The scenario is chosen by the FM_GSC_STUB_MODE environment variable:
   denied    403 on the property (not a user / revoked)
   quota     429 rate limit
   nosites   an authorized credential with no properties shared with it
+  nohorizon like "ok", but no metadata at all, the way Google answers when it
+            reports no first_incomplete_date
   horizon   like "ok", but a day on or after FM_GSC_STUB_HORIZON is still
             unsettled and comes back with no rows, the way Google answers a
             finalized-only request for a day it has not finished settling
@@ -101,7 +103,8 @@ def analytics(body):
     out = {"rows": rows, "responseAggregationType": "byProperty"}
     # Report the freshness boundary the way the API does, so the test can
     # assert it reaches the manifest instead of being swallowed.
-    out["metadata"] = {"first_incomplete_date": HORIZON}
+    if MODE != "nohorizon":
+        out["metadata"] = {"first_incomplete_date": HORIZON}
     return 200, out
 
 

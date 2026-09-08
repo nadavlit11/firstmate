@@ -22,6 +22,8 @@
 #     manifest, including on a run otherwise served entirely from cache
 #   - a day fetched while it was still inside that horizon is re-fetched rather
 #     than served later as settled, while a settled day stays cached
+#   - when Google reports no horizon, the trailing three days are assumed
+#     unsettled rather than cached as final, and the manifest says so
 #   - each unhappy path gets its own exit code: API disabled (6), not
 #     authorized (3), quota (4), revoked token (3), network failure (5)
 #   - only an exact `http://<loopback-host>:<port>` test endpoint override is
@@ -249,6 +251,50 @@ run_pull "$HOME1B" "$OUT4B" || fail "re-pull after the horizon moved failed: $(c
 [ "$(jq -r .dayDimensionsReadFromCache "$OUT4B/manifest.json")" = 3 ] \
   || fail "the day already captured as settled should still come from cache"
 pass "a day fetched inside the incompleteness horizon is re-fetched, not served as settled"
+
+# --- no reported horizon must not mean "everything is settled" ----------------
+
+# Google answering with no first_incomplete_date at all says nothing about
+# freshness, so the trailing three days are assumed unsettled rather than
+# captured as final. Dates are relative to the run date, which is what the
+# fallback window is measured against.
+day_offset() { python3 -c "import datetime,sys;print(datetime.datetime.utcnow().date()+datetime.timedelta(days=int(sys.argv[1])))" "$1"; }
+TODAY=$(day_offset 0)
+FOUR_AGO=$(day_offset -4)
+TWO_AGO=$(day_offset -2)
+
+start_stub nohorizon
+HOME1C=$(make_home home1c)
+OUT4C="$TMP_ROOT/out4c"
+( cd "$HOME1C" && FM_HOME="$HOME1C" "$GSC" pull --site sc-domain:example.co.il \
+    --start "$FOUR_AGO" --end "$TODAY" --out "$OUT4C" ) 2>"$TMP_ROOT/stderr.txt" \
+  || fail "no-horizon pull failed: $(cat "$TMP_ROOT/stderr.txt")"
+[ "$(jq -r .firstIncompleteDate "$OUT4C/manifest.json")" = null ] \
+  || fail "an assumed window must not be reported as a date Google gave"
+[ "$(jq -r .firstIncompleteDateSource "$OUT4C/manifest.json")" = "assumed-conservative-default" ] \
+  || fail "the manifest does not say the horizon was assumed rather than reported"
+[ "$(jq -r .provisionalFromDate "$OUT4C/manifest.json")" = "$TWO_AGO" ] \
+  || fail "the assumed window is not the trailing three days"
+assert_grep "no incomplete-data horizon" "$TMP_ROOT/stderr.txt" \
+  "the assumed fallback is stated on stderr, not applied silently"
+
+OUT4D="$TMP_ROOT/out4d"
+( cd "$HOME1C" && FM_HOME="$HOME1C" "$GSC" pull --site sc-domain:example.co.il \
+    --start "$FOUR_AGO" --end "$TODAY" --out "$OUT4D" ) 2>"$TMP_ROOT/stderr.txt" \
+  || fail "no-horizon re-pull failed: $(cat "$TMP_ROOT/stderr.txt")"
+[ "$(jq -r .dayDimensionsQueried "$OUT4D/manifest.json")" = 9 ] \
+  || fail "the three days inside the assumed window were not re-fetched"
+[ "$(jq -r .dayDimensionsReadFromCache "$OUT4D/manifest.json")" = 6 ] \
+  || fail "the two days outside the assumed window were not served from cache"
+pass "an absent horizon is treated as unknown freshness, not as settled data"
+
+# The reported branch must be distinguishable: a horizon Google actually sent
+# is used verbatim and recorded as reported.
+[ "$(jq -r .firstIncompleteDateSource "$OUT4A/manifest.json")" = "reported" ] \
+  || fail "a horizon Google reported was not recorded as reported"
+[ "$(jq -r .provisionalFromDate "$OUT4A/manifest.json")" = "2026-09-02" ] \
+  || fail "the reported horizon did not gate the provisional days"
+pass "a reported horizon is used verbatim and recorded as reported"
 
 # --- paging and the row cap ---------------------------------------------------
 

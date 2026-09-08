@@ -68,7 +68,11 @@
 # That same horizon decides what may be cached. A day on or after it was still
 # moving when it was fetched, so it is written as `provisional` and is never
 # served from cache: it is re-fetched until it falls outside the horizon and is
-# captured settled. A settled day is a stable historical fact and is served
+# captured settled. When Google reports no horizon at all, that is not a
+# claim that everything is settled: the trailing three days of the documented
+# settling window are assumed incomplete instead, and the manifest records
+# `firstIncompleteDateSource` as `assumed-conservative-default` rather than
+# passing the assumption off as a date Google gave. A settled day is a stable historical fact and is served
 # from disk forever. A cache entry from before this flag existed carries no
 # provenance, so it is re-fetched once rather than trusted.
 #
@@ -580,8 +584,17 @@ cmd_pull() {
   trap "rm -rf '$tmp'; cleanup" EXIT
 
   local dim day n result cache_file fresh_days=0 cached_days=0 provisional
-  local aggregations='{}' horizon=""
-  [ "$first_incomplete" = null ] || horizon=$(printf '%s' "$first_incomplete" | jq -r .)
+  local aggregations='{}' horizon horizon_source=reported
+  if [ "$first_incomplete" = null ]; then
+    # Google reporting no horizon is not Google reporting that everything is
+    # settled. Fall back to the documented settling window - the trailing three
+    # days, inclusive - so a still-moving day is never captured as final.
+    horizon_source=assumed-conservative-default
+    horizon=$(day_date "$(( $(day_number "$(date -u +%Y-%m-%d)") - 2 ))")
+    warn "Search Console reported no incomplete-data horizon; assuming data from $horizon onward is not yet settled"
+  else
+    horizon=$(printf '%s' "$first_incomplete" | jq -r .)
+  fi
   # A day's rows become a stable historical fact only once Google has finished
   # settling that day, so a day fetched on or after the observed horizon is
   # cached as provisional and re-fetched next run rather than served as final.
@@ -593,7 +606,7 @@ cmd_pull() {
       day=$(day_date "$n")
       cache_file="$cache_root/$dim/$day.json"
       provisional=false
-      if [ -n "$horizon" ] && [[ ! $day < $horizon ]]; then provisional=true; fi
+      if [[ ! $day < $horizon ]]; then provisional=true; fi
       if [ -s "$cache_file" ] \
          && [ "$(jq -r 'if .provisional == false then "settled" else "unusable" end' < "$cache_file")" = settled ]; then
         cached_days=$(( cached_days + 1 ))
@@ -644,6 +657,7 @@ cmd_pull() {
     --arg truncated "${truncated_dims# }" \
     --argjson maxRows "$max" \
     --argjson firstIncompleteDate "$first_incomplete" \
+    --arg horizonSource "$horizon_source" --arg provisionalFrom "$horizon" \
     --argjson aggregation "$aggregations" \
     --argjson freshDays "$fresh_days" --argjson cachedDays "$cached_days" \
     --argjson queryRows "$(jq length < "$tmp/query.agg.json")" \
@@ -655,6 +669,8 @@ cmd_pull() {
       maxRowsPerDimension: $maxRows,
       truncatedDimensions: (if $truncated == "" then [] else ($truncated | split(" ")) end),
       firstIncompleteDate: $firstIncompleteDate,
+      firstIncompleteDateSource: $horizonSource,
+      provisionalFromDate: $provisionalFrom,
       responseAggregationType: $aggregation,
       dayDimensionsQueried: $freshDays, dayDimensionsReadFromCache: $cachedDays,
       queryRows: $queryRows, pageRows: $pageRows,
