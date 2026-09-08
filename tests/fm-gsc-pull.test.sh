@@ -291,6 +291,23 @@ OUT4D="$TMP_ROOT/out4d"
   || fail "the two days outside the assumed window were not served from cache"
 pass "an absent horizon assumes the trailing three Search Console days are unsettled"
 
+assert_not_contains "$(cat "$TMP_ROOT/stderr.txt")" "could not resolve" \
+  "a resolved reporting timezone is not reported as unresolvable"
+
+# An unresolvable zone is invisible to error checking: `date` substitutes UTC
+# and exits 0. The window must widen by a day and say so rather than treat that
+# silent UTC substitution as Pacific, which would place the boundary a day later.
+OUT4E="$TMP_ROOT/out4e"
+( cd "$HOME1C" && FM_HOME="$HOME1C" FM_GSC_TEST_CLOCK="$CLOCK" FM_GSC_TEST_TZ=Not/AZone \
+    "$GSC" pull --site sc-domain:example.co.il \
+    --start 2026-06-05 --end 2026-06-09 --out "$OUT4E" ) 2>"$TMP_ROOT/stderr.txt" \
+  || fail "unresolvable-timezone pull failed: $(cat "$TMP_ROOT/stderr.txt")"
+assert_grep "could not resolve the Search Console reporting timezone" "$TMP_ROOT/stderr.txt" \
+  "an unresolvable reporting timezone is stated, not silently taken as UTC"
+[ "$(jq -r .provisionalFromDate "$OUT4E/manifest.json")" = "2026-06-07" ] \
+  || fail "the conservative widened window was not applied for an unresolvable timezone"
+pass "an unresolvable reporting timezone widens the window instead of passing UTC off as Pacific"
+
 # The reported branch must be distinguishable: a horizon Google actually sent
 # is used verbatim and recorded as reported.
 [ "$(jq -r .firstIncompleteDateSource "$OUT4A/manifest.json")" = "reported" ] \

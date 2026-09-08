@@ -430,16 +430,16 @@ observe_horizon() {  # <property> <start> <end>
   printf '%s' "$page" | jq -c '.metadata.first_incomplete_date // .metadata.firstIncompleteDate // null'
 }
 
-# The calendar date at <epoch> in <tz>, or empty when that cannot be resolved.
+# `date` formatted at <epoch> in <tz>, empty when <epoch> cannot be read at all.
 # GNU and BSD date spell "at this epoch" differently, so both are tried.
-zone_date() {  # <tz-or-empty> <epoch>
-  local tz=$1 epoch=$2
+zone_time() {  # <tz-or-empty> <epoch> <format>
+  local tz=$1 epoch=$2 fmt=$3
   if [ -n "$tz" ]; then
-    TZ="$tz" date -r "$epoch" +%Y-%m-%d 2>/dev/null \
-      || TZ="$tz" date -d "@$epoch" +%Y-%m-%d 2>/dev/null || true
+    TZ="$tz" date -r "$epoch" "$fmt" 2>/dev/null \
+      || TZ="$tz" date -d "@$epoch" "$fmt" 2>/dev/null || true
   else
-    date -r "$epoch" +%Y-%m-%d 2>/dev/null \
-      || date -d "@$epoch" +%Y-%m-%d 2>/dev/null || true
+    date -r "$epoch" "$fmt" 2>/dev/null \
+      || date -d "@$epoch" "$fmt" 2>/dev/null || true
   fi
 }
 
@@ -449,21 +449,26 @@ zone_date() {  # <tz-or-empty> <epoch>
 # machine clock: measuring in UTC can leave a genuinely unsettled Pacific day
 # outside the window and cache it as final.
 assumed_horizon() {
-  local epoch pacific utc local_date base back=2
+  local epoch tz offset base back=2 utc local_date
   epoch=${FM_GSC_TEST_CLOCK:-$(date -u +%s)}
-  pacific=$(zone_date America/Los_Angeles "$epoch")
-  if date_valid "$pacific"; then
-    base=$pacific
-  else
-    # Falling back to UTC would reintroduce exactly the skew this guards, so
-    # take the later of the two dates available and give up a day of width.
-    utc=$(zone_date UTC "$epoch")
-    local_date=$(zone_date "" "$epoch")
-    base=$utc
-    if [[ $local_date > $base ]]; then base=$local_date; fi
-    back=3
-    warn "could not resolve the Search Console reporting timezone; using a wider conservative settling window measured from $base"
-  fi
+  tz=${FM_GSC_TEST_TZ:-America/Los_Angeles}
+  # The zone has to be proved by the offset it resolved to. An unresolvable TZ
+  # is not an error to test for: `date` silently substitutes UTC and exits 0,
+  # so a check for a missing or malformed result can never fire.
+  offset=$(zone_time "$tz" "$epoch" +%z)
+  case "$offset" in
+    -0800|-0700) base=$(zone_time "$tz" "$epoch" +%Y-%m-%d) ;;
+    *)
+      # Falling back to UTC would reintroduce exactly the skew this guards, so
+      # take the later of the two dates available and give up a day of width.
+      utc=$(zone_time UTC "$epoch" +%Y-%m-%d)
+      local_date=$(zone_time "" "$epoch" +%Y-%m-%d)
+      base=$utc
+      if [[ $local_date > $base ]]; then base=$local_date; fi
+      back=3
+      warn "could not resolve the Search Console reporting timezone; using a wider conservative settling window measured from $base"
+      ;;
+  esac
   day_date "$(( $(day_number "$base") - back ))"
 }
 
