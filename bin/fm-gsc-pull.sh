@@ -72,7 +72,9 @@
 # claim that everything is settled: the trailing three days of the documented
 # settling window are assumed incomplete instead, and the manifest records
 # `firstIncompleteDateSource` as `assumed-conservative-default` rather than
-# passing the assumption off as a date Google gave. A settled day is a stable historical fact and is served
+# passing the assumption off as a date Google gave. That assumed window is measured on
+# the Search Console reporting timezone (America/Los_Angeles), the calendar its
+# days actually end on, not on the machine clock. A settled day is a stable historical fact and is served
 # from disk forever. A cache entry from before this flag existed carries no
 # provenance, so it is re-fetched once rather than trusted.
 #
@@ -428,6 +430,43 @@ observe_horizon() {  # <property> <start> <end>
   printf '%s' "$page" | jq -c '.metadata.first_incomplete_date // .metadata.firstIncompleteDate // null'
 }
 
+# The calendar date at <epoch> in <tz>, or empty when that cannot be resolved.
+# GNU and BSD date spell "at this epoch" differently, so both are tried.
+zone_date() {  # <tz-or-empty> <epoch>
+  local tz=$1 epoch=$2
+  if [ -n "$tz" ]; then
+    TZ="$tz" date -r "$epoch" +%Y-%m-%d 2>/dev/null \
+      || TZ="$tz" date -d "@$epoch" +%Y-%m-%d 2>/dev/null || true
+  else
+    date -r "$epoch" +%Y-%m-%d 2>/dev/null \
+      || date -d "@$epoch" +%Y-%m-%d 2>/dev/null || true
+  fi
+}
+
+# The first day of the assumed settling window, used only when Google reports
+# no horizon of its own. Search Console's days end on the property's reporting
+# timezone, so the window is measured on that calendar rather than on the
+# machine clock: measuring in UTC can leave a genuinely unsettled Pacific day
+# outside the window and cache it as final.
+assumed_horizon() {
+  local epoch pacific utc local_date base back=2
+  epoch=${FM_GSC_TEST_CLOCK:-$(date -u +%s)}
+  pacific=$(zone_date America/Los_Angeles "$epoch")
+  if date_valid "$pacific"; then
+    base=$pacific
+  else
+    # Falling back to UTC would reintroduce exactly the skew this guards, so
+    # take the later of the two dates available and give up a day of width.
+    utc=$(zone_date UTC "$epoch")
+    local_date=$(zone_date "" "$epoch")
+    base=$utc
+    if [[ $local_date > $base ]]; then base=$local_date; fi
+    back=3
+    warn "could not resolve the Search Console reporting timezone; using a wider conservative settling window measured from $base"
+  fi
+  day_date "$(( $(day_number "$base") - back ))"
+}
+
 # ── Aggregation and rendering ───────────────────────────────────────────
 
 # Combine many per-day result objects into one ranked table the way Search
@@ -590,7 +629,7 @@ cmd_pull() {
     # settled. Fall back to the documented settling window - the trailing three
     # days, inclusive - so a still-moving day is never captured as final.
     horizon_source=assumed-conservative-default
-    horizon=$(day_date "$(( $(day_number "$(date -u +%Y-%m-%d)") - 2 ))")
+    horizon=$(assumed_horizon)
     warn "Search Console reported no incomplete-data horizon; assuming data from $horizon onward is not yet settled"
   else
     horizon=$(printf '%s' "$first_incomplete" | jq -r .)
