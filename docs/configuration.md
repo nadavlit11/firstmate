@@ -830,7 +830,7 @@ FM_HOME=/path/to/home bin/fm-procevent-codemagic.sh arm <build-id>
 The adapter polls `GET https://codemagic.io/api/v3/builds/{buildId}` with the token in the `x-auth-token` header and reads the pinned response field `data.status`.
 The in-progress states are `initializing`, `queued`, `preparing`, `fetching`, `testing`, `building`, `publishing`, and `finishing`.
 The terminal states are `finished`, `failed`, `canceled`, `timeout`, and `skipped`; `finished` is the only successful terminal state.
-For a raw `finished` result, the adapter also reads the v3 build-actions endpoint, so any failed action - whatever its phase - is reported as `post-processing-failed` carrying that action's type in `failed_action` - or its name when the payload omits the type, and `unknown` when it carries neither, without losing `raw_status: finished`.
+For a raw `finished` result, the adapter also reads the v3 build-actions endpoint, so any failed action - whatever its phase - is reported as `post-processing-failed`, with `failed_action` carrying that action's type, its name when the payload omits the type, or `unknown` when it carries neither, and without losing `raw_status: finished`.
 It applies the same distinction when `app_store_connect_status` is `failed`.
 The source retires after its first terminal result, including a build that was already terminal when registered.
 Authentication rejection, a missing or inaccessible build, rate limiting, a network failure, another HTTP failure, an invalid v3 response, or an undocumented status each produces a distinct terminal diagnostic rather than a success.
