@@ -66,6 +66,39 @@ test_single_script_selection() {
   pass "single-script selection lists exactly that path"
 }
 
+test_fixture_default_branch_is_pinned() {
+  local tmp repo
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/fm-test-run-default-branch.XXXXXX")
+  repo="$tmp/repo"
+  mkdir -p "$repo/bin" "$repo/tests"
+  cp "$RUNNER" "$repo/bin/fm-test-run.sh"
+  chmod +x "$repo/bin/fm-test-run.sh"
+  cat >"$repo/tests/fm-brief.test.sh" <<'SH'
+#!/usr/bin/env bash
+set -eu
+repo=$(mktemp -d "${TMPDIR:-/tmp}/fm-test-default-branch-fixture.XXXXXX")
+git -C "$repo" init -q
+branch=$(git -C "$repo" symbolic-ref --short HEAD)
+rm -rf "$repo"
+[ "$branch" = main ] || {
+  printf 'not ok - fixture repository started on %s instead of main\n' "$branch"
+  exit 1
+}
+echo "ok - fixture repository starts on main"
+SH
+  chmod +x "$repo/tests/fm-brief.test.sh"
+
+  GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=init.defaultBranch GIT_CONFIG_VALUE_0=master \
+    "$repo/bin/fm-test-run.sh" tests/fm-brief.test.sh \
+    >"$tmp/out" 2>"$tmp/err" \
+    || fail "runner did not pin a fixture repository to main: $(cat "$tmp/err")"
+  grep -Fq 'ok - fixture repository starts on main' "$tmp/out" \
+    || fail "runner did not expose the pinned fixture result: $(cat "$tmp/out")"
+
+  rm -rf "$tmp"
+  pass "fixture repositories start on main even when the host default is master"
+}
+
 test_changed_file_selection_is_conservative() {
   local listed all_count fam_count listed_count
   # A path-mapped pure unit should not expand to --all.
@@ -1373,6 +1406,7 @@ assert len(doc["scripts"])==3
 test_list_all_exact_suite_coverage
 test_family_selection
 test_single_script_selection
+test_fixture_default_branch_is_pinned
 test_changed_file_selection_is_conservative
 test_changed_runner_surfaces_select_their_family
 test_changed_dependency_selection_and_unmapped_failure
