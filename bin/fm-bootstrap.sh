@@ -1135,10 +1135,19 @@ crew_dispatch_validate() {
       | unique;
     def bad_efforts:
       configured_profiles
-      | map({h: .harness, e: (.effort // "low")})
+      | map({h: .harness, e: .effort})
+      | map(select(.e != null))
       | map(select((.h | type) == "string" and verified(.h)))
       | map(select(. as $p | effort_ok($p.h; $p.e) | not))
       | map("\(.h):\(.e)")
+      | unique;
+    def axisless_harnesses:
+      configured_profiles
+      | map({h: .harness, e: .effort})
+      | map(select(.e == null))
+      | map(select((.h | type) == "string" and verified(.h)))
+      | map(select(. as $p | effort_ok($p.h; "low") | not))
+      | map(.h)
       | unique;
     if type != "object" then "top-level value must be an object"
     elif has("rules") and (.rules | type) != "array" then "rules must be an array"
@@ -1166,6 +1175,7 @@ crew_dispatch_validate() {
       | if ($bad_harnesses | length) > 0 then "unverified harness: " + ($bad_harnesses | join(", "))
         elif (non_low_efforts | length) > 0 then "profile effort \u0027" + (non_low_efforts | join(", ")) + "\u0027 is not low; standing config cannot authorize higher effort. Remove it or use a one-spawn --effort-override-reason after an explicit current captain exception"
         elif (bad_efforts | length) > 0 then "invalid effort: " + (bad_efforts | join(", "))
+        elif (axisless_harnesses | length) > 0 then "harness \u0027" + (axisless_harnesses | join(", ")) + "\u0027 has no verified low-effort launch axis, so every spawn selecting this profile refuses. Choose a harness that can enforce low; the profile names no effort field to correct"
         else empty
         end
     end

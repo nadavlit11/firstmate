@@ -1047,7 +1047,37 @@ test_scout_report_can_be_the_promoted_ship_plan() {
   pass "a scout report becomes the ship plan only when the promotion names it"
 }
 
+# bin/fm-spawn.sh re-validates the planning disposition by reading the BRIEF, so
+# a promotion that recorded it only in the task record and the prose
+# instructions leaves the promoted ship unable to relaunch itself: fm-control
+# stops the agent, the launch refuses, and the task is stranded.
+test_promotion_records_the_plan_where_spawn_reads_it() {
+  local home id meta brief out status
+  home="$TMP_ROOT/promote-brief-line/home"
+  mkdir -p "$home/data" "$home/state"
+  id=promote-brief-line
+  FM_HOME="$home" "$BRIEF" "$id" proj --base main --scout >/dev/null 2>&1 \
+    || fail "brief-line: scout brief should scaffold"
+  brief="$home/data/$id/brief.md"
+  assert_no_grep 'Planning gate: ' "$brief" "a scout brief must carry no planning line"
+  fill_brief_subsections "$brief" "Investigate the failure." "Report the cause."
+  printf 'implementation-ready findings\n' > "$home/data/$id/report.md"
+  meta="$home/state/$id.meta"
+  printf 'window=fm-%s\nkind=scout\nworktree=/tmp/wt\n' "$id" > "$meta"
+
+  out=$(FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" "$PROMOTE" "$id" --mode direct-PR --yolo off \
+    --plan-report "$id/report.md" 2>&1)
+  status=$?
+  expect_code 0 "$status" "a promotion naming its report should succeed ($out)"
+  assert_grep "Planning gate: plan=$id/report.md" "$brief" \
+    "the promotion did not record its plan in the brief that fm-spawn re-validates"
+  [ "$(grep -c '^Planning gate: ' "$brief")" = 1 ] \
+    || fail "the promoted brief must carry exactly one planning line"
+  pass "promotion records the plan in the brief the launch owner re-reads"
+}
+
 test_promotion_delivers_the_real_definition_of_done
+test_promotion_records_the_plan_where_spawn_reads_it
 test_project_mode_maps_the_conditional_policy
 test_spawn_and_promote_require_filled_task_subsections
 test_scout_promotion_requires_planning_disposition

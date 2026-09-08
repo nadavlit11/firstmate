@@ -107,6 +107,22 @@ fm_control_harness_supports_kind() {  # <harness> <kind>
   return 0
 }
 
+# Which adapters have a VERIFIED low-effort launch axis - a flag that actually
+# reaches the launch command and pins the level. claude, codex, grok, pi,
+# pi-signed and muse do; opencode, kimi, cursor and gemini do not, and neither
+# does a raw launch command, so for those a recorded "low" is a claim nothing
+# enforces. bin/fm-spawn.sh refuses them without a written capability reason, and
+# the control plane asks the same question BEFORE it stops anything so a task
+# that cannot be relaunched is refused while its agent is still running.
+# bin/fm-spawn.sh's effort_flag_for_harness renders the flag itself; a test pins
+# the two against each other so the renderer and this predicate cannot drift.
+fm_control_harness_enforces_low_effort() {  # <harness>
+  case "${1-}" in
+    claude|codex|grok|pi|pi-signed|muse) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 # The key that cancels a running turn. Escape for every adapter except grok,
 # whose Esc only moves focus to the scrollback; grok cancels on Ctrl+C.
 # gemini names its own key in the running turn's status row

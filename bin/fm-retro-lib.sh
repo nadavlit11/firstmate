@@ -6,8 +6,9 @@
 # applies, which lessons are worth keeping, and where each one belongs - because
 # shell cannot decide any of that without guessing. What shell can do is insist
 # that the receipt EXISTS, that it names a tier from a closed set, that a skip
-# carries a reason, and that a task which outgrew its planning exemption cannot
-# claim to be trivial after the fact.
+# carries a reason, and that a skip is available only to a task whose RECORDED
+# planning disposition was an exception. Whether a branch outgrew that exemption
+# is a judgment the skill makes, not one shell infers from commit or file counts.
 #
 # Receipt path: <data>/<task-id>/retro.md
 # Receipt shape:
@@ -34,35 +35,14 @@ fm_retro_receipt_tier() {
   esac
 }
 
-# fm_retro_branch_outgrew_exception <worktree> <base-ref>
-# True when the branch is bigger than the "literal one-line change" or
-# "following a named precedent" an exemption claimed: more than one commit, more
-# than one changed tracked file, or a commit that types itself feat:/fix:.
-# An unreadable git state answers false - a teardown of landed work must not be
-# blocked by a measurement this gate cannot take.
-fm_retro_branch_outgrew_exception() {
-  local wt=${1:-} base=${2:-} commits files subjects
-  [ -n "$wt" ] && [ -d "$wt" ] || return 1
-  [ -n "$base" ] || return 1
-  git -C "$wt" rev-parse --verify --quiet "$base" >/dev/null 2>&1 || return 1
-  commits=$(git -C "$wt" rev-list --count "$base..HEAD" 2>/dev/null) || return 1
-  [ -n "$commits" ] || return 1
-  [ "$commits" -le 1 ] || return 0
-  files=$(git -C "$wt" diff --name-only "$base..HEAD" 2>/dev/null | grep -c '[^[:space:]]') || files=0
-  [ "$files" -le 1 ] || return 0
-  subjects=$(git -C "$wt" log --format='%s' "$base..HEAD" 2>/dev/null) || subjects=
-  printf '%s\n' "$subjects" | grep -qE '^(feat|fix)(\(|!|:)' && return 0
-  return 1
-}
-
-# fm_retro_validate <data-dir> <task-id> <worktree> <base-ref> <planning-disposition>
+# fm_retro_validate <data-dir> <task-id> <planning-disposition>
 # <planning-disposition> is "plan" when the task named a plan report, or the
 # exception kind, or empty when the record predates the planning gate.
 # Prints the operator refusal and returns 1 when the receipt is missing or its
 # skip is not available to this task; prints the skip notice and returns 0 when
 # a reasoned skip is legitimate.
 fm_retro_validate() {
-  local data=$1 id=$2 wt=$3 base=$4 planning=$5 receipt tier reason
+  local data=$1 id=$2 planning=$3 receipt tier reason
   receipt=$(fm_retro_receipt_path "$data" "$id")
   if [ ! -f "$receipt" ] || [ ! -s "$receipt" ]; then
     echo "REFUSED: ship task $id has no retro receipt at $receipt." >&2
@@ -88,11 +68,6 @@ fm_retro_validate() {
   esac
   if [ "$planning" = plan ] || [ -z "$planning" ]; then
     echo "REFUSED: ship task $id cannot skip retro: it was planned, so it was already classified as non-trivial." >&2
-    echo "Complete a quick retro and retry teardown." >&2
-    return 1
-  fi
-  if fm_retro_branch_outgrew_exception "$wt" "$base"; then
-    echo "REFUSED: ship task $id cannot skip retro: it outgrew its $planning exemption - more than one commit, more than one changed file, or a feat:/fix: commit." >&2
     echo "Complete a quick retro and retry teardown." >&2
     return 1
   fi

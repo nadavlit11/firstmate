@@ -6,6 +6,7 @@
 #        fm-control.sh <task-id> exit
 #        fm-control.sh <task-id> relaunch [--harness <name>] [--model <name>]
 #                                         [--effort <level>]
+#                                         [--effort-override-reason <text>]
 #                                         (--note <text> | --note-file <path>)
 #
 # Why this exists, and how it differs from fm-send.sh. bin/fm-send.sh is the
@@ -197,6 +198,8 @@ NEW_EFFORT=
 HARNESS_SET=0
 MODEL_SET=0
 EFFORT_SET=0
+NEW_EFFORT_OVERRIDE_REASON=
+EFFORT_OVERRIDE_REASON_SET=0
 NOTE=
 NOTE_SET=0
 control_want_value=
@@ -209,6 +212,7 @@ for control_arg in "$@"; do
       harness) NEW_HARNESS=$control_arg; HARNESS_SET=1 ;;
       model) NEW_MODEL=$control_arg; MODEL_SET=1 ;;
       effort) NEW_EFFORT=$control_arg; EFFORT_SET=1 ;;
+      effort_override_reason) NEW_EFFORT_OVERRIDE_REASON=$control_arg; EFFORT_OVERRIDE_REASON_SET=1 ;;
       note) NOTE=$control_arg; NOTE_SET=1 ;;
       note_file)
         [ -f "$control_arg" ] || die "--note-file '$control_arg' is not a readable file"
@@ -226,6 +230,8 @@ for control_arg in "$@"; do
     --model=*) NEW_MODEL=${control_arg#--model=}; MODEL_SET=1 ;;
     --effort) control_want_value=effort ;;
     --effort=*) NEW_EFFORT=${control_arg#--effort=}; EFFORT_SET=1 ;;
+    --effort-override-reason) control_want_value=effort_override_reason ;;
+    --effort-override-reason=*) NEW_EFFORT_OVERRIDE_REASON=${control_arg#--effort-override-reason=}; EFFORT_OVERRIDE_REASON_SET=1 ;;
     --note) control_want_value=note ;;
     --note=*) NOTE=${control_arg#--note=}; NOTE_SET=1 ;;
     --note-file) control_want_value=note_file ;;
@@ -522,9 +528,11 @@ CONFIG_MODEL=
 CONFIG_EFFORT=
 PRIOR_MODEL=
 PRIOR_EFFORT=
+PRIOR_EFFORT_OVERRIDE_REASON=
 TARGET_HARNESS=$HARNESS
 TARGET_MODEL=
 TARGET_EFFORT=
+TARGET_EFFORT_OVERRIDE_REASON=
 
 journal_write() {  # <phase> [extra-line]...
   local phase=$1
@@ -618,6 +626,7 @@ resolve_relaunch_profile() {
   PRIOR_RECORDED_HARNESS=$RECORDED_HARNESS
   PRIOR_MODEL=$(fm_meta_get "$META" model)
   PRIOR_EFFORT=$(fm_meta_get "$META" effort)
+  PRIOR_EFFORT_OVERRIDE_REASON=$(fm_meta_get "$META" effort_override_reason)
   [ -n "$PRIOR_MODEL" ] || PRIOR_MODEL=default
   [ -n "$PRIOR_EFFORT" ] || PRIOR_EFFORT=default
   if [ "$HARNESS_SET" = 0 ] \
@@ -683,6 +692,22 @@ resolve_relaunch_profile() {
     TARGET_EFFORT=$PRIOR_EFFORT
   else
     TARGET_EFFORT=default
+  fi
+  # An adapter with no verified low-effort axis was legally dispatched under a
+  # written capability reason, so it must stay recoverable: carry that recorded
+  # reason forward, or take a fresh one from this invocation. Without either,
+  # refuse HERE - the launch owner would refuse too, but only after the agent
+  # has been stopped, stranding the task with no agent and no way back.
+  if [ "$EFFORT_OVERRIDE_REASON_SET" = 1 ]; then
+    TARGET_EFFORT_OVERRIDE_REASON=$NEW_EFFORT_OVERRIDE_REASON
+  elif [ "$TARGET_HARNESS" = "$PRIOR_HARNESS" ]; then
+    TARGET_EFFORT_OVERRIDE_REASON=$PRIOR_EFFORT_OVERRIDE_REASON
+  else
+    TARGET_EFFORT_OVERRIDE_REASON=
+  fi
+  if ! fm_control_harness_enforces_low_effort "$TARGET_HARNESS" \
+      && [ -z "$TARGET_EFFORT_OVERRIDE_REASON" ]; then
+    die "'$TARGET_HARNESS' has no verified low-effort launch axis and this relaunch carries no recorded capability reason, so the launch would be refused after the running agent had already been stopped; pass --effort-override-reason '<why this adapter is required despite unprovable effort>' or relaunch onto an adapter that can enforce low"
   fi
 }
 
@@ -839,6 +864,8 @@ do_relaunch() {
   spawn_args=("$ID" --relaunch --harness "$TARGET_HARNESS")
   [ "$TARGET_MODEL" = default ] || spawn_args+=(--model "$TARGET_MODEL")
   [ "$TARGET_EFFORT" = default ] || spawn_args+=(--effort "$TARGET_EFFORT")
+  [ -z "$TARGET_EFFORT_OVERRIDE_REASON" ] \
+    || spawn_args+=(--effort-override-reason "$TARGET_EFFORT_OVERRIDE_REASON")
   if FM_CONTROL_RELAUNCH_TX="$RELAUNCH_TX" \
       "$SCRIPT_DIR/fm-spawn.sh" "${spawn_args[@]}" >/dev/null; then
     RELAUNCH_META_PUBLISHED=1

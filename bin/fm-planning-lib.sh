@@ -11,6 +11,20 @@
 # report exists in this home, or that an exemption was typed with a reason - so a
 # bypass is visible and attributable rather than invisible.
 
+# fm_planning_render_line plan <canonical-report>
+# fm_planning_render_line exception <kind> <reason>
+# Renders the one machine-readable "Planning gate:" record that bin/fm-brief.sh
+# writes into a ship brief, bin/fm-promote.sh writes when it converts a scout,
+# and bin/fm-spawn.sh re-validates. It lives here so the syntax has one owner
+# and a writer cannot drift from the validator.
+fm_planning_render_line() {
+  case "${1:-}" in
+    plan) printf 'Planning gate: plan=%s\n' "${2:-}" ;;
+    exception) printf 'Planning gate: exception=%s reason=%s\n' "${2:-}" "${3:-}" ;;
+    *) return 1 ;;
+  esac
+}
+
 # fm_planning_valid_reason <text>
 # A reason is a single non-empty line with at least one non-space character.
 fm_planning_valid_reason() {

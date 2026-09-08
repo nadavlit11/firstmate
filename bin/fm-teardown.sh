@@ -786,7 +786,6 @@ CLEANUP_RECOVERY=$TEARDOWN_CLEANUP_RECOVERY
 KIND=$TEARDOWN_META_KIND
 MODE=$(grep '^mode=' "$META" | cut -d= -f2- || true)
 [ -n "$MODE" ] || MODE=no-mistakes
-BASE_REF=$(fm_meta_get "$META" base)
 # The planning disposition decides whether this ship may skip its retro
 # (bin/fm-retro-lib.sh). A record written before the planning gate existed has
 # neither field, and is treated as planned rather than exempt.
@@ -2723,7 +2722,7 @@ fi
 # are not one task, so neither is retro-gated. --force is explicit discard
 # authority and carries past this the way it carries past the scout report gate.
 if [ "$KIND" = ship ] && [ "$FORCE" != "--force" ] && [ "$CLEANUP_RECOVERY" != orca ]; then
-  fm_retro_validate "$DATA" "$ID" "$WT" "$BASE_REF" "$RETRO_PLANNING" || exit 1
+  fm_retro_validate "$DATA" "$ID" "$RETRO_PLANNING" || exit 1
 fi
 
 # Non-blocking: a delivered public loop is not a teardown refusal (guard-work

@@ -299,6 +299,28 @@ grep -v -e '^kind=' -e '^mode=' -e '^yolo=' \
     exception:*) echo "planning_exception=${PLANNING_DISPOSITION#exception:}"; echo "planning_reason=$PLANNING_REASON_RECORD" ;;
   esac
 } >> "$TMP"
+# bin/fm-spawn.sh re-validates the planning disposition by reading the BRIEF, so
+# the record has to land there and not only in the prose instructions above:
+# a promoted scout whose brief.md carries no "Planning gate:" line refuses its
+# own relaunch after fm-control has already stopped the agent. Any prior line is
+# dropped first, because exactly one disposition is the whole point.
+PROMOTE_BRIEF="$DATA/$ID/brief.md"
+if [ -f "$PROMOTE_BRIEF" ]; then
+  case "$PLANNING_DISPOSITION" in
+    plan) PROMOTE_PLANNING_LINE=$(fm_planning_render_line plan "$PLANNING_PLAN_REPORT") ;;
+    exception:*) PROMOTE_PLANNING_LINE=$(fm_planning_render_line exception "${PLANNING_DISPOSITION#exception:}" "$PLANNING_REASON_RECORD") ;;
+    *) PROMOTE_PLANNING_LINE= ;;
+  esac
+  if [ -n "$PROMOTE_PLANNING_LINE" ]; then
+    BRIEF_TMP="$DATA/$ID/.brief.promote.${BASHPID:-$$}"
+    {
+      grep -v '^Planning gate: ' "$PROMOTE_BRIEF" || true
+      printf '\n%s\n' "$PROMOTE_PLANNING_LINE"
+    } > "$BRIEF_TMP" || { rm -f -- "$BRIEF_TMP"; echo "error: could not record the planning disposition in $PROMOTE_BRIEF" >&2; exit 1; }
+    mv "$BRIEF_TMP" "$PROMOTE_BRIEF" || { rm -f -- "$BRIEF_TMP"; echo "error: could not publish the planning disposition into $PROMOTE_BRIEF" >&2; exit 1; }
+  fi
+fi
+
 if ! fm_backlog_atomic_transition publish "$TMP" "$META" "task record" "$STATE"; then
   rm -f -- "$TMP"
   TMP=

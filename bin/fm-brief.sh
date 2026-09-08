@@ -267,7 +267,7 @@ if [ "$KIND" = ship ]; then
       exit 1
     }
     PLAN_REPORT_CANON=$(fm_planning_canonical_plan_report "$PLAN_REPORT" "$DATA" "$ID") || exit 1
-    PLANNING_LINE="Planning gate: plan=$PLAN_REPORT_CANON"
+    PLANNING_LINE=$(fm_planning_render_line plan "$PLAN_REPORT_CANON")
     PLANNING_INSTRUCTION="This task was planned first. Read \`$DATA/$PLAN_REPORT_CANON\` and follow it; if you find it factually wrong, say so with your evidence and report the divergence rather than silently building something else."
   elif [ "$PLANNING_EXCEPTION_SET" -eq 1 ]; then
     case "$PLANNING_EXCEPTION" in
@@ -280,7 +280,7 @@ if [ "$KIND" = ship ]; then
       echo "error: planning gate refused $ID: exception '$PLANNING_EXCEPTION' requires a specific single-line --planning-reason; use one-line only for a literal one-line change, or precedent-following with the precedent named." >&2
       exit 1
     }
-    PLANNING_LINE="Planning gate: exception=$PLANNING_EXCEPTION reason=$PLANNING_REASON"
+    PLANNING_LINE=$(fm_planning_render_line exception "$PLANNING_EXCEPTION" "$PLANNING_REASON")
     PLANNING_INSTRUCTION="This task ships without a separate plan ($PLANNING_EXCEPTION: $PLANNING_REASON). If it turns out to be larger than that, stop and report it rather than growing the change."
   else
     echo "error: planning gate refused $ID: ship briefs require either --plan-report <completed scout report> or --planning-exception <one-line|precedent-following> with --planning-reason <why>. Run and review a planning scout before building non-trivial work." >&2

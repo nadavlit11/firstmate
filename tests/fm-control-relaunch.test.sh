@@ -943,6 +943,48 @@ test_secondmate_relaunch_ignores_invalid_configured_effort_before_stop() {
 # only AFTER the running agent has been stopped - a secondmate would be left
 # with no agent at all. The control plane asks the same capability question
 # before it touches anything, so the refusal lands while the agent is still up.
+# An adapter with no verified low-effort axis was dispatched under a written
+# capability reason, so it stays recoverable: fm-control carries that recorded
+# reason forward and the launch owner's effort gate accepts it. This asserts the
+# forwarding contract rather than a completed launch, because no axis-less
+# adapter has a launchable stub in this suite - the EFFORT OVERRIDE line is
+# emitted by bin/fm-spawn.sh's gate, so seeing it proves the reason arrived.
+test_relaunch_carries_the_recorded_effort_capability_reason() {
+  local dir out
+  dir=$(new_case axiscarry rl-axis1)
+  add_ship_task "$dir" rl-axis1 kimi
+  {
+    echo "effort_override_reason=kimi is required for this task despite unprovable effort"
+  } >> "$dir/home/state/rl-axis1.meta"
+  printf 'kimi' > "$dir/fake/becomes"
+  out=$(run_control "$dir" rl-axis1 relaunch --note "recovering the agent")
+  assert_contains "$out" "EFFORT OVERRIDE: rl-axis1 launches at low: kimi is required for this task despite unprovable effort" \
+    "the recorded capability reason was not forwarded to the launch owner"
+  case "$out" in
+    *"no verified low-effort launch axis"*)
+      fail "the effort gate refused a relaunch whose capability reason was recorded" ;;
+  esac
+  pass "fm-control relaunch: an axis-less adapter's recorded capability reason reaches the effort gate"
+}
+
+# The same refusal must land BEFORE the stop, or the task is left with no agent
+# and no way back (bin/fm-control.sh's own pre-stop invariant).
+test_relaunch_without_an_effort_capability_reason_refuses_before_stop() {
+  local dir out rc
+  dir=$(new_case axisrefuse rl-axis2)
+  add_ship_task "$dir" rl-axis2 claude
+  printf 'kimi' > "$dir/fake/becomes"
+  out=$(run_control "$dir" rl-axis2 relaunch --harness kimi --note "switching runtime"); rc=$?
+  expect_code 1 "$rc" "an axis-less adapter with no capability reason must refuse"
+  assert_contains "$out" "no verified low-effort launch axis" \
+    "the refusal should name the missing capability"
+  [ "$(cat "$dir/fake/command")" = claude ] \
+    || fail "the refusal must land before the running agent is stopped"
+  [ "$(meta_field "$dir" rl-axis2 harness)" = claude ] \
+    || fail "a refused relaunch must leave the durable record on the recorded harness"
+  pass "fm-control relaunch: a missing effort capability reason refuses before the agent is stopped"
+}
+
 test_secondmate_relaunch_onto_a_crewmate_only_adapter_refuses_before_stop() {
   local dir home out rc
   dir=$(new_case smkind sm7)
@@ -1715,6 +1757,8 @@ test_turnend_auth_paths_are_owned_by_the_control_adapter
 test_secondmate_relaunch_picks_up_the_configured_harness_pin
 test_secondmate_relaunch_ignores_invalid_configured_effort_before_stop
 test_secondmate_relaunch_onto_a_crewmate_only_adapter_refuses_before_stop
+test_relaunch_carries_the_recorded_effort_capability_reason
+test_relaunch_without_an_effort_capability_reason_refuses_before_stop
 test_explicit_secondmate_harness_ignores_configured_profile_axes
 test_ship_relaunch_ignores_the_crew_harness_config
 test_spawn_relaunch_without_a_harness_reuses_the_recorded_one
