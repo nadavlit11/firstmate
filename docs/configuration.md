@@ -202,6 +202,8 @@ The optional local, gitignored `config/tavily.env` gives spawned crewmates and s
 It holds one line, `TAVILY_API_KEY=<key>`, and should be mode `0600`.
 That exact form is the only one read: the line must start at column one with `TAVILY_API_KEY=`, the value is taken as written with surrounding whitespace trimmed, and it is never quoted or prefixed with `export`.
 The file is parsed rather than sourced, so any other line - a comment, another variable, anything else - is ignored rather than executed; an empty or whitespace-only value counts as no key at all.
+A `TAVILY_API_KEY` line written in any other spelling - quoted value, `export` prefix, leading indentation, CRLF ending - yields no key rather than one that would fail every call with an untraceable 401, and spawning or scaffolding a brief prints one warning naming the file and the accepted form, without ever printing the value.
+Absence stays a different case entirely and stays silent: no file, no assignment, or an empty value means nobody set a key, which is not a fault.
 Absence is the ordinary state: a home without the file spawns exactly as it did before this capability existed, with no warning and no failure.
 
 With the key present, a spawned worker on `claude` or `codex` gets Tavily's official remote MCP server: `tavily_search`, `tavily_extract`, `tavily_map`, and `tavily_crawl`.
@@ -213,6 +215,7 @@ Every other harness is deliberately unwired.
 A harness only qualifies once it can both load the server and withhold one named tool; without the second half the prohibition would be a request rather than a control, and Tavily's own endpoint exposes no tool filter.
 So a crewmate on `opencode`, `pi`, `grok`, `kimi`, `cursor`, `gemini`, or `muse` gets no Tavily at all, whatever this file says, and the brief scaffolded for such a worker says nothing about Tavily either.
 `bin/fm-brief.sh` resolves the harness the same way a spawn with no explicit harness does, and takes `--harness <harness>` when the caller already knows the spawn will override that standing default.
+On a home with `config/crew-dispatch.json`, that standing resolution is not what the spawn launches on, so a ship or scout scaffold with a usable Tavily key and no `--harness` refuses rather than guessing, exactly as `bin/fm-spawn.sh` already refuses the same derivation; the same home with no usable key scaffolds unchanged, because there are then no Tavily lines to get wrong.
 A secondmate agent is not wired either; a secondmate home that should have Tavily needs its own `config/tavily.env`, which is also why this file is deliberately absent from the inherited-config set - a credential never crosses a home boundary on firstmate's initiative.
 
 Two consequences worth stating plainly.

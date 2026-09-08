@@ -186,13 +186,27 @@ done
 # Tell the worker about Tavily only when the harness this task will actually
 # launch on will be handed it, so a brief never advertises a tool the launch
 # cannot grant. bin/fm-tavily-lib.sh owns the wording, the withheld-endpoint
-# contract, and the decision itself; this only supplies the two inputs. The
-# harness defaults to the standing crewmate resolution bin/fm-spawn.sh lands on
-# when no per-spawn harness is given, and --harness names it when the caller
-# already knows the spawn will override that default.
-[ -n "$HARNESS" ] || HARNESS=$("$FM_ROOT/bin/fm-harness.sh" crew) || HARNESS=
-TAVILY_TEXT=$(fm_tavily_brief_lines "$CONFIG" "$HARNESS")
-[ -z "$TAVILY_TEXT" ] || TAVILY_LINES=$'\n'$TAVILY_TEXT
+# contract, the key-file verdict, and the decision itself; this only supplies the
+# two inputs. A secondmate charter carries no Tavily lines and bin/fm-spawn.sh
+# never wires a secondmate, so nothing below is resolved on that path.
+if [ "$KIND" != secondmate ]; then
+  TAVILY_NOTICE=$(fm_tavily_malformed_notice "$CONFIG")
+  [ -z "$TAVILY_NOTICE" ] || printf '%s\n' "$TAVILY_NOTICE" >&2
+  # The harness defaults to the standing crewmate resolution bin/fm-spawn.sh
+  # lands on when no per-spawn harness is given, and --harness names it when the
+  # caller already knows the spawn will override that default. A dispatch profile
+  # makes that default a lie - bin/fm-spawn.sh refuses the same derivation for the
+  # same reason - so with a usable key there is nothing honest to derive from and
+  # the scaffold stops instead of guessing. With no usable key there are no Tavily
+  # lines to get wrong, so those homes keep scaffolding exactly as before.
+  if [ -z "$HARNESS" ] && [ -f "$CONFIG/crew-dispatch.json" ] && fm_tavily_key_present "$CONFIG"; then
+    echo "error: config/crew-dispatch.json is active and this home has a Tavily key - pass --harness <harness> naming the harness resolved from the dispatch rules, the same one you will pass to bin/fm-spawn.sh, so the brief cannot advertise tools that launch will not grant." >&2
+    exit 1
+  fi
+  [ -n "$HARNESS" ] || HARNESS=$("$FM_ROOT/bin/fm-harness.sh" crew) || HARNESS=
+  TAVILY_TEXT=$(fm_tavily_brief_lines "$CONFIG" "$HARNESS")
+  [ -z "$TAVILY_TEXT" ] || TAVILY_LINES=$'\n'$TAVILY_TEXT
+fi
 
 # Ship delivery mode is an explicit per-task decision (AGENTS.md section 7). A
 # missing or invalid value stops the scaffold rather than silently defaulting.

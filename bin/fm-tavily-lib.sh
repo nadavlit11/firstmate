@@ -68,13 +68,18 @@ fm_tavily_key_file() {  # <config-dir>
 # store, not a script, and sourcing it would execute whatever it contains.
 # The ONLY accepted form is the documented one: a line `TAVILY_API_KEY=<value>`
 # starting at column one, with whitespace trimmed from both ends of the value.
-# No `export` prefix, no quoting, no indentation - any other line is skipped, so
-# a comment or an unrelated variable in the file is simply ignored. The first
-# such assignment wins; an empty or whitespace-only value counts as no key.
+# No `export` prefix, no quoting, no indentation, no CR line ending - any other
+# line is skipped, so a comment or an unrelated variable in the file is simply
+# ignored. The first such assignment wins; an empty or whitespace-only value
+# counts as no key. A near-miss spelling yields no key rather than a key that
+# cannot authenticate; fm_tavily_key_status tells the two apart for the operator.
 fm_tavily_read_key() {  # <key-file>
   local file=$1 line value
   [ -f "$file" ] && [ -r "$file" ] || return 0
   while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+      *$'\r') continue ;;
+    esac
     case "$line" in
       "$FM_TAVILY_KEY_VAR"=*) value=${line#*=} ;;
       *) continue ;;
@@ -82,10 +87,62 @@ fm_tavily_read_key() {  # <key-file>
     value="${value#"${value%%[![:space:]]*}"}"
     value="${value%"${value##*[![:space:]]}"}"
     [ -n "$value" ] || return 0
+    case "$value" in
+      \"*|\'*) continue ;;
+    esac
     printf '%s\n' "$value"
     return 0
   done < "$file"
   return 0
+}
+
+# Classify <config-dir>'s key file for an operator: `ok`, `absent`, or
+# `malformed`. The distinction exists because the two unavailable states need
+# opposite treatment. Absent - no file, no assignment, or the empty value - means
+# nobody set a key, which is the ordinary optional-capability state and stays
+# silent. Malformed means somebody DID set one in a spelling this parser does not
+# accept, so the capability is off for a reason worth saying out loud rather than
+# leaving as a 401 nobody can trace.
+fm_tavily_key_status() {  # <config-dir>
+  local file line probe value malformed=0
+  file=$(fm_tavily_key_file "$1")
+  [ -f "$file" ] && [ -r "$file" ] || { printf 'absent\n'; return 0; }
+  while IFS= read -r line || [ -n "$line" ]; do
+    probe=${line%$'\r'}
+    probe="${probe#"${probe%%[![:space:]]*}"}"
+    case "$probe" in
+      "export "*) probe=${probe#export }; probe="${probe#"${probe%%[![:space:]]*}"}" ;;
+    esac
+    case "$probe" in
+      "$FM_TAVILY_KEY_VAR"=*) ;;
+      *) continue ;;
+    esac
+    value=${probe#*=}
+    value="${value#"${value%%[![:space:]]*}"}"
+    value="${value%"${value##*[![:space:]]}"}"
+    [ -n "$value" ] || continue
+    if [ "$probe" = "$line" ]; then
+      case "$value" in
+        \"*|\'*) malformed=1; continue ;;
+      esac
+      printf 'ok\n'
+      return 0
+    fi
+    malformed=1
+  done < "$file"
+  if [ "$malformed" -eq 1 ]; then printf 'malformed\n'; else printf 'absent\n'; fi
+  return 0
+}
+
+# The operator-facing diagnostic for a malformed key file, or nothing at all for
+# any other state. Rendered here so both callers print the same sentence; they
+# send it to stderr. It names the file and the accepted form and NEVER prints the
+# value or any part of it - the whole point of the file is that the value does
+# not leak into output.
+fm_tavily_malformed_notice() {  # <config-dir>
+  [ "$(fm_tavily_key_status "$1")" = malformed ] || return 0
+  printf 'warning: %s sets %s but not in the accepted form, so Tavily is unavailable; write it as exactly `%s=<value>` at the start of a line, with no quotes, no `export` prefix, no leading whitespace, and no CR line ending.\n' \
+    "$(fm_tavily_key_file "$1")" "$FM_TAVILY_KEY_VAR" "$FM_TAVILY_KEY_VAR"
 }
 
 # True when <config-dir> holds a usable key. Silent either way: an absent file

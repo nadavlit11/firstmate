@@ -82,7 +82,11 @@ test_key_file_parsing() {
 
   printf 'TAVILY_API_KEY="%s"\n' "$SECRET" > "$dir/quoted"
   out=$(fm_tavily_read_key "$dir/quoted")
-  [ "$out" = '"'"$SECRET"'"' ] || fail "a quoted value was unwrapped rather than taken literally: '$out'"
+  [ -z "$out" ] || fail "a quoted value was accepted: '$out'"
+
+  printf 'TAVILY_API_KEY=%s\r\n' "$SECRET" > "$dir/crlf"
+  out=$(fm_tavily_read_key "$dir/crlf")
+  [ -z "$out" ] || fail "a CR-terminated line was accepted: '$out'"
 
   printf '  TAVILY_API_KEY=%s\n' "$SECRET" > "$dir/indented"
   out=$(fm_tavily_read_key "$dir/indented")
@@ -334,7 +338,123 @@ test_brief_stays_silent_on_an_unwired_harness() {
   pass "a brief describes Tavily only when the harness it will launch on can be wired for it"
 }
 
+# A dispatch profile means config/crew-harness is NOT what the spawn launches on,
+# so there is nothing honest to derive from: the scaffold must refuse rather than
+# write a brief whose Tavily claim the launch may not honour.
+test_brief_refuses_to_guess_under_a_dispatch_profile() {
+  local dir home out status
+  dir="$TMP_ROOT/brief-dispatch"
+  home="$dir/home"
+  fm_test_spawn_home "$home" claude
+  printf '{}\n' > "$home/config/crew-dispatch.json"
+  write_key "$home"
+
+  out=$(FM_HOME="$home" "$ROOT/bin/fm-brief.sh" tv-dispatch demo --base main --mode no-mistakes 2>&1)
+  status=$?
+  [ "$status" -ne 0 ] || fail "a dispatch-profile scaffold with a key guessed a harness instead of refusing"
+  [ ! -e "$home/data/tv-dispatch/brief.md" ] \
+    || fail "the refused scaffold still wrote a brief"
+  case "$out" in
+    *--harness*) : ;;
+    *) fail "the refusal did not name --harness: $out" ;;
+  esac
+
+  # The explicit harness the dispatch rules resolved to is accepted, and decides.
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" tv-dispatch-ok demo --base main --mode no-mistakes --harness opencode >/dev/null \
+    || fail "a dispatch-profile scaffold with an explicit harness failed"
+  assert_no_grep 'tavily_search' "$home/data/tv-dispatch-ok/brief.md" \
+    "a dispatch-resolved unwired harness still got the Tavily lines"
+
+  # With no usable key there are no Tavily lines to get wrong, so an unrelated
+  # caller on a dispatch-profile home must not start needing --harness.
+  rm -f "$home/config/tavily.env"
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" tv-dispatch-nokey demo --base main --mode no-mistakes >/dev/null \
+    || fail "a dispatch-profile scaffold with no key was refused"
+  [ -e "$home/data/tv-dispatch-nokey/brief.md" ] || fail "the keyless dispatch scaffold wrote no brief"
+  pass "a dispatch-profile home refuses to guess a harness only when a key makes the guess matter"
+}
+
+# --- absent vs malformed ----------------------------------------------------
+
+# Absent and malformed are both "no Tavily", but they are different situations
+# for the operator: nobody set a key, versus somebody set one that cannot work.
+test_key_status_separates_absence_from_a_broken_spelling() {
+  local dir home status notice
+  dir="$TMP_ROOT/status"
+  home="$dir/home"
+  fm_test_spawn_home "$home" claude
+
+  status=$(fm_tavily_key_status "$home/config")
+  [ "$status" = absent ] || fail "a home with no key file was not absent: '$status'"
+  notice=$(fm_tavily_malformed_notice "$home/config")
+  [ -z "$notice" ] || fail "an absent key file produced a diagnostic: '$notice'"
+
+  printf '# no key yet\nTAVILY_API_KEY=\n' > "$home/config/tavily.env"
+  status=$(fm_tavily_key_status "$home/config")
+  [ "$status" = absent ] || fail "an empty value was not treated as absence: '$status'"
+  notice=$(fm_tavily_malformed_notice "$home/config")
+  [ -z "$notice" ] || fail "an empty value produced a diagnostic: '$notice'"
+
+  write_key "$home"
+  status=$(fm_tavily_key_status "$home/config")
+  [ "$status" = ok ] || fail "a well-formed key was not ok: '$status'"
+  notice=$(fm_tavily_malformed_notice "$home/config")
+  [ -z "$notice" ] || fail "a well-formed key produced a diagnostic: '$notice'"
+
+  local spelling
+  for spelling in 'TAVILY_API_KEY="%s"\n' 'export TAVILY_API_KEY=%s\n' '  TAVILY_API_KEY=%s\n' 'TAVILY_API_KEY=%s\r\n'; do
+    # shellcheck disable=SC2059  # the loop variable IS the format being exercised
+    printf "$spelling" "$SECRET" > "$home/config/tavily.env"
+    status=$(fm_tavily_key_status "$home/config")
+    [ "$status" = malformed ] || fail "a near-miss spelling was not malformed: '$spelling' -> '$status'"
+    fm_tavily_key_present "$home/config" \
+      && fail "a near-miss spelling still counted as a usable key: '$spelling'"
+    notice=$(fm_tavily_malformed_notice "$home/config")
+    case "$notice" in
+      *"$home/config/tavily.env"*) : ;;
+      *) fail "the diagnostic did not name the key file: '$notice'" ;;
+    esac
+    case "$notice" in
+      *'TAVILY_API_KEY=<value>'*) : ;;
+      *) fail "the diagnostic did not give the accepted form: '$notice'" ;;
+    esac
+    case "$notice" in
+      *"$SECRET"*) fail "the diagnostic printed the key value" ;;
+    esac
+  done
+  pass "an unset key is silent absence while a broken spelling is a named, value-free diagnostic"
+}
+
+test_malformed_key_leaves_the_launch_unwired_and_says_so() {
+  local rec id out status
+  id=tv-malformed-t7
+  rec=$(make_case malformed claude "$id")
+  read_case_record "$rec"
+  printf 'TAVILY_API_KEY="%s"\n' "$SECRET" > "$HOME_DIR/config/tavily.env"
+
+  out=$(run_spawn "$id" --mode no-mistakes --yolo off 2>&1)
+  status=$?
+  expect_code 0 "$status" "a malformed key should not break the spawn"
+  assert_no_grep 'mcp.tavily.com' "$LAUNCH_LOG" \
+    "a malformed key still wired a server the credential could not authenticate against"
+  assert_no_grep 'fm-tavily-exec.sh' "$LAUNCH_LOG" \
+    "a malformed key still wrapped the launch in the key injector"
+  case "$out" in
+    *"config/tavily.env"*) : ;;
+    *) fail "the spawn said nothing about an unusable key file: $out" ;;
+  esac
+  case "$out" in
+    *'TAVILY_API_KEY=<value>'*) : ;;
+    *) fail "the spawn's diagnostic did not give the accepted form: $out" ;;
+  esac
+  case "$out" in
+    *"$SECRET"*) fail "the spawn's diagnostic printed the key value" ;;
+  esac
+  pass "a malformed key leaves the launch unwired and is reported without leaking the value"
+}
+
 test_key_file_parsing
+test_key_status_separates_absence_from_a_broken_spelling
 test_exec_wrapper_injects_without_printing
 test_claude_launch_wires_tavily_and_withholds_research
 test_codex_launch_wires_tavily_and_withholds_research
@@ -342,5 +462,7 @@ test_scout_gets_the_same_wiring
 test_absent_key_leaves_the_launch_untouched
 test_empty_key_file_is_absence_not_failure
 test_unwired_harness_gets_nothing
+test_malformed_key_leaves_the_launch_unwired_and_says_so
 test_brief_mentions_tavily_only_when_the_home_has_it
 test_brief_stays_silent_on_an_unwired_harness
+test_brief_refuses_to_guess_under_a_dispatch_profile

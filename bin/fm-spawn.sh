@@ -3312,10 +3312,13 @@ sq_worktree=$(shell_quote "$WT")
 # adapter, so neither is wired. bin/fm-tavily-lib.sh owns everything else.
 TAVILYFLAGS=
 TAVILY_KEY_FILE=
-if [ "$RAW_LAUNCH" != 1 ] && [ "$KIND" != secondmate ] \
-   && fm_tavily_harness_supported "$HARNESS" && fm_tavily_key_present "$CONFIG"; then
-  TAVILY_KEY_FILE=$(fm_tavily_key_file "$CONFIG")
-  TAVILYFLAGS=$(fm_tavily_launch_flags "$HARNESS")
+if [ "$RAW_LAUNCH" != 1 ] && [ "$KIND" != secondmate ]; then
+  TAVILY_NOTICE=$(fm_tavily_malformed_notice "$CONFIG")
+  [ -z "$TAVILY_NOTICE" ] || printf '%s\n' "$TAVILY_NOTICE" >&2
+  if fm_tavily_harness_supported "$HARNESS" && fm_tavily_key_present "$CONFIG"; then
+    TAVILY_KEY_FILE=$(fm_tavily_key_file "$CONFIG")
+    TAVILYFLAGS=$(fm_tavily_launch_flags "$HARNESS")
+  fi
 fi
 MODELFLAG=$(model_flag_for_harness "$HARNESS" "$MODEL")
 EFFORTFLAG=$(effort_flag_for_harness "$HARNESS" "$EFFORT")
