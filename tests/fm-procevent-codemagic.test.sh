@@ -53,6 +53,18 @@ case "${CODEMAGIC_TEST_CASE:-finished}" in
   missing) printf '{}' > "$body"; printf '404'; exit 0 ;;
   rate) printf '{}' > "$body"; printf '429'; exit 0 ;;
   server) printf '{}' > "$body"; printf '503'; exit 0 ;;
+  transient)
+    count=0
+    [ ! -f "$CODEMAGIC_COUNT" ] || read -r count < "$CODEMAGIC_COUNT"
+    count=$((count + 1))
+    printf '%s\n' "$count" > "$CODEMAGIC_COUNT"
+    case "$count" in
+      1) exit 7 ;;
+      2) printf '{}' > "$body"; printf '429'; exit 0 ;;
+      3) printf '{}' > "$body"; printf '503'; exit 0 ;;
+      *) printf '{"data":{"status":"finished"}}' > "$body"; printf '200'; exit 0 ;;
+    esac
+    ;;
   malformed) printf '{"status":"finished"}' > "$body"; printf '200'; exit 0 ;;
   missing_spa) printf '<!doctype html><title>Codemagic</title>' > "$body"; printf '200'; exit 0 ;;
   unknown) printf '{"data":{"status":"new-status"}}' > "$body"; printf '200'; exit 0 ;;
@@ -75,7 +87,7 @@ fail() { printf 'not ok - %s\n' "$1" >&2; exit 1; }
 ok() { printf 'ok - %s\n' "$1"; }
 run_poll() {
   FM_HOME="$HOME_DIR" CODEMAGIC_ARGV_LOG="$ARGV_LOG" CODEMAGIC_COUNT="$COUNT" \
-    CODEMAGIC_TEST_CASE="$1" CODEMAGIC_ACTION_CASE="${2:-success}" PATH="$FAKEBIN:$PATH" \
+    FM_CODEMAGIC_POLL_RETRY_DELAY=0 CODEMAGIC_TEST_CASE="$1" CODEMAGIC_ACTION_CASE="${2:-success}" PATH="$FAKEBIN:$PATH" \
     "$BIN/fm-procevent-codemagic.sh" poll build_123 --interval 0.01 --request-timeout 1
 }
 
@@ -107,7 +119,16 @@ printf '%s\n' "$out" | grep -qx 'status: post-processing-failed' \
   || fail "failed App Store Connect processing was flattened into finished"
 ok "finished builds preserve post-processing failure distinctions"
 
-for action_case in network http invalid many early; do
+out=$(run_poll finished early)
+printf '%s\n' "$out" | grep -qx 'status: post-processing-failed' \
+  || fail "a failed non-publishing action on a finished build was not reported as a failure"
+printf '%s\n' "$out" | grep -qx 'failed_action: building_ios' \
+  || fail "a failed non-publishing action lost its real action type"
+printf '%s\n' "$out" | grep -qx 'raw_status: finished' \
+  || fail "a failed non-publishing action lost the raw terminal status"
+ok "a failed action of any phase reports its real action name"
+
+for action_case in network http invalid many; do
   out=$(run_poll finished "$action_case")
   printf '%s\n' "$out" | grep -qx 'status: action-detail-error' \
     || fail "$action_case action lookup did not fail explicitly"
@@ -115,6 +136,18 @@ for action_case in network http invalid many early; do
     || fail "$action_case action lookup lost the raw terminal status"
 done
 ok "action-detail failures stay explicit without losing raw status"
+
+rm -f "$COUNT"
+out=$(run_poll transient)
+printf '%s\n' "$out" | grep -qx 'status: finished' \
+  || fail "transient network, 429, and 5xx responses ended the watch instead of being retried"
+printf '%s\n' "$out" | grep -qx 'condition_polls: 1' \
+  || fail "bounded transient retries were counted as separate condition polls"
+rm -f "$COUNT"
+out=$(run_poll server)
+printf '%s\n' "$out" | grep -qx 'status: api-error' \
+  || fail "a persistent 5xx did not end the watch once the retry bound was spent"
+ok "transient failures retry within a bound and stay terminal past it"
 
 rm -f "$COUNT"
 out=$(run_poll sequence)
@@ -154,8 +187,15 @@ if err=$(FM_HOME="$HOME_DIR" PATH="$FAKEBIN:$PATH" "$BIN/fm-procevent-codemagic.
 fi
 printf '%s\n' "$err" | grep -Fq 'Codemagic build watching is not configured' \
   || fail "unconfigured explicit arm lacked a clear setup diagnostic"
+printf 'CODEMAGIC_API_TOKEN=tok\n# a comment\n' > "$HOME_DIR/config/codemagic.env"
+if err=$(FM_HOME="$HOME_DIR" PATH="$FAKEBIN:$PATH" "$BIN/fm-procevent-codemagic.sh" arm build_123 2>&1); then
+  fail "malformed Codemagic config unexpectedly armed"
+fi
+printf '%s\n' "$err" | grep -Fq 'is malformed' \
+  || fail "malformed Codemagic config was reported as unconfigured"
+rm -f "$HOME_DIR/config/codemagic.env"
 mv "$HOME_DIR/config/codemagic.env.saved" "$HOME_DIR/config/codemagic.env"
-ok "an unconfigured home has no implicit Codemagic behavior"
+ok "an unconfigured home has no implicit Codemagic behavior, and a malformed one says so"
 
 for build_id in '../escape' 'bad/id' 'space id'; do
   if "$BIN/fm-procevent-codemagic.sh" source-id "$build_id" >/dev/null 2>&1; then

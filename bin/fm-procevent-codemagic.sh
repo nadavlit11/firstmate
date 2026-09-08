@@ -14,7 +14,9 @@
 #            FM_HOME and is never placed in registration argv or output.
 # poll       The blocking child the generic runner executes; never run this
 #            directly in a conversational turn. It stops on any terminal build
-#            status or explicit lookup failure.
+#            status or explicit lookup failure, after a bounded quiet retry of
+#            the transient request classes only (pre-response failure, HTTP 429,
+#            any 5xx).
 # classify   Print finished, post-processing-failed, failed, canceled, timeout,
 #            skipped, auth-error, not-found, rate-limited, network-error,
 #            api-error, action-detail-error, or schema-error.
@@ -65,16 +67,28 @@ resolve_build() {
   fm_procevent_source_id_valid "$SOURCE_ID" || die "Codemagic build id is not path-safe"
 }
 
+# Exit 1 means "no Codemagic configuration at all"; exit 2 means the file is
+# there but unusable, which is a different operator action.
 read_api_key() {
   local line extra
   [ -f "$CONFIG_FILE" ] && [ ! -L "$CONFIG_FILE" ] || return 1
-  IFS= read -r line < "$CONFIG_FILE" || return 1
-  case "$line" in CODEMAGIC_API_TOKEN=?*) CODEMAGIC_API_TOKEN=${line#CODEMAGIC_API_TOKEN=} ;; *) return 1 ;; esac
+  IFS= read -r line < "$CONFIG_FILE" || return 2
+  case "$line" in CODEMAGIC_API_TOKEN=?*) CODEMAGIC_API_TOKEN=${line#CODEMAGIC_API_TOKEN=} ;; *) return 2 ;; esac
   if IFS= read -r extra < <(sed -n '2p' "$CONFIG_FILE"); then
-    [ -z "$extra" ] || return 1
+    [ -z "$extra" ] || return 2
   fi
-  case "$CODEMAGIC_API_TOKEN" in *[!A-Za-z0-9._-]*) return 1 ;; esac
-  [ -n "$CODEMAGIC_API_TOKEN" ]
+  case "$CODEMAGIC_API_TOKEN" in *[!A-Za-z0-9._-]*) return 2 ;; esac
+  [ -n "$CODEMAGIC_API_TOKEN" ] || return 2
+}
+
+require_api_key() {
+  local rc=0
+  read_api_key || rc=$?
+  case "$rc" in
+    0) return 0 ;;
+    1) die "Codemagic build watching is not configured; write CODEMAGIC_API_TOKEN to $CONFIG_FILE" ;;
+    *) die "$CONFIG_FILE is malformed; it must hold exactly one CODEMAGIC_API_TOKEN=<token> line whose token uses only [A-Za-z0-9._-]" ;;
+  esac
 }
 
 emit_result() {
@@ -89,6 +103,29 @@ emit_build_result() {
   emit_result "$1" "$2" "$4"
   printf 'raw_status: %s\n' "$3"
   [ -z "${5-}" ] || printf 'failed_action: %s\n' "$5"
+}
+
+# Bounded quiet retry for the transient request classes only: a pre-response
+# curl failure, HTTP 429, and any 5xx. The bound is a constant because it is a
+# property of the transient response, not an operator choice; only the delay
+# takes a bounded test override. Authentication rejection and a missing build
+# stay immediate loud terminal outcomes.
+POLL_RETRY_LIMIT=5
+POLL_RETRY_DELAY_DEFAULT=5
+POLL_RETRY_DELAY_MAX=60
+
+poll_retry_delay() {
+  local delay=${FM_CODEMAGIC_POLL_RETRY_DELAY-}
+  if [ -z "$delay" ]; then
+    printf '%s\n' "$POLL_RETRY_DELAY_DEFAULT"
+    return 0
+  fi
+  case "$delay" in
+    *[!0-9]*) die "FM_CODEMAGIC_POLL_RETRY_DELAY must be whole seconds from 0 to $POLL_RETRY_DELAY_MAX: $delay" ;;
+  esac
+  [ "$delay" -le "$POLL_RETRY_DELAY_MAX" ] \
+    || die "FM_CODEMAGIC_POLL_RETRY_DELAY must be whole seconds from 0 to $POLL_RETRY_DELAY_MAX: $delay"
+  printf '%s\n' "$delay"
 }
 
 fetch_build() {
@@ -131,17 +168,35 @@ emit_finished_result() {
     emit_build_result action-detail-error "Codemagic build status is finished, but the v3 actions response was invalid" finished "$polls"
     return
   }
-  case "$failed_action" in
-    pre_publish|publishing|post_publish|finishing)
-      emit_build_result post-processing-failed "Codemagic build finished, but post-processing failed" finished "$polls" "$failed_action"
-      ;;
-    '') emit_build_result finished "Codemagic build completed successfully" finished "$polls" ;;
-    *) emit_build_result action-detail-error "Codemagic build status is finished, but an earlier build action is marked failed" finished "$polls" "$failed_action" ;;
-  esac
+  if [ -n "$failed_action" ]; then
+    emit_build_result post-processing-failed "Codemagic build finished, but its $failed_action action failed" finished "$polls" "$failed_action"
+  else
+    emit_build_result finished "Codemagic build completed successfully" finished "$polls"
+  fi
+}
+
+# Print the HTTP code for one build request, or 000 when curl failed before an
+# HTTP response, retrying the transient classes up to the bound.
+fetch_build_status() {
+  local body=$1 key=$2 timeout=$3 delay=$4 attempt=0 http_code
+  while :; do
+    http_code=$(fetch_build "$body" "$key" "$timeout") || http_code=000
+    case "$http_code" in
+      000|429|5[0-9][0-9])
+        if [ "$attempt" -lt "$POLL_RETRY_LIMIT" ]; then
+          attempt=$((attempt + 1))
+          sleep "$delay"
+          continue
+        fi
+        ;;
+    esac
+    printf '%s\n' "$http_code"
+    return 0
+  done
 }
 
 cmd_poll() {
-  local interval=$DEFAULT_INTERVAL timeout=$DEFAULT_REQUEST_TIMEOUT key body actions_body http_code status polls=0
+  local interval=$DEFAULT_INTERVAL timeout=$DEFAULT_REQUEST_TIMEOUT key body actions_body http_code status retry_delay polls=0
   resolve_build "${1-}"
   shift
   while [ "$#" -gt 0 ]; do
@@ -151,20 +206,19 @@ cmd_poll() {
       *) usage ;;
     esac
   done
-  read_api_key || die "Codemagic build watching is not configured; write CODEMAGIC_API_TOKEN to $CONFIG_FILE"
+  require_api_key
   key=$CODEMAGIC_API_TOKEN
+  retry_delay=$(poll_retry_delay) || exit 1
   body=$(mktemp "${TMPDIR:-/tmp}/fm-codemagic-response.XXXXXX") || die "could not prepare Codemagic response storage"
   actions_body=$(mktemp "${TMPDIR:-/tmp}/fm-codemagic-actions.XXXXXX") || { rm -f -- "$body"; die "could not prepare Codemagic action storage"; }
   chmod 0600 "$body" "$actions_body" || { rm -f -- "$body" "$actions_body"; die "could not secure Codemagic response storage"; }
   trap 'rm -f -- "$body" "$actions_body"' EXIT HUP INT TERM
   while :; do
     polls=$((polls + 1))
-    if ! http_code=$(fetch_build "$body" "$key" "$timeout"); then
-      emit_result network-error "Codemagic request failed before an HTTP response" "$polls"
-      exit 0
-    fi
+    http_code=$(fetch_build_status "$body" "$key" "$timeout" "$retry_delay")
     case "$http_code" in
       200) ;;
+      000) emit_result network-error "Codemagic request failed before an HTTP response" "$polls"; exit 0 ;;
       401|403) emit_result auth-error "Codemagic rejected the configured API key (HTTP $http_code)" "$polls"; exit 0 ;;
       404) emit_result not-found "Codemagic build does not exist or is not visible to this API key (HTTP 404)" "$polls"; exit 0 ;;
       429) emit_result rate-limited "Codemagic rate-limited the request (HTTP 429)" "$polls"; exit 0 ;;
@@ -205,7 +259,7 @@ cmd_arm() {
       *) usage ;;
     esac
   done
-  read_api_key || die "Codemagic build watching is not configured; write CODEMAGIC_API_TOKEN to $CONFIG_FILE"
+  require_api_key
   command -v curl >/dev/null 2>&1 || die "curl is required for Codemagic build watching"
   command -v jq >/dev/null 2>&1 || die "jq is required for Codemagic build watching"
   "$SCRIPT_DIR/fm-procevent.sh" register codemagic "$SOURCE_ID" -- \
