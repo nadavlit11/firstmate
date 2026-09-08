@@ -2180,86 +2180,11 @@ fi
 PLANNING_DISPOSITION=
 PLANNING_PLAN_REPORT=
 PLANNING_REASON_RECORD=
-# validate_ship_planning_record <meta> <data-dir> <task-id>
-# Relaunch-only fallback. A relaunch re-dispatches work whose provenance was
-# already proved when the task was first created, and the record is where that
-# proof was written. Reading it here is what keeps a task recoverable whose
-# brief predates this gate, or whose brief is a scout's; without it fm-control
-# stops the agent and then cannot start a replacement, stranding the task.
-# A FRESH spawn never reaches this: it must carry the disposition in the brief.
-validate_ship_planning_record() {
-  local meta=$1 data=$2 id=$3 plan kind reason
-  [ -f "$meta" ] || return 1
-  plan=$(fm_meta_get "$meta" plan_report)
-  if [ -n "$plan" ]; then
-    PLANNING_PLAN_REPORT=$(fm_planning_canonical_plan_report "$plan" "$data" "$id") || return 1
-    PLANNING_DISPOSITION=plan
-    return 0
-  fi
-  kind=$(fm_meta_get "$meta" planning_exception)
-  [ -n "$kind" ] || return 1
-  case "$kind" in
-    one-line|precedent-following) ;;
-    *) return 1 ;;
-  esac
-  reason=$(fm_meta_get "$meta" planning_reason)
-  fm_planning_valid_reason "$reason" || return 1
-  PLANNING_DISPOSITION="exception:$kind"
-  PLANNING_REASON_RECORD=$reason
-  echo "PLANNING EXCEPTION: $id $kind: $reason (from the task record on relaunch)" >&2
-  return 0
-}
-validate_ship_planning_provenance() { # <brief> <data-dir> <task-id> [relaunch-meta]
-  local brief=$1 data=$2 id=$3 relaunch_meta=${4:-} count line value kind reason
-  count=$(grep -c '^Planning gate: ' "$brief" 2>/dev/null || true)
-  [ -n "$count" ] || count=0
-  if [ "$count" -eq 0 ]; then
-    if [ -n "$relaunch_meta" ] && validate_ship_planning_record "$relaunch_meta" "$data" "$id"; then
-      return 0
-    fi
-    echo "error: planning gate refused $id: ship briefs require either --plan-report <completed scout report> or --planning-exception <one-line|precedent-following> with --planning-reason <why>. Run and review a planning scout before building non-trivial work." >&2
-    return 1
-  fi
-  if [ "$count" -gt 1 ]; then
-    echo "error: planning gate refused $id: $brief records $count 'Planning gate:' lines; exactly one disposition is the whole point, so re-scaffold the brief rather than choosing among them" >&2
-    return 1
-  fi
-  line=$(grep -m 1 '^Planning gate: ' "$brief")
-  case "$line" in
-    'Planning gate: plan='*)
-      value=${line#Planning gate: plan=}
-      PLANNING_PLAN_REPORT=$(fm_planning_canonical_plan_report "$value" "$data" "$id") || return 1
-      PLANNING_DISPOSITION=plan
-      ;;
-    'Planning gate: exception='*)
-      value=${line#Planning gate: exception=}
-      kind=${value%% reason=*}
-      reason=${value#* reason=}
-      case "$kind" in
-        one-line|precedent-following) ;;
-        *)
-          echo "error: planning gate refused $id: $brief records exception '$kind', which is not one-line or precedent-following; re-scaffold the brief" >&2
-          return 1 ;;
-      esac
-      if [ "$reason" = "$value" ] || ! fm_planning_valid_reason "$reason"; then
-        echo "error: planning gate refused $id: exception '$kind' requires a specific single-line --planning-reason; use one-line only for a literal one-line change, or precedent-following with the precedent named." >&2
-        return 1
-      fi
-      PLANNING_DISPOSITION="exception:$kind"
-      PLANNING_REASON_RECORD=$reason
-      echo "PLANNING EXCEPTION: $id $kind: $reason" >&2
-      ;;
-    *)
-      echo "error: planning gate refused $id: $brief's planning line is malformed: $line" >&2
-      return 1 ;;
-  esac
-  return 0
-}
 if [ "$KIND" = ship ]; then
   if [ "$RELAUNCH" -eq 1 ]; then
-    validate_ship_planning_provenance "$BRIEF" "$DATA" "$ID" "$RELAUNCH_META" || exit 1
+    fm_planning_validate_provenance "$BRIEF" "$DATA" "$ID" "$RELAUNCH_META" || exit 1
   else
-    validate_ship_planning_provenance "$BRIEF" "$DATA" "$ID" || exit 1
+    fm_planning_validate_provenance "$BRIEF" "$DATA" "$ID" || exit 1
   fi
 fi
 
@@ -3403,7 +3328,7 @@ SPAWN_META_PATH=$SPAWN_META_TMP
 preserve_relaunch_meta() {
   awk -F= '
     BEGIN {
-      split("window endpoint_task_id worktree project harness kind mode yolo base tasktmp model effort effort_override_reason plan_report planning_exception planning_reason busy_gen spawn_gen traceparent backend herdr_session herdr_workspace_id herdr_tab_id herdr_pane_id zellij_session zellij_tab_id zellij_pane_id orca_worktree_id terminal cmux_workspace_id cmux_surface_id home projects control_relaunch_tx", keys, " ")
+      split("window endpoint_task_id worktree project harness kind mode yolo base tasktmp model effort effort_override_reason plan_report planning_exception planning_reason planning_legacy busy_gen spawn_gen traceparent backend herdr_session herdr_workspace_id herdr_tab_id herdr_pane_id zellij_session zellij_tab_id zellij_pane_id orca_worktree_id terminal cmux_workspace_id cmux_surface_id home projects control_relaunch_tx", keys, " ")
       for (i in keys) owned[keys[i]] = 1
     }
     !($1 in owned)
@@ -3426,6 +3351,7 @@ preserve_relaunch_meta() {
   [ -z "$PLANNING_PLAN_REPORT" ] || echo "plan_report=$PLANNING_PLAN_REPORT"
   case "$PLANNING_DISPOSITION" in
     exception:*) echo "planning_exception=${PLANNING_DISPOSITION#exception:}"; echo "planning_reason=$PLANNING_REASON_RECORD" ;;
+    legacy) echo "planning_legacy=relaunch-grandfathered" ;;
   esac
   [ -z "${BUSY_GEN:-}" ] || echo "busy_gen=$BUSY_GEN"
   echo "spawn_gen=$SPAWN_GEN"

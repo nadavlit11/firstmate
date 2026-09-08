@@ -221,6 +221,45 @@ test_relaunch_accepts_a_record_carried_disposition() {
   pass "the task record carries planning provenance on relaunch only"
 }
 
+# A ship dispatched before this gate existed has NEITHER a "Planning gate:" line
+# in its brief nor a recorded disposition, so no re-run of its original command
+# can produce one. Refusing its relaunch would strand it with no agent and no way
+# back, so a relaunch grandfathers it under its own distinct marker - never a
+# forged plan reference - while a fresh spawn stays strict.
+test_relaunch_grandfathers_a_ship_with_no_disposition_at_all() {
+  local rec id out status meta
+  id='planning-legacy-p10'
+  rec=$(make_case planning-legacy "$id")
+  read_case "$rec"
+
+  out=$(run_ship "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
+  status=$?
+  expect_code 0 "$status" "the first launch should succeed ($out)"
+  meta="$HOME_DIR/state/$id.meta"
+
+  # Strip both artifacts, exactly as a pre-gate ship has neither.
+  grep -v '^Planning gate: ' "$HOME_DIR/data/$id/brief.md" > "$HOME_DIR/data/$id/brief.tmp"
+  mv "$HOME_DIR/data/$id/brief.tmp" "$HOME_DIR/data/$id/brief.md"
+  grep -v -e '^plan_report=' -e '^planning_exception=' -e '^planning_reason=' "$meta" > "$meta.tmp"
+  mv "$meta.tmp" "$meta"
+
+  out=$(run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" --relaunch)
+  status=$?
+  expect_code 0 "$status" "a ship with no recorded disposition must still relaunch ($out)"
+  assert_contains "$out" "PLANNING LEGACY: $id" "the grandfathering was not surfaced to the operator"
+  assert_grep "planning_legacy=relaunch-grandfathered" "$meta" \
+    "the relaunch did not record the legacy marker"
+  assert_no_grep "plan_report=" "$meta" "grandfathering must never forge a plan reference"
+  assert_no_grep "planning_exception=" "$meta" "grandfathering must never forge an exception"
+
+  out=$(run_ship "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
+  status=$?
+  expect_code 1 "$status" "a fresh spawn of the same task must still refuse"
+  assert_contains "$out" "ship briefs require either --plan-report" \
+    "the fresh-spawn refusal did not name the planning requirement"
+  pass "a relaunch grandfathers a pre-gate ship under an inspectable legacy marker"
+}
+
 test_batch_checks_every_brief_independently() {
   local rec id1 id2 out status
   id1='planning-batch-a-p8'
@@ -247,6 +286,7 @@ test_ship_spawn_surfaces_and_records_planning_exception
 test_scout_and_secondmate_spawns_are_not_planning_gated
 test_relaunch_revalidates_recorded_planning_provenance
 test_relaunch_accepts_a_record_carried_disposition
+test_relaunch_grandfathers_a_ship_with_no_disposition_at_all
 test_batch_checks_every_brief_independently
 
 echo "# all fm-spawn-planning-gate tests passed"

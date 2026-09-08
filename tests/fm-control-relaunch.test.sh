@@ -701,8 +701,8 @@ test_harness_switch_does_not_carry_the_old_profile_axes() {
   expect_code 0 "$rc" "a harness switch should succeed"$'\n'"$out"
   [ "$(meta_field "$dir" rl5 model)" = default ] \
     || fail "a model chosen for the old harness must not carry to a different one"
-  [ "$(meta_field "$dir" rl5 effort)" = default ] \
-    || fail "an effort chosen for the old harness must not carry to a different one"
+  [ "$(meta_field "$dir" rl5 effort)" = low ] \
+    || fail "an effort chosen for the old harness must not carry to a different one; an unnamed effort is low"
   pass "fm-control relaunch: a harness switch resets model and effort unless they are named too"
 }
 
@@ -768,13 +768,13 @@ test_same_harness_relaunch_keeps_the_profile_axes() {
   local dir out rc
   dir=$(new_case keepprofile rl6)
   add_ship_task "$dir" rl6 claude
-  sed 's/^model=default$/model=opus/; s/^effort=default$/effort=high/' \
+  sed 's/^model=default$/model=opus/; s/^effort=default$/effort=low/' \
     "$dir/home/state/rl6.meta" > "$dir/home/state/rl6.meta.tmp"
   mv "$dir/home/state/rl6.meta.tmp" "$dir/home/state/rl6.meta"
   out=$(run_control "$dir" rl6 relaunch --note "same runtime"); rc=$?
   expect_code 0 "$rc" "a same-harness relaunch should succeed"$'\n'"$out"
   [ "$(meta_field "$dir" rl6 model)" = opus ] || fail "the model should carry across a same-harness relaunch"
-  [ "$(meta_field "$dir" rl6 effort)" = high ] || fail "the effort should carry across a same-harness relaunch"
+  [ "$(meta_field "$dir" rl6 effort)" = low ] || fail "the effort should carry across a same-harness relaunch"
   pass "fm-control relaunch: a same-harness relaunch keeps the profile axes it was running with"
 }
 
@@ -866,7 +866,7 @@ test_secondmate_relaunch_picks_up_the_configured_harness_pin() {
   dir=$(new_case smpin sm3)
   home="$dir/home"
   mkdir -p "$home/config"
-  printf 'codex some-model high\n' > "$home/config/secondmate-harness"
+  printf 'codex some-model low\n' > "$home/config/secondmate-harness"
   mkdir -p "$home/data/sm3"
   printf '# secondmate brief\n' > "$home/data/sm3/brief.md"
   fm_git_worktree "$dir/proj" "$dir/smhome" sm-branch
@@ -895,7 +895,7 @@ test_secondmate_relaunch_picks_up_the_configured_harness_pin() {
     || fail "a secondmate relaunch should pick up the configured harness pin, got '$(journal_field "$dir" sm3 to_harness)'"
   [ "$(journal_field "$dir" sm3 to_model)" = some-model ] \
     || fail "the configured model token should come with the pin"
-  [ "$(journal_field "$dir" sm3 to_effort)" = high ] \
+  [ "$(journal_field "$dir" sm3 to_effort)" = low ] \
     || fail "the configured effort token should come with the pin"
   assert_not_contains "$out" "not a verified harness" "codex is a verified harness"
   pass "fm-control relaunch: a secondmate relaunch re-resolves its durable configured harness pin"
@@ -987,6 +987,8 @@ test_recorded_non_low_effort_does_not_authorize_its_own_relaunch() {
     *"EFFORT OVERRIDE"*)
       fail "the recorded reason authorized a non-low relaunch; a stale record is not fresh authority" ;;
   esac
+  [ "$(cat "$dir/fake/command")" = claude ] \
+    || fail "the refusal must land before the running agent is stopped"
   [ "$(meta_field "$dir" rl-stale1 effort)" = high ] \
     || fail "a refused relaunch must leave the durable record untouched"
   pass "fm-control relaunch: a recorded non-low effort is not its own authority"
@@ -1078,8 +1080,8 @@ test_explicit_secondmate_harness_ignores_configured_profile_axes() {
   expect_code 0 "$rc" "an explicit secondmate harness should relaunch"$'\n'"$out"
   [ "$(meta_field "$dir" sm4 model)" = default ] \
     || fail "an explicit secondmate harness must not inherit the configured model"
-  [ "$(meta_field "$dir" sm4 effort)" = default ] \
-    || fail "an explicit secondmate harness must not inherit the configured effort"
+  [ "$(meta_field "$dir" sm4 effort)" = low ] \
+    || fail "an explicit secondmate harness must not inherit the configured effort; an unnamed effort is low"
   pass "fm-control relaunch: explicit secondmate harness resets unnamed profile axes"
 }
 

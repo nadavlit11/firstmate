@@ -275,7 +275,7 @@ EOF
 3. $BASE_STEP
 4. Carry over only the intended fix changes. Leave scratch commits, debug edits, and experiment files behind.
 5. If you reproduced a bug, turn that reproduction into a regression test.
-6. These ship instructions supersede the scout delivery rules and report-based Definition of done. Everything else in your original instructions carries over unchanged: the status protocol; the instruction inbox and its acknowledgement; the escalation rules, including ask-user; and every safety rule.
+6. These ship instructions supersede the scout delivery rules and report-based Definition of done. Everything else in your original instructions carries over unchanged: the status protocol; the instruction inbox and its acknowledgement; the escalation rules, including ask-user; and every safety rule. One amendment to the carried-over Rule 2: the files you may write outside this worktree are the status file and the retro receipt named under Definition of done, and nothing broader.
 $PROMOTION_ASK_USER_BLOCK
 7. Treat the scout-time Firstmate spec and any unmarked legacy \`# Task\` text as investigation context, not captain intent or ship-time instructions.
 8. $PLANNING_NOTE
@@ -289,7 +289,8 @@ TMP=
 
 TMP="$STATE/.$ID.meta.promote.${BASHPID:-$$}"
 grep -v -e '^kind=' -e '^mode=' -e '^yolo=' \
-  -e '^plan_report=' -e '^planning_exception=' -e '^planning_reason=' "$META" > "$TMP"
+  -e '^plan_report=' -e '^planning_exception=' -e '^planning_reason=' \
+  -e '^planning_legacy=' "$META" > "$TMP"
 {
   echo "kind=ship"
   echo "mode=$MODE"

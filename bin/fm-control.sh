@@ -135,6 +135,8 @@ DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
 . "$SCRIPT_DIR/fm-busy-lib.sh"
 # shellcheck source=bin/fm-control-lib.sh
 . "$SCRIPT_DIR/fm-control-lib.sh"
+# shellcheck source=bin/fm-planning-lib.sh
+. "$SCRIPT_DIR/fm-planning-lib.sh"
 # shellcheck source=bin/fm-pr-lib.sh
 . "$SCRIPT_DIR/fm-pr-lib.sh"
 # shellcheck source=bin/fm-wake-lib.sh
@@ -705,7 +707,8 @@ resolve_relaunch_profile() {
   if [ "$EFFORT_OVERRIDE_REASON_SET" = 1 ]; then
     TARGET_EFFORT_OVERRIDE_REASON=$NEW_EFFORT_OVERRIDE_REASON
   elif [ "$TARGET_HARNESS" = "$PRIOR_HARNESS" ] \
-      && { [ "$TARGET_EFFORT" = low ] || [ "$TARGET_EFFORT" = default ]; }; then
+      && { [ "$TARGET_EFFORT" = low ] || [ "$TARGET_EFFORT" = default ]; } \
+      && ! fm_control_harness_enforces_low_effort "$TARGET_HARNESS"; then
     TARGET_EFFORT_OVERRIDE_REASON=$PRIOR_EFFORT_OVERRIDE_REASON
   else
     TARGET_EFFORT_OVERRIDE_REASON=
@@ -713,6 +716,13 @@ resolve_relaunch_profile() {
   if ! fm_control_harness_enforces_low_effort "$TARGET_HARNESS" \
       && [ -z "$TARGET_EFFORT_OVERRIDE_REASON" ]; then
     die "'$TARGET_HARNESS' has no verified low-effort launch axis and this relaunch carries no recorded capability reason, so the launch would be refused after the running agent had already been stopped; pass --effort-override-reason '<why this adapter is required despite unprovable effort>' or relaunch onto an adapter that can enforce low"
+  fi
+  # The launch owner refuses a non-low effort that carries no written reason on
+  # THIS invocation, but only after the agent is gone. Asking the same question
+  # here keeps that refusal pre-stop, where nothing has been lost yet.
+  if [ "$TARGET_EFFORT" != low ] && [ "$TARGET_EFFORT" != default ] \
+      && [ -z "$TARGET_EFFORT_OVERRIDE_REASON" ]; then
+    die "relaunching $ID at effort '$TARGET_EFFORT' carries no --effort-override-reason on this invocation, and a recorded reason from a previous launch is not fresh authority, so the launch would be refused after the running agent had already been stopped; pass --effort-override-reason '<why>' or relaunch at low"
   fi
 }
 
@@ -827,6 +837,13 @@ do_relaunch() {
       RELAUNCH_BRIEF="$DATA/$ID/brief.md"
       [ -f "$RELAUNCH_BRIEF" ] \
         || die "task $ID has no instructions at $RELAUNCH_BRIEF; refusing to relaunch a worker with nothing to work from"
+      # The launch owner re-validates a ship's planning provenance, but only
+      # once the old agent is gone. Running the same shared validator here puts
+      # any refusal on the pre-stop side of the transaction.
+      if [ "$KIND" = ship ]; then
+        fm_planning_validate_provenance "$RELAUNCH_BRIEF" "$DATA" "$ID" "$META" >/dev/null \
+          || die "task $ID's planning provenance would be refused by the launch owner, so relaunching it would stop the running agent for a launch that cannot succeed"
+      fi
       [ "$NOTE_SET" = 1 ] && [ -n "$NOTE" ] \
         || die "relaunch of a $KIND task requires --note (or --note-file): the replacement worker inherits the local copy but none of the conversation, so it must be told what happened"
       ;;

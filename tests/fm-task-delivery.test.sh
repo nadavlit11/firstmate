@@ -1044,6 +1044,15 @@ test_scout_report_can_be_the_promoted_ship_plan() {
   assert_no_grep 'planning_exception=' "$meta" "a planned promotion must record no exception"
   assert_grep "This ship implements the completed report" "$home/data/$id/ship-instructions.md" \
     "the promoted worker was not pointed at the plan it implements"
+  # A promoted scout keeps its SCOUT brief, whose Rule 2 permits only the report
+  # and the status file outside the worktree, while these instructions order it
+  # to write the retro receipt teardown then requires. The carried-over rule has
+  # to be amended here or a rule-following worker cannot satisfy the definition
+  # of done it was just given.
+  assert_grep "retro receipt named under Definition of done" "$home/data/$id/ship-instructions.md" \
+    "the promoted ship instructions did not amend the carried-over write rule for the retro receipt"
+  assert_grep "$id/retro.md" "$home/data/$id/ship-instructions.md" \
+    "the promoted ship instructions did not name the retro receipt they require"
   pass "a scout report becomes the ship plan only when the promotion names it"
 }
 
