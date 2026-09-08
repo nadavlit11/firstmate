@@ -96,6 +96,13 @@ test_key_file_parsing() {
   out=$(fm_tavily_read_key "$dir/mixed")
   [ "$out" = "$SECRET" ] || fail "an assignment after other lines did not parse: '$out'"
 
+  # A seeded placeholder must not hide a real key appended after it: the value
+  # the launch would receive and the status the operator is shown come from one
+  # scan, so they cannot disagree about the same file.
+  printf 'TAVILY_API_KEY=\nTAVILY_API_KEY=%s\n' "$SECRET" > "$dir/after-placeholder"
+  out=$(fm_tavily_read_key "$dir/after-placeholder")
+  [ "$out" = "$SECRET" ] || fail "an empty assignment hid the valid key after it: '$out'"
+
   printf 'TAVILY_API_KEY=\n' > "$dir/empty"
   out=$(fm_tavily_read_key "$dir/empty")
   [ -z "$out" ] || fail "an empty value was treated as a key: '$out'"
@@ -394,6 +401,12 @@ test_key_status_separates_absence_from_a_broken_spelling() {
   [ "$status" = absent ] || fail "an empty value was not treated as absence: '$status'"
   notice=$(fm_tavily_malformed_notice "$home/config")
   [ -z "$notice" ] || fail "an empty value produced a diagnostic: '$notice'"
+
+  printf 'TAVILY_API_KEY=\nTAVILY_API_KEY=%s\n' "$SECRET" > "$home/config/tavily.env"
+  status=$(fm_tavily_key_status "$home/config")
+  [ "$status" = ok ] || fail "a valid key after a placeholder was not ok: '$status'"
+  fm_tavily_key_present "$home/config" \
+    || fail "a valid key after a placeholder did not count as present"
 
   write_key "$home"
   status=$(fm_tavily_key_status "$home/config")

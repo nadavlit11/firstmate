@@ -63,49 +63,29 @@ fm_tavily_key_file() {  # <config-dir>
   printf '%s/%s\n' "${1%/}" "$FM_TAVILY_ITEM"
 }
 
-# Print the key from <key-file>, or nothing. The ONE parser, used by
-# bin/fm-tavily-exec.sh. The file is parsed, never sourced: it is a credential
-# store, not a script, and sourcing it would execute whatever it contains.
+# Scan <key-file> once and print its verdict: a first line of `ok`, `absent`, or
+# `malformed`, followed by the key itself on a second line when the verdict is
+# ok. This is the ONE scan, so the key a launch receives and the status an
+# operator is shown can never disagree about the same file.
+#
+# The file is parsed, never sourced: it is a credential store, not a script, and
+# sourcing it would execute whatever it contains.
+#
 # The ONLY accepted form is the documented one: a line `TAVILY_API_KEY=<value>`
 # starting at column one, with whitespace trimmed from both ends of the value.
-# No `export` prefix, no quoting, no indentation, no CR line ending - any other
-# line is skipped, so a comment or an unrelated variable in the file is simply
-# ignored. The first such assignment wins; an empty or whitespace-only value
-# counts as no key. A near-miss spelling yields no key rather than a key that
-# cannot authenticate; fm_tavily_key_status tells the two apart for the operator.
-fm_tavily_read_key() {  # <key-file>
-  local file=$1 line value
-  [ -f "$file" ] && [ -r "$file" ] || return 0
-  while IFS= read -r line || [ -n "$line" ]; do
-    case "$line" in
-      *$'\r') continue ;;
-    esac
-    case "$line" in
-      "$FM_TAVILY_KEY_VAR"=*) value=${line#*=} ;;
-      *) continue ;;
-    esac
-    value="${value#"${value%%[![:space:]]*}"}"
-    value="${value%"${value##*[![:space:]]}"}"
-    [ -n "$value" ] || return 0
-    case "$value" in
-      \"*|\'*) continue ;;
-    esac
-    printf '%s\n' "$value"
-    return 0
-  done < "$file"
-  return 0
-}
-
-# Classify <config-dir>'s key file for an operator: `ok`, `absent`, or
-# `malformed`. The distinction exists because the two unavailable states need
-# opposite treatment. Absent - no file, no assignment, or the empty value - means
-# nobody set a key, which is the ordinary optional-capability state and stays
-# silent. Malformed means somebody DID set one in a spelling this parser does not
-# accept, so the capability is off for a reason worth saying out loud rather than
-# leaving as a 401 nobody can trace.
-fm_tavily_key_status() {  # <config-dir>
-  local file line probe value malformed=0
-  file=$(fm_tavily_key_file "$1")
+# No `export` prefix, no quoting, no indentation, no CR line ending. A line that
+# is not an assignment of this variable at all - a comment, another variable -
+# is simply skipped, and so is an assignment whose value is empty, so a seeded
+# placeholder never hides a real key added after it. The first accepted
+# assignment wins.
+#
+# A near-miss spelling yields no key rather than a key that cannot authenticate,
+# and is remembered as `malformed` so the two unavailable states stay
+# distinguishable: absent means nobody set a key, which is the ordinary optional
+# state and stays silent, while malformed means somebody did and it will not
+# work, which is worth saying out loud rather than leaving as an untraceable 401.
+fm_tavily_scan() {  # <key-file>
+  local file=$1 line probe value malformed=0
   [ -f "$file" ] && [ -r "$file" ] || { printf 'absent\n'; return 0; }
   while IFS= read -r line || [ -n "$line" ]; do
     probe=${line%$'\r'}
@@ -125,13 +105,29 @@ fm_tavily_key_status() {  # <config-dir>
       case "$value" in
         \"*|\'*) malformed=1; continue ;;
       esac
-      printf 'ok\n'
+      printf 'ok\n%s\n' "$value"
       return 0
     fi
     malformed=1
   done < "$file"
   if [ "$malformed" -eq 1 ]; then printf 'malformed\n'; else printf 'absent\n'; fi
   return 0
+}
+
+# Print the key from <key-file>, or nothing. Used by bin/fm-tavily-exec.sh.
+fm_tavily_read_key() {  # <key-file>
+  local scan
+  scan=$(fm_tavily_scan "$1")
+  [ "${scan%%$'\n'*}" = ok ] || return 0
+  printf '%s\n' "${scan#*$'\n'}"
+}
+
+# Classify <config-dir>'s key file for an operator: `ok`, `absent`, or
+# `malformed`.
+fm_tavily_key_status() {  # <config-dir>
+  local scan
+  scan=$(fm_tavily_scan "$(fm_tavily_key_file "$1")")
+  printf '%s\n' "${scan%%$'\n'*}"
 }
 
 # The operator-facing diagnostic for a malformed key file, or nothing at all for

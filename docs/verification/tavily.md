@@ -46,14 +46,15 @@ No other harness has a verified control, so none is wired; adding one means prov
 
 ## Portable regression
 
-`tests/fm-tavily.test.sh` (9 assertions) needs no harness and no credentials, and runs in ordinary CI.
-It drives the real `bin/fm-spawn.sh` with a fake pane and a real isolated worktree, then reads the literal launch command the pane was sent - the same string a `ps` listing or a pane capture would show.
+`tests/fm-tavily.test.sh` (13 assertions) needs no harness and no credentials, and runs in ordinary CI.
+It drives the real `bin/fm-spawn.sh` and `bin/fm-brief.sh` with a fake pane and a real isolated worktree, then reads the literal launch command the pane was sent - the same string a `ps` listing or a pane capture would show - and the generated brief.
 
-It pins: the key file is parsed and never sourced, so a command line in it does not execute, and only a non-empty value counts; the injector delivers the key through the environment alongside a leading `NAME=VALUE` assignment and degrades quietly, without printing it, when the file is gone; claude and codex crewmates and scouts launch with the server configured, the Research endpoint withheld, and no key anywhere in the command; claude's `${TAVILY_API_KEY}` reference survives as a literal rather than being expanded by the pane shell into the command line; a home with no key, or with a present-but-keyless file, launches exactly as before and says nothing; an unwired harness gets no wiring even with a key present; and a brief advertises Tavily only where the home actually has it, always with the Research prohibition and never with the key.
+It pins: the key file is parsed and never sourced, so a command line in it does not execute, and only the documented exact form counts, with a seeded empty placeholder never hiding a real key added after it; the two unavailable states stay distinguishable, so an unset key is silent absence while a near-miss spelling - quoted value, `export` prefix, indentation, CRLF - leaves the launch unwired and produces one diagnostic naming the file and the accepted form and never the value; the injector delivers the key through the environment alongside a leading `NAME=VALUE` assignment and degrades quietly, without printing it, when the file is gone; claude and codex crewmates and scouts launch with the server configured, the Research endpoint withheld, and no key anywhere in the command; claude's `${TAVILY_API_KEY}` reference survives as a literal rather than being expanded by the pane shell into the command line; a home with no key, or with a present-but-keyless file, launches exactly as before and says nothing; an unwired harness gets no wiring even with a key present; and a brief advertises Tavily only when the harness the task will actually launch on can be wired for it - derived from the standing crewmate resolution, overridden by `--harness`, and refused outright rather than guessed on a `config/crew-dispatch.json` home that has a usable key - always with the Research prohibition and never with the key.
 
 ```console
-$ bash tests/fm-tavily.test.sh | tail -3
-ok - a present but keyless file is treated as absence, not as a broken spawn
-ok - a harness without a verified withholding control is left unwired
+$ bash tests/fm-tavily.test.sh | tail -4
+ok - a malformed key leaves the launch unwired and is reported without leaking the value
 ok - briefs advertise Tavily only where the home actually has it, and never carry the key
+ok - a brief describes Tavily only when the harness it will launch on can be wired for it
+ok - a dispatch-profile home refuses to guess a harness only when a key makes the guess matter
 ```
