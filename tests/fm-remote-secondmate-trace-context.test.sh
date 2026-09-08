@@ -90,6 +90,11 @@ esac
 exit 0
 SH
 chmod +x "$REMOTE_ROOT/bin/tmux"
+cat > "$REMOTE_ROOT/bin/kimi" <<'SH'
+#!/usr/bin/env bash
+exit 0
+SH
+chmod +x "$REMOTE_ROOT/bin/kimi"
 install_remote_herdr_fixture "$REMOTE_ROOT" "$HERDR_STATE" "$HERDR_LOG" \
   "$TMP_ROOT/herdr-send-fail" "$TMP_ROOT/herdr.sock"
 git -C "$REMOTE_ROOT" init -q -b main
