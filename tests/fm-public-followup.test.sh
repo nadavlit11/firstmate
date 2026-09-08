@@ -2286,7 +2286,9 @@ test_secondmate_promotion_uses_teardown_parent_resolution() {
   write_promotion_brief "$child" promote-conflict
   out=$(PATH="$child/fakebin:$PATH" FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$child" \
     FM_STATE_OVERRIDE="$child/state" FM_PUBLIC_FOLLOWUP_PRIMARY_HOME="$parent" \
-    "$PROMOTE" promote-conflict --mode local-only --yolo off 2>&1) \
+    "$PROMOTE" promote-conflict --mode local-only --yolo off \
+      --planning-exception precedent-following \
+      --planning-reason 'this fixture repeats the established public-followup promotion behavior' 2>&1) \
     || fail "promotion must not block on conflicting parent bindings: $out"
   assert_contains "$out" "promoted promote-conflict to ship" \
     "parent-resolution trouble must never refuse the kind flip"
@@ -2301,7 +2303,9 @@ test_secondmate_promotion_uses_teardown_parent_resolution() {
   write_promotion_brief "$child" promote-legacy
   out=$(PATH="$child/fakebin:$PATH" FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$child" \
     FM_STATE_OVERRIDE="$child/state" FM_PUBLIC_FOLLOWUP_PRIMARY_HOME="$parent" \
-    "$PROMOTE" promote-legacy --mode local-only --yolo off 2>&1) \
+    "$PROMOTE" promote-legacy --mode local-only --yolo off \
+      --planning-exception precedent-following \
+      --planning-reason 'this fixture repeats the established public-followup promotion behavior' 2>&1) \
     || fail "legacy parent recovery must not block promotion: $out"
   assert_contains "$out" "next: FM_HOME=" \
     "a recovered legacy parent must identify the consent-holding home"
@@ -2318,7 +2322,9 @@ test_secondmate_promotion_uses_teardown_parent_resolution() {
   write_promotion_brief "$remote_child" promote-remote
   out=$(PATH="$remote_child/fakebin:$PATH" FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$remote_child" \
     FM_STATE_OVERRIDE="$remote_child/state" \
-    "$PROMOTE" promote-remote --mode local-only --yolo off 2>&1) \
+    "$PROMOTE" promote-remote --mode local-only --yolo off \
+      --planning-exception precedent-following \
+      --planning-reason 'this fixture repeats the established public-followup promotion behavior' 2>&1) \
     || fail "a remote parent route must not block promotion: $out"
   assert_contains "$out" "promoted promote-remote to ship" \
     "an unresolved remote parent must never refuse the kind flip"

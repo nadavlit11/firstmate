@@ -316,9 +316,10 @@ pass "delivery: a parent-supplied carrier is accepted only for a secondmate laun
 reset_remote_herdr_fixture "$HERDR_STATE"
 : > "$HERDR_LOG"
 rm -f "$PARENT/state/ios.meta" "$REMOTE_HOME/state/parent-route/ios.meta"
-remote_env "$ROOT/bin/fm-spawn.sh" ios --secondmate --harness kimi \
-  --effort-override-reason 'kimi is required for this mate despite an unprovable effort axis' >/dev/null 2>&1 \
-  || fail "a remote secondmate on a no-axis harness must launch when a written capability reason is given"
+if ! out=$(remote_env "$ROOT/bin/fm-spawn.sh" ios --secondmate --harness kimi \
+  --effort-override-reason 'kimi is required for this mate despite an unprovable effort axis' 2>&1); then
+  fail "a remote secondmate on a no-axis harness must launch when a written capability reason is given: $out"
+fi
 assert_present "$PARENT/state/ios.meta" "the authorized remote spawn published no parent metadata"
 grep -q 'kimi is required for this mate despite an unprovable effort axis' \
   "$REMOTE_HOME/state/parent-route/ios.meta" \

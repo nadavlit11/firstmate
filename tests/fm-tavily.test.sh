@@ -524,7 +524,9 @@ test_unreadable_key_file_is_reported_as_a_permissions_problem() {
     *"$SECRET"*) fail "the spawn leaked the key value" ;;
   esac
 
-  FM_HOME="$HOME_DIR" "$ROOT/bin/fm-brief.sh" tv-unreadable demo --base main --mode no-mistakes >/dev/null 2>&1 \
+  FM_HOME="$HOME_DIR" "$ROOT/bin/fm-brief.sh" tv-unreadable demo --base main --mode no-mistakes \
+    --planning-exception precedent-following \
+    --planning-reason 'this fixture repeats the established Tavily brief behavior' >/dev/null 2>&1 \
     || fail "scaffolding a brief with an unreadable key file failed"
   assert_no_grep 'tavily_search' "$HOME_DIR/data/tv-unreadable/brief.md" \
     "a brief advertised Tavily from a key file that cannot be read"
