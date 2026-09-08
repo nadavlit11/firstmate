@@ -91,6 +91,10 @@ Those fixtures take more than one shape - a hand-written artifact, a call to the
 Give the shared helper the fixture needs to `tests/lib.sh` instead of repeating the same block across suites.
 Update the fixture to carry what a real task carries; loosening the gate for a fixture silently repeals the rule the gate exists to enforce.
 
+Restoring a path that a new gate broke is where the gate most easily un-enforces itself.
+This branch refused a relaunch on an adapter it could not prove ran at low, then fixed that by carrying the recorded reason forward - and in doing so let a stale task record re-authorize non-low effort on every later relaunch, which is the precise inheritance the gate existed to close.
+When you reopen a path a gate closed, state the rule the gate enforces and walk the restored path against it, because a recovery fix is written while thinking about availability and the rule is about authority.
+
 ### Positive controls before calling a failure pre-existing
 
 This repository's suites carry failures that are environment-shaped on any given machine, so a failing test proves nothing on its own.
