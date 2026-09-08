@@ -9,6 +9,7 @@ LAB=$(mktemp -d "${TMPDIR:-/tmp}/fm-procevent-codemagic.XXXXXX")
 HOME_DIR="$LAB/home"
 FAKEBIN="$LAB/fakebin"
 COUNT="$LAB/count"
+ACTION_COUNT="$LAB/action-count"
 ARGV_LOG="$LAB/curl-argv"
 
 cleanup() { rm -rf "$LAB"; }
@@ -40,6 +41,18 @@ case "$url" in
       many) printf '{"data":[],"total_pages":2}' > "$body"; printf '200'; exit 0 ;;
       post) printf '{"data":[{"type":"building_ios","status":"success"},{"type":"post_publish","status":"failed"}],"total_pages":1}' > "$body"; printf '200'; exit 0 ;;
       early) printf '{"data":[{"type":"building_ios","status":"failed"}],"total_pages":1}' > "$body"; printf '200'; exit 0 ;;
+      transient)
+        count=0
+        [ ! -f "$CODEMAGIC_ACTION_COUNT" ] || read -r count < "$CODEMAGIC_ACTION_COUNT"
+        count=$((count + 1))
+        printf '%s\n' "$count" > "$CODEMAGIC_ACTION_COUNT"
+        case "$count" in
+          1) exit 7 ;;
+          2) printf '{}' > "$body"; printf '429'; exit 0 ;;
+          3) printf '{}' > "$body"; printf '503'; exit 0 ;;
+          *) printf '{"data":[{"type":"building_ios","status":"success"}],"total_pages":1}' > "$body"; printf '200'; exit 0 ;;
+        esac
+        ;;
       *) printf '{"data":[{"type":"building_ios","status":"success"}],"total_pages":1}' > "$body"; printf '200'; exit 0 ;;
     esac
     ;;
@@ -87,7 +100,7 @@ fail() { printf 'not ok - %s\n' "$1" >&2; exit 1; }
 ok() { printf 'ok - %s\n' "$1"; }
 run_poll() {
   FM_HOME="$HOME_DIR" CODEMAGIC_ARGV_LOG="$ARGV_LOG" CODEMAGIC_COUNT="$COUNT" \
-    FM_CODEMAGIC_POLL_RETRY_DELAY=0 CODEMAGIC_TEST_CASE="$1" CODEMAGIC_ACTION_CASE="${2:-success}" PATH="$FAKEBIN:$PATH" \
+    CODEMAGIC_ACTION_COUNT="$ACTION_COUNT" FM_CODEMAGIC_POLL_RETRY_DELAY=0 CODEMAGIC_TEST_CASE="$1" CODEMAGIC_ACTION_CASE="${2:-success}" PATH="$FAKEBIN:$PATH" \
     "$BIN/fm-procevent-codemagic.sh" poll build_123 --interval 0.01 --request-timeout 1
 }
 
@@ -127,6 +140,12 @@ printf '%s\n' "$out" | grep -qx 'failed_action: building_ios' \
 printf '%s\n' "$out" | grep -qx 'raw_status: finished' \
   || fail "a failed non-publishing action lost the raw terminal status"
 ok "a failed action of any phase reports its real action name"
+
+rm -f "$ACTION_COUNT"
+out=$(run_poll finished transient)
+printf '%s\n' "$out" | grep -qx 'status: finished' \
+  || fail "a transient actions-lookup failure ended a successful build as a lookup error"
+ok "the actions lookup retries the same transient classes as the build request"
 
 for action_case in network http invalid many; do
   out=$(run_poll finished "$action_case")
@@ -187,12 +206,15 @@ if err=$(FM_HOME="$HOME_DIR" PATH="$FAKEBIN:$PATH" "$BIN/fm-procevent-codemagic.
 fi
 printf '%s\n' "$err" | grep -Fq 'Codemagic build watching is not configured' \
   || fail "unconfigured explicit arm lacked a clear setup diagnostic"
-printf 'CODEMAGIC_API_TOKEN=tok\n# a comment\n' > "$HOME_DIR/config/codemagic.env"
-if err=$(FM_HOME="$HOME_DIR" PATH="$FAKEBIN:$PATH" "$BIN/fm-procevent-codemagic.sh" arm build_123 2>&1); then
-  fail "malformed Codemagic config unexpectedly armed"
-fi
-printf '%s\n' "$err" | grep -Fq 'is malformed' \
-  || fail "malformed Codemagic config was reported as unconfigured"
+for malformed in 'CODEMAGIC_API_TOKEN=tok\n# a comment\n' 'CODEMAGIC_API_TOKEN=tok\n\nCODEMAGIC_API_TOKEN=other\n'; do
+  # shellcheck disable=SC2059 # The fixture itself carries the escapes under test.
+  printf "$malformed" > "$HOME_DIR/config/codemagic.env"
+  if err=$(FM_HOME="$HOME_DIR" PATH="$FAKEBIN:$PATH" "$BIN/fm-procevent-codemagic.sh" arm build_123 2>&1); then
+    fail "malformed Codemagic config unexpectedly armed"
+  fi
+  printf '%s\n' "$err" | grep -Fq 'is malformed' \
+    || fail "malformed Codemagic config was reported as unconfigured"
+done
 rm -f "$HOME_DIR/config/codemagic.env"
 mv "$HOME_DIR/config/codemagic.env.saved" "$HOME_DIR/config/codemagic.env"
 ok "an unconfigured home has no implicit Codemagic behavior, and a malformed one says so"

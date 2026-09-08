@@ -74,9 +74,9 @@ read_api_key() {
   [ -f "$CONFIG_FILE" ] && [ ! -L "$CONFIG_FILE" ] || return 1
   IFS= read -r line < "$CONFIG_FILE" || return 2
   case "$line" in CODEMAGIC_API_TOKEN=?*) CODEMAGIC_API_TOKEN=${line#CODEMAGIC_API_TOKEN=} ;; *) return 2 ;; esac
-  if IFS= read -r extra < <(sed -n '2p' "$CONFIG_FILE"); then
+  while IFS= read -r extra; do
     [ -z "$extra" ] || return 2
-  fi
+  done < <(sed -n '2,$p' "$CONFIG_FILE")
   case "$CODEMAGIC_API_TOKEN" in *[!A-Za-z0-9._-]*) return 2 ;; esac
   [ -n "$CODEMAGIC_API_TOKEN" ] || return 2
 }
@@ -138,13 +138,14 @@ fetch_build() {
 }
 
 emit_finished_result() {
-  local build_body=$1 key=$2 timeout=$3 polls=$4 actions_body=$5 http_code failed_action app_store_status total_pages
+  local build_body=$1 key=$2 timeout=$3 polls=$4 actions_body=$5 delay=$6 http_code failed_action app_store_status total_pages
   app_store_status=$(jq -r '.data.app_store_connect_status // ""' "$build_body" 2>/dev/null)
   if [ "$app_store_status" = failed ]; then
     emit_build_result post-processing-failed "Codemagic build finished, but App Store Connect post-processing failed" finished "$polls" app_store_connect
     return
   fi
-  if ! http_code=$(fetch_build "$actions_body" "$key" "$timeout" "$API_BASE/builds/$BUILD_ID/actions?page_size=100&page=1"); then
+  http_code=$(fetch_build_status "$actions_body" "$key" "$timeout" "$delay" "$API_BASE/builds/$BUILD_ID/actions?page_size=100&page=1")
+  if [ "$http_code" = 000 ]; then
     emit_build_result action-detail-error "Codemagic build status is finished, but build actions could not be retrieved" finished "$polls"
     return
   fi
@@ -178,9 +179,9 @@ emit_finished_result() {
 # Print the HTTP code for one build request, or 000 when curl failed before an
 # HTTP response, retrying the transient classes up to the bound.
 fetch_build_status() {
-  local body=$1 key=$2 timeout=$3 delay=$4 attempt=0 http_code
+  local body=$1 key=$2 timeout=$3 delay=$4 url=${5-} attempt=0 http_code
   while :; do
-    http_code=$(fetch_build "$body" "$key" "$timeout") || http_code=000
+    http_code=$(fetch_build "$body" "$key" "$timeout" ${url:+"$url"}) || http_code=000
     case "$http_code" in
       000|429|5[0-9][0-9])
         if [ "$attempt" -lt "$POLL_RETRY_LIMIT" ]; then
@@ -238,7 +239,7 @@ cmd_poll() {
     }
     case "$status" in
       initializing|queued|preparing|fetching|testing|building|publishing|finishing) sleep "$interval" ;;
-      finished) emit_finished_result "$body" "$key" "$timeout" "$polls" "$actions_body"; exit 0 ;;
+      finished) emit_finished_result "$body" "$key" "$timeout" "$polls" "$actions_body" "$retry_delay"; exit 0 ;;
       failed) emit_build_result failed "Codemagic build failed" failed "$polls"; exit 0 ;;
       canceled) emit_build_result canceled "Codemagic build was canceled" canceled "$polls"; exit 0 ;;
       timeout) emit_build_result timeout "Codemagic build timed out" timeout "$polls"; exit 0 ;;

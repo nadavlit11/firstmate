@@ -810,7 +810,7 @@ Never describe this path as at-least-once, no-loss, or lossless.
 
 Codemagic build watching is an opt-in, read-only built-in process-event adapter.
 It never starts or cancels a build.
-An absent `config/codemagic.env` has no effect on startup, bootstrap, or ordinary watcher behavior; a file that exists but does not hold exactly one `CODEMAGIC_API_TOKEN=<token>` line is refused as malformed rather than reported as unconfigured.
+An absent `config/codemagic.env` has no effect on startup, bootstrap, or ordinary watcher behavior; a file that exists but does not hold exactly one `CODEMAGIC_API_TOKEN=<token>` line, with nothing but blank lines after it, is refused as malformed rather than reported as unconfigured.
 
 In Codemagic, open **Account settings > API token** and copy your personal API token.
 Store it in the effective Firstmate home's gitignored `config/codemagic.env` as one line, and restrict the file to its owner:
@@ -834,7 +834,7 @@ For a raw `finished` result, the adapter also reads the v3 build-actions endpoin
 It applies the same distinction when `app_store_connect_status` is `failed`.
 The source retires after its first terminal result, including a build that was already terminal when registered.
 Authentication rejection, a missing or inaccessible build, rate limiting, a network failure, another HTTP failure, an invalid v3 response, or an undocumented status each produces a distinct terminal diagnostic rather than a success.
-Only the transient request classes - a failure before any HTTP response, HTTP 429, and any 5xx - are quietly retried first, up to 5 times at 5 second intervals, so one blip mid-build does not silently end the watch; once that bound is spent the same `network-error`, `rate-limited`, or `api-error` result is captured as before, and `FM_CODEMAGIC_POLL_RETRY_DELAY` is a bounded 0 to 60 second test override for the interval only.
+Only the transient request classes - a failure before any HTTP response, HTTP 429, and any 5xx - are quietly retried first, on both the build request and the build-actions lookup, up to 5 times at 5 second intervals, so one blip mid-build does not silently end the watch; once that bound is spent the same `network-error`, `rate-limited`, or `api-error` result is captured as before, and `FM_CODEMAGIC_POLL_RETRY_DELAY` is a bounded 0 to 60 second test override for the interval only.
 Authentication failure and a nonexistent build are never retried.
 The missing-build diagnostic also recognizes Codemagic's observed HTTP 200 application-page fallback for an unknown build id.
 `action-detail-error` is reserved for a genuine retrieval or consistency failure of that actions lookup - a request failure, a non-200 response, an unparseable or non-conforming actions payload, or more than one page of actions - and is reported alongside the raw status instead of flattening uncertainty into success or failure.
