@@ -22,8 +22,9 @@
 #   - the API's first incomplete date reaches the manifest
 #   - each unhappy path gets its own exit code: API disabled (6), not
 #     authorized (3), quota (4), revoked token (3), network failure (5)
-#   - a non-loopback test endpoint override is refused, including the userinfo
-#     form `http://127.0.0.1:1@evil.example.com/` that resolves elsewhere
+#   - only an exact `http://<loopback-host>:<port>` test endpoint override is
+#     accepted; every userinfo, path or off-host spelling is refused
+#   - a result set of exactly --max-rows is reported complete, not truncated
 #   - a day cached under a low --max-rows is not re-served as a complete day
 set -u
 
@@ -258,6 +259,22 @@ rows=$(( $(wc -l < "$OUT6B/שאילתות.csv") - 1 ))
   || fail "a complete result was reported as capped"
 pass "a day cached under a lower row cap is re-queried rather than re-served as complete"
 
+# Exactly --max-rows rows available: the cap is reached, but nothing was left
+# behind, so the table is complete and must not be labelled a top-N.
+start_stub exactmax
+HOME3B=$(make_home home3b)
+OUT6C="$TMP_ROOT/out6c"
+( cd "$HOME3B" && FM_HOME="$HOME3B" "$GSC" pull --site sc-domain:example.co.il \
+    --start 2026-09-01 --end 2026-09-01 --out "$OUT6C" --max-rows 100 ) 2>"$TMP_ROOT/stderr.txt" \
+  || fail "boundary pull failed: $(cat "$TMP_ROOT/stderr.txt")"
+rows=$(( $(wc -l < "$OUT6C/שאילתות.csv") - 1 ))
+[ "$rows" = 100 ] || fail "the boundary pull did not return every row: got $rows of 100"
+[ "$(jq -r '.truncatedDimensions | length' "$OUT6C/manifest.json")" = 0 ] \
+  || fail "a result set of exactly --max-rows rows was mislabelled truncated"
+assert_not_contains "$(cat "$TMP_ROOT/stderr.txt")" "ceiling" \
+  "a complete result set is not warned as capped"
+pass "a result set of exactly --max-rows is reported complete rather than truncated"
+
 # --- unhappy paths ------------------------------------------------------------
 
 start_stub disabled
@@ -303,16 +320,28 @@ pass "a network failure is reported as one rather than as an empty result"
 
 # --- the test endpoint override is loopback-only ------------------------------
 
-out=$(FM_GSC_TEST_ENDPOINT="https://evil.example.com" FM_HOME="$HOME1" "$GSC" status 2>&1); code=$?
-expect_code 2 "$code" "a non-loopback endpoint override"
-assert_contains "$out" "loopback" "the endpoint override refuses a non-loopback host"
-pass "the test endpoint override cannot be pointed at a host that is not loopback"
+# Everything before an `@` in a URL authority is userinfo, so each of these
+# would have curl resolve and connect to evil.example.com while carrying the
+# live bearer token; a path or scheme change is the same class of escape. The
+# refusal happens before a token is minted, so no request leaves the host.
+for bad in \
+  "https://evil.example.com" \
+  "http://127.0.0.1:1@evil.example.com" \
+  "http://127.0.0.1:1@evil.example.com:8080" \
+  "http://localhost:1@evil.example.com:8080" \
+  "http://127.0.0.1:8080@evil.example.com" \
+  "http://127.0.0.1:8080/../x" \
+; do
+  out=$(FM_GSC_TEST_ENDPOINT="$bad" FM_HOME="$HOME1" "$GSC" sites 2>&1); code=$?
+  expect_code 2 "$code" "endpoint override $bad"
+  assert_contains "$out" "loopback" "the endpoint override $bad is refused"
+  assert_not_contains "$out" "stub-refresh" "no credential is printed refusing $bad"
+done
+pass "only an exact loopback host and port is accepted as a test endpoint override"
 
-# Everything before an `@` in a URL is userinfo, so this value would have curl
-# resolve and connect to evil.example.com while carrying the live bearer token.
-out=$(FM_GSC_TEST_ENDPOINT="http://127.0.0.1:1@evil.example.com/" FM_HOME="$HOME1" \
-        "$GSC" sites 2>&1); code=$?
-expect_code 2 "$code" "a userinfo endpoint override that resolves off-host"
-assert_contains "$out" "loopback" "the userinfo endpoint override is refused as non-loopback"
-assert_not_contains "$out" "stub-refresh" "no credential is printed by the refusal"
-pass "an endpoint override whose real host hides behind userinfo is refused before any request"
+# And the guard is not merely refusing everything: the legitimate form the rest
+# of this suite runs on still works.
+start_stub ok
+out=$(FM_HOME="$HOME1" "$GSC" sites)
+assert_contains "$out" "sc-domain:example.co.il" "the legitimate loopback override is still accepted"
+pass "the exact loopback form the suite runs on is still accepted"

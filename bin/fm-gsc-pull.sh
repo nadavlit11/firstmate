@@ -69,8 +69,10 @@
 # already cached (needed only when a day was first pulled before it
 # finalized). Each day/dimension is paged with `rowLimit` 25000 - the
 # documented per-request maximum - and stops at `--max-rows` (default 25000)
-# per dimension per day; hitting that ceiling is recorded as `truncated` in
-# the manifest and warned on stderr, never silently dropped. The cache is
+# per dimension per day. On reaching that ceiling one more row is requested to
+# settle whether anything was actually left behind - a result of exactly
+# `--max-rows` rows is complete - and only a real overflow is recorded as
+# `truncated` in the manifest and warned on stderr, never silently dropped. The cache is
 # keyed by that cap too, so a day first pulled under a low `--max-rows` is
 # never re-served as if it were the full set under a higher one.
 #
@@ -100,23 +102,17 @@ OAUTH_TOKEN_URL=https://oauth2.googleapis.com/token
 
 # Test-only endpoint redirection, used by tests/fm-gsc-pull.test.sh to drive
 # the paging, aggregation, and error-classification logic against a local
-# stub. Both are refused unless the whole value is exactly a loopback host and
-# a numeric port, so no setting of this variable can send a live credential to
-# another host - in particular a userinfo form like
-# `http://127.0.0.1:1@evil.example.com/`, where everything before the `@` is a
-# username and curl would connect to evil.example.com.
+# stub. Only one shape is accepted - the whole value, anchored end to end, must
+# be `http://` then the literal 127.0.0.1, localhost or [::1], then a colon and
+# a port. Nothing may follow the port: no userinfo, path, query or fragment.
+# Matching a prefix says nothing about the host curl finally resolves, so no
+# spelling is enumerated as bad; anything but that one form is refused, and no
+# setting of this variable can send a live credential to another host.
 if [ -n "${FM_GSC_TEST_ENDPOINT:-}" ]; then
-  fm_gsc_endpoint_port=${FM_GSC_TEST_ENDPOINT##*:}
-  case "$FM_GSC_TEST_ENDPOINT" in
-    http://127.0.0.1:*|http://localhost:*|"http://[::1]:"*) ;;
-    *) fm_gsc_endpoint_port="" ;;
-  esac
-  case "$fm_gsc_endpoint_port" in
-    ''|*[!0-9]*)
-      printf 'fm-gsc-pull: FM_GSC_TEST_ENDPOINT must be exactly http://<loopback-host>:<port>\n' >&2
-      exit 2 ;;
-  esac
-  unset fm_gsc_endpoint_port
+  if [[ ! $FM_GSC_TEST_ENDPOINT =~ ^http://(127\.0\.0\.1|localhost|\[::1\]):[0-9]+$ ]]; then
+    printf 'fm-gsc-pull: FM_GSC_TEST_ENDPOINT must be exactly http://<loopback-host>:<port>\n' >&2
+    exit 2
+  fi
   API_BASE="$FM_GSC_TEST_ENDPOINT/webmasters/v3"
   OAUTH_TOKEN_URL="$FM_GSC_TEST_ENDPOINT/token"
 fi
@@ -348,14 +344,14 @@ api_call() {  # <method> <url> [<json-body>]
 # Emits a JSON object: {rows:[...], truncated:bool, firstIncompleteDate:string|null}
 query_rows() {  # <property> <start> <end> <dimensions-json> <data-state> <max-rows>
   local site=$1 start=$2 end=$3 dims=$4 state=$5 max=$6
-  local url start_row=0 total_rows=0 truncated=false first_incomplete=null aggregation=null
+  local url start_row=0 total_rows=0 truncated=false hit_cap=false first_incomplete=null aggregation=null
   local acc='[]' payload page page_rows page_count want
   url="$API_BASE/sites/$(jq -rn --arg s "$site" '$s|@uri')/searchAnalytics/query"
 
   while :; do
     want=$(( max - total_rows ))
     [ "$want" -gt "$PAGE_LIMIT" ] && want=$PAGE_LIMIT
-    if [ "$want" -le 0 ]; then truncated=true; break; fi
+    if [ "$want" -le 0 ]; then hit_cap=true; break; fi
     payload=$(jq -cn \
       --arg start "$start" --arg end "$end" --arg type "$SEARCH_TYPE" --arg state "$state" \
       --argjson dims "$dims" --argjson limit "$want" --argjson startRow "$start_row" \
@@ -381,8 +377,25 @@ query_rows() {  # <property> <start> <end> <dimensions-json> <data-state> <max-r
     # A short page means the result set is exhausted.
     [ "$page_count" -lt "$want" ] && break
     start_row=$(( start_row + page_count ))
-    if [ "$total_rows" -ge "$max" ]; then truncated=true; break; fi
+    if [ "$total_rows" -ge "$max" ]; then hit_cap=true; break; fi
   done
+
+  # Reaching the cap is not itself evidence that rows were dropped: a result
+  # set of exactly max rows is complete. Ask for the row after the cap and
+  # call the dimension truncated only if one comes back.
+  if [ "$hit_cap" = true ]; then
+    payload=$(jq -cn \
+      --arg start "$start" --arg end "$end" --arg type "$SEARCH_TYPE" --arg state "$state" \
+      --argjson dims "$dims" --argjson startRow "$max" \
+      '{startDate:$start, endDate:$end, dimensions:$dims, type:$type,
+        dataState:$state, rowLimit:1, startRow:$startRow}')
+    page=$(api_call POST "$url" "$payload") || exit $?
+    page_count=$(printf '%s' "$page" | jq '.rows // [] | length')
+    case "$page_count" in
+      ''|*[!0-9]*) die "unreadable row count in the Search Console response" 3 ;;
+    esac
+    if [ "$page_count" -gt 0 ]; then truncated=true; fi
+  fi
 
   jq -cn --argjson rows "$acc" --argjson t "$truncated" --argjson f "$first_incomplete" \
     --argjson a "$aggregation" \
@@ -578,8 +591,7 @@ cmd_pull() {
       cat "$cache_file" >> "$tmp/$dim.ndjson"
       printf '\n' >> "$tmp/$dim.ndjson"
     done
-    if jq -se 'any(.[]; .truncated)' < "$tmp/$dim.ndjson" >/dev/null 2>&1 \
-       && [ "$(jq -se '[.[] | select(.truncated)] | length' < "$tmp/$dim.ndjson")" -gt 0 ]; then
+    if [ "$(jq -se '[.[] | select(.truncated)] | length' < "$tmp/$dim.ndjson")" -gt 0 ]; then
       truncated_dims="$truncated_dims $dim"
       warn "$dim hit the --max-rows ceiling of $max; the table is a top-N, not the full set"
     fi

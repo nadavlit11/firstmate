@@ -8,6 +8,8 @@ the test exercises the real curl/jq/paging path instead of a fake of it.
 The scenario is chosen by the FM_GSC_STUB_MODE environment variable:
   ok        two Hebrew queries and two pages per day, plus per-day totals
   paged     260 query rows for one day, to drive startRow paging
+  exactmax  exactly 100 query rows, so a pull at --max-rows 100 sits on the
+            boundary: the cap is reached but nothing was left behind
   disabled  403 SERVICE_DISABLED
   denied    403 on the property (not a user / revoked)
   quota     429 rate limit
@@ -57,8 +59,8 @@ def analytics(body):
         return err(429, "RESOURCE_EXHAUSTED", "rateLimitExceeded",
                    "Quota exceeded for quota metric 'Queries'.")
 
-    if MODE == "paged" and dims == ["query"]:
-        total = 260
+    if MODE in ("paged", "exactmax") and dims == ["query"]:
+        total = 260 if MODE == "paged" else 100
         rows = []
         for i in range(start_row, min(total, start_row + row_limit)):
             rows.append({"keys": [f"{HEB_Q1} {i}"], "clicks": 1.0,
