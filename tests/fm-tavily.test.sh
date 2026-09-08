@@ -443,6 +443,7 @@ test_key_status_separates_absence_from_a_broken_spelling() {
   # spelling the scan rejects can never be answered by a message that sends the
   # operator after some other cause.
   local case_spec spelling cause
+  # shellcheck disable=SC2016  # the literal fixture text is intended, not expanded
   for case_spec in \
     'TAVILY_API_KEY="%s"\n|no quotes' \
     'export TAVILY_API_KEY=%s\n|no `export` prefix' \
