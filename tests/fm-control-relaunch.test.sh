@@ -967,6 +967,31 @@ test_relaunch_carries_the_recorded_effort_capability_reason() {
   pass "fm-control relaunch: an axis-less adapter's recorded capability reason reaches the effort gate"
 }
 
+# A recorded non-low effort plus a recorded reason is a STALE RECORD, not fresh
+# authority: only an explicit flag pair on this invocation may authorize non-low.
+# This drives the real fm-control relaunch path, because that is where both
+# values are resolved and forwarded - tests/fm-spawn-dispatch-profile.test.sh
+# calls fm-spawn --relaunch directly and so cannot see this.
+test_recorded_non_low_effort_does_not_authorize_its_own_relaunch() {
+  local dir out rc
+  dir=$(new_case staleeffort rl-stale1)
+  add_ship_task "$dir" rl-stale1 claude
+  sed 's/^effort=default$/effort=high/' "$dir/home/state/rl-stale1.meta" > "$dir/home/state/rl-stale1.meta.tmp"
+  mv "$dir/home/state/rl-stale1.meta.tmp" "$dir/home/state/rl-stale1.meta"
+  {
+    echo "effort_override_reason=captain exception 2026-09-07"
+  } >> "$dir/home/state/rl-stale1.meta"
+  out=$(run_control "$dir" rl-stale1 relaunch --note "recovering the agent"); rc=$?
+  expect_code 1 "$rc" "a recorded high effort must not relaunch itself without a fresh reason"
+  case "$out" in
+    *"EFFORT OVERRIDE"*)
+      fail "the recorded reason authorized a non-low relaunch; a stale record is not fresh authority" ;;
+  esac
+  [ "$(meta_field "$dir" rl-stale1 effort)" = high ] \
+    || fail "a refused relaunch must leave the durable record untouched"
+  pass "fm-control relaunch: a recorded non-low effort is not its own authority"
+}
+
 # The same refusal must land BEFORE the stop, or the task is left with no agent
 # and no way back (bin/fm-control.sh's own pre-stop invariant).
 test_relaunch_without_an_effort_capability_reason_refuses_before_stop() {
@@ -1759,6 +1784,7 @@ test_secondmate_relaunch_ignores_invalid_configured_effort_before_stop
 test_secondmate_relaunch_onto_a_crewmate_only_adapter_refuses_before_stop
 test_relaunch_carries_the_recorded_effort_capability_reason
 test_relaunch_without_an_effort_capability_reason_refuses_before_stop
+test_recorded_non_low_effort_does_not_authorize_its_own_relaunch
 test_explicit_secondmate_harness_ignores_configured_profile_axes
 test_ship_relaunch_ignores_the_crew_harness_config
 test_spawn_relaunch_without_a_harness_reuses_the_recorded_one

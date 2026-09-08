@@ -24,7 +24,9 @@ Choose the tier honestly; the point is a real lesson, not a filled-in form.
 - **quick** - any non-trivial ship, any `fix:` commit, any unexpected correction during the work, or any task whose implementation diverged from the plan it was given.
 - **full** - a multi-commit feature or refactor, a new subsystem, a long-running workstream, or an explicit workstream closeout.
 - **skip** - available only to a task that shipped under a planning exemption and stayed inside it.
-  A planned ship was already classified non-trivial and cannot skip, and neither can a task that outgrew its exemption; `bin/fm-retro-lib.sh` owns that test and refuses at teardown.
+  A planned ship was already classified non-trivial and cannot skip, and `bin/fm-retro-lib.sh` refuses that skip at teardown.
+  Whether the work outgrew its exemption is YOUR judgment, not a machine check: shell enforces only that a receipt exists, that it names a tier from the closed set, and that a skip belongs to a task whose RECORDED disposition was an exception with a reason.
+  A task that grew past the one-line or precedent-following claim it shipped under owes a quick retro even though nothing will stop you from skipping it.
 
 ## Quick
 

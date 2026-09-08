@@ -694,13 +694,18 @@ resolve_relaunch_profile() {
     TARGET_EFFORT=default
   fi
   # An adapter with no verified low-effort axis was legally dispatched under a
-  # written capability reason, so it must stay recoverable: carry that recorded
-  # reason forward, or take a fresh one from this invocation. Without either,
-  # refuse HERE - the launch owner would refuse too, but only after the agent
-  # has been stopped, stranding the task with no agent and no way back.
+  # written capability reason, so it must stay recoverable. The recorded reason
+  # is therefore carried forward ONLY as capability cover - only when this
+  # relaunch is itself launching at low - because that is the case recovery
+  # needs. It is never carried into a NON-LOW relaunch: a recorded effort=high
+  # plus a recorded reason is a stale record, and letting it authorize a fresh
+  # high launch is exactly the inheritance the effort gate exists to close.
+  # Non-low needs an explicit --effort-override-reason on THIS invocation, the
+  # same rule a fresh spawn obeys.
   if [ "$EFFORT_OVERRIDE_REASON_SET" = 1 ]; then
     TARGET_EFFORT_OVERRIDE_REASON=$NEW_EFFORT_OVERRIDE_REASON
-  elif [ "$TARGET_HARNESS" = "$PRIOR_HARNESS" ]; then
+  elif [ "$TARGET_HARNESS" = "$PRIOR_HARNESS" ] \
+      && { [ "$TARGET_EFFORT" = low ] || [ "$TARGET_EFFORT" = default ]; }; then
     TARGET_EFFORT_OVERRIDE_REASON=$PRIOR_EFFORT_OVERRIDE_REASON
   else
     TARGET_EFFORT_OVERRIDE_REASON=

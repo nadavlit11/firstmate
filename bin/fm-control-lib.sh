@@ -114,8 +114,10 @@ fm_control_harness_supports_kind() {  # <harness> <kind>
 # enforces. bin/fm-spawn.sh refuses them without a written capability reason, and
 # the control plane asks the same question BEFORE it stops anything so a task
 # that cannot be relaunched is refused while its agent is still running.
-# bin/fm-spawn.sh's effort_flag_for_harness renders the flag itself; a test pins
-# the two against each other so the renderer and this predicate cannot drift.
+# bin/fm-spawn.sh's effort_flag_for_harness renders the flag itself, so these two
+# must agree; tests/fm-spawn-planning-gate.test.sh drives the launch owner's own
+# refusal for an axis-less adapter, which is the behaviour this predicate has to
+# predict correctly for the pre-stop check to be worth anything.
 fm_control_harness_enforces_low_effort() {  # <harness>
   case "${1-}" in
     claude|codex|grok|pi|pi-signed|muse) return 0 ;;

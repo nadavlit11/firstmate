@@ -187,6 +187,40 @@ test_relaunch_revalidates_recorded_planning_provenance() {
   pass "a relaunch revalidates the planning provenance rather than trusting the old record"
 }
 
+# The relaunch-only fallback to the task record. A ship whose brief carries no
+# planning line - a promoted scout, or any task briefed before this gate existed
+# - must still relaunch, or fm-control stops its agent and then cannot start a
+# replacement, stranding the task. A FRESH spawn of the same task must still
+# refuse, because only the relaunch path may read the record.
+test_relaunch_accepts_a_record_carried_disposition() {
+  local rec id out status meta
+  id='planning-record-p9'
+  rec=$(make_case planning-record "$id")
+  read_case "$rec"
+
+  out=$(run_ship "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
+  status=$?
+  expect_code 0 "$status" "the first launch should succeed ($out)"
+  meta="$HOME_DIR/state/$id.meta"
+  assert_grep "plan_report=plan-scout/report.md" "$meta" "the first launch did not record the plan"
+
+  # The brief loses its line the way a pre-gate or scout-scaffolded brief has none.
+  grep -v '^Planning gate: ' "$HOME_DIR/data/$id/brief.md" > "$HOME_DIR/data/$id/brief.tmp"
+  mv "$HOME_DIR/data/$id/brief.tmp" "$HOME_DIR/data/$id/brief.md"
+
+  out=$(run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" --relaunch)
+  status=$?
+  expect_code 0 "$status" "a relaunch must accept the disposition carried in the task record ($out)"
+
+  # A fresh spawn of the same brief still refuses: only relaunch reads the record.
+  out=$(run_ship "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
+  status=$?
+  expect_code 1 "$status" "a fresh spawn must still require the disposition in the brief"
+  assert_contains "$out" "ship briefs require either --plan-report" \
+    "the fresh-spawn refusal did not name the planning requirement"
+  pass "the task record carries planning provenance on relaunch only"
+}
+
 test_batch_checks_every_brief_independently() {
   local rec id1 id2 out status
   id1='planning-batch-a-p8'
@@ -212,6 +246,7 @@ test_ship_spawn_accepts_completed_prior_scout_report
 test_ship_spawn_surfaces_and_records_planning_exception
 test_scout_and_secondmate_spawns_are_not_planning_gated
 test_relaunch_revalidates_recorded_planning_provenance
+test_relaunch_accepts_a_record_carried_disposition
 test_batch_checks_every_brief_independently
 
 echo "# all fm-spawn-planning-gate tests passed"

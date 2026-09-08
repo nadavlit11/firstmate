@@ -3341,36 +3341,6 @@ test_teardown_accepts_reasoned_skip_for_trivial_ship() {
   pass "cleanup accepts a reasoned skip from a ship that shipped under a planning exemption"
 }
 
-test_teardown_rejects_skip_after_task_outgrows_exception() {
-  local case_dir rc
-  case_dir=$(make_case retro-skip-outgrown)
-  fm_write_meta "$case_dir/state/task-x1.meta" \
-    "window=firstmate:fm-task-x1" \
-    "endpoint_task_id=task-x1" \
-    "worktree=$case_dir/wt" \
-    "project=$case_dir/project" \
-    "kind=ship" \
-    "mode=no-mistakes" \
-    "base=main" \
-    "planning_exception=one-line" \
-    "spawn_gen=teardown-test-task-x1"
-  wt_commit "$case_dir" "raise the timeout constant"
-  wt_commit "$case_dir" "fix: and then the thing it broke"
-  add_fork_with_pushed_branch "$case_dir"
-  retro_receipt "$case_dir" "Retro: skip" "Reason: still claiming this was one line"
-
-  set +e
-  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
-  rc=$?
-  set -e
-  [ "$rc" -ne 0 ] || fail "retro-skip-outgrown: a task that outgrew its exemption still skipped its retro"
-  assert_grep "outgrew its one-line exemption" "$case_dir/stderr" \
-    "retro-skip-outgrown: the refusal did not name what the task outgrew"
-  [ -e "$case_dir/state/task-x1.meta" ] \
-    || fail "retro-skip-outgrown: the refusal erased the task record"
-  pass "cleanup rejects a skip from a ship that outgrew its planning exemption"
-}
-
 test_teardown_rejects_skip_on_a_planned_ship() {
   local case_dir rc
   case_dir=$(retro_case retro-skip-planned)
@@ -3481,7 +3451,6 @@ test_run_abort_precedes_process_reap_precedes_worktree_removal
 test_teardown_refuses_eligible_ship_without_retro_receipt
 test_teardown_accepts_valid_quick_and_full_receipts
 test_teardown_accepts_reasoned_skip_for_trivial_ship
-test_teardown_rejects_skip_after_task_outgrows_exception
 test_teardown_rejects_skip_on_a_planned_ship
 test_retro_gate_runs_before_any_destructive_action
 test_force_bypasses_retro_only_as_explicit_discard
