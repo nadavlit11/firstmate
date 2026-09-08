@@ -22,7 +22,9 @@
 #   - the API's first incomplete date reaches the manifest
 #   - each unhappy path gets its own exit code: API disabled (6), not
 #     authorized (3), quota (4), revoked token (3), network failure (5)
-#   - a non-loopback test endpoint override is refused
+#   - a non-loopback test endpoint override is refused, including the userinfo
+#     form `http://127.0.0.1:1@evil.example.com/` that resolves elsewhere
+#   - a day cached under a low --max-rows is not re-served as a complete day
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -216,15 +218,6 @@ run_pull "$HOME1" "$OUT3" --refresh || fail "refresh pull failed: $(cat "$TMP_RO
   || fail "--refresh did not re-query the cached days"
 pass "--refresh re-queries days that were cached before they finalized"
 
-# --- the query-by-page join --------------------------------------------------
-
-OUT4="$TMP_ROOT/out4"
-run_pull "$HOME1" "$OUT4" --join || fail "join pull failed: $(cat "$TMP_ROOT/stderr.txt")"
-assert_present "$OUT4/query-page.csv" "--join writes the query-by-page table"
-assert_grep "$HEB_PAGE" "$OUT4/query-page.csv" "the join pairs the Hebrew query with its page"
-assert_absent "$OUT1/query-page.csv" "the join is not written without --join"
-pass "--join produces the query-by-page pairing a UI export cannot give"
-
 # --- paging and the row cap ---------------------------------------------------
 
 start_stub paged
@@ -250,6 +243,20 @@ assert_contains "$(jq -r '.truncatedDimensions | join(",")' "$OUT6/manifest.json
   "truncation is recorded in the manifest"
 assert_grep "ceiling" "$TMP_ROOT/stderr.txt" "truncation is warned on stderr"
 pass "the row cap is honoured and its truncation is recorded and warned, never silent"
+
+# The same day, same home, now at the default cap: the capped day must not be
+# re-served as if it were the complete day.
+OUT6B="$TMP_ROOT/out6b"
+( cd "$HOME3" && FM_HOME="$HOME3" "$GSC" pull --site sc-domain:example.co.il \
+    --start 2026-09-01 --end 2026-09-01 --out "$OUT6B" ) 2>"$TMP_ROOT/stderr.txt" \
+  || fail "uncapped re-pull failed: $(cat "$TMP_ROOT/stderr.txt")"
+rows=$(( $(wc -l < "$OUT6B/שאילתות.csv") - 1 ))
+[ "$rows" = 260 ] || fail "a day cached under --max-rows 100 was re-served as complete: got $rows of 260"
+[ "$(jq -r '.maxRowsPerDimension' "$OUT6B/manifest.json")" = 25000 ] \
+  || fail "the manifest does not report the cap that actually applied"
+[ "$(jq -r '.truncatedDimensions | length' "$OUT6B/manifest.json")" = 0 ] \
+  || fail "a complete result was reported as capped"
+pass "a day cached under a lower row cap is re-queried rather than re-served as complete"
 
 # --- unhappy paths ------------------------------------------------------------
 
@@ -300,3 +307,12 @@ out=$(FM_GSC_TEST_ENDPOINT="https://evil.example.com" FM_HOME="$HOME1" "$GSC" st
 expect_code 2 "$code" "a non-loopback endpoint override"
 assert_contains "$out" "loopback" "the endpoint override refuses a non-loopback host"
 pass "the test endpoint override cannot be pointed at a host that is not loopback"
+
+# Everything before an `@` in a URL is userinfo, so this value would have curl
+# resolve and connect to evil.example.com while carrying the live bearer token.
+out=$(FM_GSC_TEST_ENDPOINT="http://127.0.0.1:1@evil.example.com/" FM_HOME="$HOME1" \
+        "$GSC" sites 2>&1); code=$?
+expect_code 2 "$code" "a userinfo endpoint override that resolves off-host"
+assert_contains "$out" "loopback" "the userinfo endpoint override is refused as non-loopback"
+assert_not_contains "$out" "stub-refresh" "no credential is printed by the refusal"
+pass "an endpoint override whose real host hides behind userinfo is refused before any request"

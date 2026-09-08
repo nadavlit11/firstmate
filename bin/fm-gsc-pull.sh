@@ -30,9 +30,8 @@
 #       one the credential cannot see, whatever the console shows.
 #
 #   fm-gsc-pull.sh pull --site <property> --start <YYYY-MM-DD> --end <YYYY-MM-DD>
-#                       [--out <dir>] [--mode daily|range] [--data-state final|all]
-#                       [--type web|image|video|news|googleNews|discover]
-#                       [--max-rows <n>] [--join] [--config <file>] [--refresh]
+#                       [--out <dir>] [--data-state final|all]
+#                       [--max-rows <n>] [--config <file>] [--refresh]
 #       Pull search analytics for one property and write an export directory.
 #       --site takes the property exactly as Search Console names it, such as
 #       `sc-domain:clickbateva.co.il`; run `sites` to see the exact strings.
@@ -46,9 +45,7 @@
 #   שאילתות.csv   top queries      - header `השאילתות המובילות,קליקים,הופעות,שיעור קליקים,מקום`
 #   דפים.csv      top pages        - header `הדפים המובילים,קליקים,הופעות,שיעור קליקים,מקום`
 #   תרשים.csv     per-day totals   - header `תאריך,קליקים,הופעות,שיעור קליקים,מקום`
-#   query-page.csv  written only with --join; the query-by-page pairing that has
-#                   no route in a UI export, as `query,page,clicks,...`.
-#   manifest.json   provenance: property, range, mode, data state, row counts,
+#   manifest.json   provenance: property, range, data state, row counts,
 #                   whether any dimension hit --max-rows, and the API's own
 #                   first_incomplete_date when it reported one.
 # The three Hebrew-named CSVs match the column order and the `NN.NN%` /
@@ -65,26 +62,22 @@
 # manifest.json; whenever the API reports a first incomplete date, that date
 # is carried into the manifest and printed on stderr rather than swallowed.
 #
-# Cost and the row cap. `--mode daily` (the default) asks for one day at a
-# time, which is what Google recommends over long ranges, and caches each
-# day's rows under `data/gsc-cache/`, so re-running a review over an
-# overlapping range re-reads disk instead of re-querying history. Pass
-# `--refresh` to re-query days already cached (needed only when a day was
-# first pulled before it finalized). Each day/dimension is paged with
-# `rowLimit` 25000 - the documented per-request maximum - and stops at
-# `--max-rows` (default 25000) per dimension per day; hitting that ceiling is
-# recorded as `truncated` in the manifest and warned on stderr, never
-# silently dropped.
+# Cost and the row cap. A pull asks for one day at a time, which is what
+# Google recommends over long ranges, and caches each day's rows under
+# `data/gsc-cache/`, so re-running a review over an overlapping range re-reads
+# disk instead of re-querying history. Pass `--refresh` to re-query days
+# already cached (needed only when a day was first pulled before it
+# finalized). Each day/dimension is paged with `rowLimit` 25000 - the
+# documented per-request maximum - and stops at `--max-rows` (default 25000)
+# per dimension per day; hitting that ceiling is recorded as `truncated` in
+# the manifest and warned on stderr, never silently dropped. The cache is
+# keyed by that cap too, so a day first pulled under a low `--max-rows` is
+# never re-served as if it were the full set under a higher one.
 #
-# `--mode range` issues one request for the whole range instead, matching what
-# a UI export returns. Prefer it only when an exact match with a UI export
-# matters, because it is the more expensive query shape and its result is not
-# cached. The two modes can disagree slightly: Google anonymises rare queries
-# per request, so a term below the anonymity threshold on every single day can
-# vanish from a daily-mode pull while surviving a range-mode one. Daily mode
-# aggregates the days it holds by summing clicks and impressions, recomputing
-# CTR as clicks/impressions, and averaging position weighted by impressions,
-# which is how Search Console itself combines a range.
+# A range is composed from those cached daily pulls: clicks and impressions
+# sum, CTR is recomputed as clicks/impressions, and position is averaged
+# weighted by impressions, which is how Search Console itself combines a
+# range.
 #
 # Credentials live in config/gsc.env (gitignored, like every other local
 # operating choice) and are never printed, logged, written into an export, or
@@ -107,19 +100,31 @@ OAUTH_TOKEN_URL=https://oauth2.googleapis.com/token
 
 # Test-only endpoint redirection, used by tests/fm-gsc-pull.test.sh to drive
 # the paging, aggregation, and error-classification logic against a local
-# stub. Both are refused unless they point at loopback, so no setting of this
-# variable can send a live credential to another host.
+# stub. Both are refused unless the whole value is exactly a loopback host and
+# a numeric port, so no setting of this variable can send a live credential to
+# another host - in particular a userinfo form like
+# `http://127.0.0.1:1@evil.example.com/`, where everything before the `@` is a
+# username and curl would connect to evil.example.com.
 if [ -n "${FM_GSC_TEST_ENDPOINT:-}" ]; then
+  fm_gsc_endpoint_port=${FM_GSC_TEST_ENDPOINT##*:}
   case "$FM_GSC_TEST_ENDPOINT" in
     http://127.0.0.1:*|http://localhost:*|"http://[::1]:"*) ;;
-    *) printf 'fm-gsc-pull: FM_GSC_TEST_ENDPOINT must be a loopback URL\n' >&2; exit 2 ;;
+    *) fm_gsc_endpoint_port="" ;;
   esac
+  case "$fm_gsc_endpoint_port" in
+    ''|*[!0-9]*)
+      printf 'fm-gsc-pull: FM_GSC_TEST_ENDPOINT must be exactly http://<loopback-host>:<port>\n' >&2
+      exit 2 ;;
+  esac
+  unset fm_gsc_endpoint_port
   API_BASE="$FM_GSC_TEST_ENDPOINT/webmasters/v3"
   OAUTH_TOKEN_URL="$FM_GSC_TEST_ENDPOINT/token"
 fi
 SCOPE=https://www.googleapis.com/auth/webmasters.readonly
 # The documented per-request maximum for searchAnalytics.query.
 PAGE_LIMIT=25000
+# The recurring SEO review is about web search; no other search type is pulled.
+SEARCH_TYPE=web
 
 die() { printf 'fm-gsc-pull: %s\n' "$1" >&2; exit "${2:-2}"; }
 warn() { printf 'fm-gsc-pull: %s\n' "$1" >&2; }
@@ -341,8 +346,8 @@ api_call() {  # <method> <url> [<json-body>]
 
 # One dimension set, one date range, paged to completion or to max_rows.
 # Emits a JSON object: {rows:[...], truncated:bool, firstIncompleteDate:string|null}
-query_rows() {  # <property> <start> <end> <dimensions-json> <type> <data-state> <max-rows>
-  local site=$1 start=$2 end=$3 dims=$4 type=$5 state=$6 max=$7
+query_rows() {  # <property> <start> <end> <dimensions-json> <data-state> <max-rows>
+  local site=$1 start=$2 end=$3 dims=$4 state=$5 max=$6
   local url start_row=0 total_rows=0 truncated=false first_incomplete=null aggregation=null
   local acc='[]' payload page page_rows page_count want
   url="$API_BASE/sites/$(jq -rn --arg s "$site" '$s|@uri')/searchAnalytics/query"
@@ -352,7 +357,7 @@ query_rows() {  # <property> <start> <end> <dimensions-json> <type> <data-state>
     [ "$want" -gt "$PAGE_LIMIT" ] && want=$PAGE_LIMIT
     if [ "$want" -le 0 ]; then truncated=true; break; fi
     payload=$(jq -cn \
-      --arg start "$start" --arg end "$end" --arg type "$type" --arg state "$state" \
+      --arg start "$start" --arg end "$end" --arg type "$SEARCH_TYPE" --arg state "$state" \
       --argjson dims "$dims" --argjson limit "$want" --argjson startRow "$start_row" \
       '{startDate:$start, endDate:$end, dimensions:$dims, type:$type,
         dataState:$state, rowLimit:$limit, startRow:$startRow}')
@@ -434,23 +439,6 @@ render_csv() {  # <header-first-column> ; reads the aggregated array on stdin
   }
 }
 
-# The query-by-page pairing has no UI export route at all, so it is written
-# under a plain name with an explicit English header rather than a fabricated
-# Hebrew one.
-render_join_csv() {
-  {
-    printf 'query,page,clicks,impressions,ctr,position\n'
-    jq -r "$JQ_FMT"'
-      .[] | [
-        .keys[0], .keys[1],
-        (.clicks | round),
-        (.impressions | round),
-        ((.ctr * 100) | fmt2) + "%",
-        (.position | fmt2)
-      ] | @csv'
-  }
-}
-
 # ── Commands ────────────────────────────────────────────────────────────
 
 cmd_status() {
@@ -513,8 +501,8 @@ cmd_cache_path() {
 
 cmd_pull() {
   need_tool curl; need_tool jq; need_tool awk
-  local site="" start="" end="" out="" mode=daily state=final type=web
-  local max=$PAGE_LIMIT join=false refresh=false
+  local site="" start="" end="" out="" state=final
+  local max=$PAGE_LIMIT refresh=false
 
   while [ $# -gt 0 ]; do
     case "$1" in
@@ -522,12 +510,9 @@ cmd_pull() {
       --start) start=${2:-}; shift 2 ;;
       --end) end=${2:-}; shift 2 ;;
       --out) out=${2:-}; shift 2 ;;
-      --mode) mode=${2:-}; shift 2 ;;
       --data-state) state=${2:-}; shift 2 ;;
-      --type) type=${2:-}; shift 2 ;;
       --max-rows) max=${2:-}; shift 2 ;;
       --config) CONFIG_FILE=${2:-}; shift 2 ;;
-      --join) join=true; shift ;;
       --refresh) refresh=true; shift ;;
       *) die "unexpected argument: $1" ;;
     esac
@@ -536,9 +521,7 @@ cmd_pull() {
   [ -n "$site" ] || die "pull needs --site <property> (run 'sites' to list them)"
   date_valid "$start" || die "pull needs --start <YYYY-MM-DD>"
   date_valid "$end" || die "pull needs --end <YYYY-MM-DD>"
-  case "$mode" in daily|range) ;; *) die "--mode must be daily or range" ;; esac
   case "$state" in final|all) ;; *) die "--data-state must be final or all" ;; esac
-  case "$type" in web|image|video|news|googleNews|discover) ;; *) die "--type is not a Search Console search type: $type" ;; esac
   case "$max" in ''|*[!0-9]*) die "--max-rows must be a positive integer" ;; esac
   [ "$max" -ge 1 ] || die "--max-rows must be at least 1"
 
@@ -553,10 +536,11 @@ cmd_pull() {
   mkdir -p "$out"
 
   local cache_root
-  cache_root="$FM_HOME/data/gsc-cache/$(site_slug "$site")/$type/$state"
+  # The cap is part of the key: a day pulled under a low --max-rows is a
+  # top-N, not that day, and must not be re-served as if it were complete.
+  cache_root="$FM_HOME/data/gsc-cache/$(site_slug "$site")/$SEARCH_TYPE/$state/max-$max"
   local first_incomplete=null truncated_dims=""
   local -a dim_keys=(query page date)
-  $join && dim_keys+=(query-page)
 
   # `date` is fetched as its own dimension so the per-day totals table is the
   # API's own answer rather than something re-derived from the query table,
@@ -566,7 +550,6 @@ cmd_pull() {
       query) printf '["query"]' ;;
       page) printf '["page"]' ;;
       date) printf '["date"]' ;;
-      query-page) printf '["query","page"]' ;;
     esac
   }
 
@@ -578,28 +561,23 @@ cmd_pull() {
   local aggregations='{}'
   for dim in "${dim_keys[@]}"; do
     : > "$tmp/$dim.ndjson"
-    if [ "$mode" = range ]; then
-      result=$(query_rows "$site" "$start" "$end" "$(dims_for "$dim")" "$type" "$state" "$max") || exit $?
-      printf '%s\n' "$result" >> "$tmp/$dim.ndjson"
-    else
-      mkdir -p "$cache_root/$dim"
-      for (( n = d0; n <= d1; n++ )); do
-        day=$(day_date "$n")
-        cache_file="$cache_root/$dim/$day.json"
-        if [ -s "$cache_file" ] && [ "$refresh" = false ]; then
-          cached_days=$(( cached_days + 1 ))
-        else
-          result=$(query_rows "$site" "$day" "$day" "$(dims_for "$dim")" "$type" "$state" "$max") || exit $?
-          # Write through a temp file so an interrupted run never leaves a
-          # half-written day that a later run would trust as complete.
-          printf '%s\n' "$result" > "$cache_file.partial"
-          mv "$cache_file.partial" "$cache_file"
-          fresh_days=$(( fresh_days + 1 ))
-        fi
-        cat "$cache_file" >> "$tmp/$dim.ndjson"
-        printf '\n' >> "$tmp/$dim.ndjson"
-      done
-    fi
+    mkdir -p "$cache_root/$dim"
+    for (( n = d0; n <= d1; n++ )); do
+      day=$(day_date "$n")
+      cache_file="$cache_root/$dim/$day.json"
+      if [ -s "$cache_file" ] && [ "$refresh" = false ]; then
+        cached_days=$(( cached_days + 1 ))
+      else
+        result=$(query_rows "$site" "$day" "$day" "$(dims_for "$dim")" "$state" "$max") || exit $?
+        # Write through a temp file so an interrupted run never leaves a
+        # half-written day that a later run would trust as complete.
+        printf '%s\n' "$result" > "$cache_file.partial"
+        mv "$cache_file.partial" "$cache_file"
+        fresh_days=$(( fresh_days + 1 ))
+      fi
+      cat "$cache_file" >> "$tmp/$dim.ndjson"
+      printf '\n' >> "$tmp/$dim.ndjson"
+    done
     if jq -se 'any(.[]; .truncated)' < "$tmp/$dim.ndjson" >/dev/null 2>&1 \
        && [ "$(jq -se '[.[] | select(.truncated)] | length' < "$tmp/$dim.ndjson")" -gt 0 ]; then
       truncated_dims="$truncated_dims $dim"
@@ -626,10 +604,6 @@ cmd_pull() {
   # The per-day table reads chronologically, not by clicks.
   jq 'sort_by(.keys[0])' < "$tmp/date.agg.json" \
     | render_csv 'תאריך' > "$out/תרשים.csv"
-  if $join; then
-    aggregate < "$tmp/query-page.ndjson" > "$tmp/query-page.agg.json"
-    render_join_csv < "$tmp/query-page.agg.json" > "$out/query-page.csv"
-  fi
 
   if [ "$first_incomplete" != null ]; then
     warn "Search Console reports data from $(printf '%s' "$first_incomplete" | jq -r .) onward is still incomplete"
@@ -637,7 +611,7 @@ cmd_pull() {
 
   jq -n \
     --arg site "$site" --arg start "$start" --arg end "$end" \
-    --arg mode "$mode" --arg state "$state" --arg type "$type" \
+    --arg state "$state" --arg type "$SEARCH_TYPE" \
     --arg generated "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     --arg truncated "${truncated_dims# }" \
     --argjson maxRows "$max" \
@@ -649,7 +623,7 @@ cmd_pull() {
     '{
       source: "Google Search Console API (searchAnalytics.query), read-only",
       property: $site, startDate: $start, endDate: $end,
-      searchType: $type, dataState: $state, mode: $mode,
+      searchType: $type, dataState: $state,
       maxRowsPerDimension: $maxRows,
       truncatedDimensions: (if $truncated == "" then [] else ($truncated | split(" ")) end),
       firstIncompleteDate: $firstIncompleteDate,

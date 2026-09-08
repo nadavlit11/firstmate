@@ -55,23 +55,20 @@ What the API bought, exactly:
 - ⭐ **Hebrew queries arrive as UTF-8 data rather than as something read off a screenshot.**
   This is the accuracy win, not a convenience: the review no longer interprets Hebrew glyphs from an image.
 - The row cap rises from the UI export's roughly 1,000 to 25,000 per request, paged.
-- ⭐ **The query-by-page join is reachable** with `--join`, which is precisely the limitation `scripts/README.md` records as having no shell route.
+- The pull is cached per day, so a repeated review re-reads disk instead of re-querying history.
 
 What it did not buy, so do not claim it:
 
 - Security issues and manual actions have no API at all; that stays a browser look, and it stays a class-B identity-bound read in the captain's logged-in Chrome.
 - Search volume is a different product (Keyword Planner) on a spend-gated account.
 - Rare queries stay anonymised, so every non-brand bucket remains a lower bound.
+- Grouping by query and page together still loses rows to Google's own omission, exactly as `scripts/README.md` records; the pull does not produce that pairing and no access method removes the limitation.
 - The survivorship trap below is structural and no access method touches it.
 - Device and country tables are not produced, because the API's `MOBILE` and `isr` are not the UI export's `נייד` and `ישראל` and the translation would be invented.
 
 ⚠️ **Never report the last two to three days as settled.**
 Search Console finalizes data on that lag.
 The pull defaults to finalized data only and records the API's own first incomplete date in each export's `manifest.json`; read that field before quoting a recent day.
-
-⚠️ **A day-by-day pull and a whole-range pull can disagree, and neither is wrong.**
-Google anonymises rare queries per request, so a term under the threshold every single day vanishes from the cached daily pull while surviving a single range request.
-The daily mode is the default because it caches and is what Google recommends; reach for `--mode range` when an exact match with a UI export is what matters, and say which one produced the numbers.
 
 Per-property access, as it stands:
 

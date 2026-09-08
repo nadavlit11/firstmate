@@ -584,17 +584,15 @@ A property missing from that list is one the credential cannot see, whatever the
 `bin/fm-gsc-pull.sh pull --site <property> --start <date> --end <date>` writes an export directory holding `שאילתות.csv`, `דפים.csv`, `תרשים.csv`, and a `manifest.json`.
 Those three CSVs carry the same headers, column order, and `NN.NN%` formatting as a Search Console UI export, so the review's existing reader needs no change.
 Device and country tables are deliberately not produced, because the API returns `MOBILE` and `isr` where the UI export returns `נייד` and `ישראל`, and inventing that translation would put made-up vocabulary into a file the review reads as if it came from Google.
-`--join` additionally writes `query-page.csv`, the query-by-page pairing that has no UI export route at all.
 
 Search Console data is incomplete for roughly the last two to three days.
 The default `--data-state final` asks Google for finalized data only, so a review never reports a still-moving day as settled; `--data-state all` includes fresh data and is recorded as such in the manifest.
 Whenever the API reports a first incomplete date, that date is carried into `manifest.json` and warned on stderr rather than swallowed.
 
-The default `--mode daily` asks for one day at a time, which is what Google recommends over long ranges, and caches each day under `data/gsc-cache/`, so re-running a review over an overlapping range re-reads disk instead of re-querying history.
+A pull asks for one day at a time, which is what Google recommends over long ranges, and caches each day under `data/gsc-cache/`, so re-running a review over an overlapping range re-reads disk instead of re-querying history; a range is composed from those cached days.
 Pass `--refresh` to re-query days that were first pulled before they finalized.
 Each day and dimension is paged at the documented per-request maximum of 25,000 rows and stops at `--max-rows` (default 25,000); hitting that ceiling is recorded in the manifest and warned, never silently dropped.
-`--mode range` issues one request for the whole range instead, matching what a UI export returns, at the cost of a more expensive query shape and no caching.
-The two modes can disagree slightly, because Google anonymises rare queries per request: a term below the anonymity threshold on every single day can vanish from a daily-mode pull while surviving a range-mode one.
+The cache is keyed by that cap as well, so a day first pulled under a low `--max-rows` is re-queried rather than re-served as if it were the complete day.
 
 `manifest.json` records the `responseAggregationType` Google returned for each table.
 Google aggregates a page-dimension result `byPage` and the query and date results `byProperty`, so the page table's totals are not comparable with the query or date tables' - measured on 2026-09-08 over three days of clickbateva.co.il, the page table read 98 clicks against the property's true 88.
