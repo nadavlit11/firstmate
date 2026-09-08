@@ -343,7 +343,7 @@ api_call() {  # <method> <url> [<json-body>]
 # Emits a JSON object: {rows:[...], truncated:bool, firstIncompleteDate:string|null}
 query_rows() {  # <property> <start> <end> <dimensions-json> <type> <data-state> <max-rows>
   local site=$1 start=$2 end=$3 dims=$4 type=$5 state=$6 max=$7
-  local url start_row=0 total_rows=0 truncated=false first_incomplete=null
+  local url start_row=0 total_rows=0 truncated=false first_incomplete=null aggregation=null
   local acc='[]' payload page page_rows page_count want
   url="$API_BASE/sites/$(jq -rn --arg s "$site" '$s|@uri')/searchAnalytics/query"
 
@@ -368,6 +368,9 @@ query_rows() {  # <property> <start> <end> <dimensions-json> <type> <data-state>
     if [ "$first_incomplete" = null ]; then
       first_incomplete=$(printf '%s' "$page" | jq -c '.metadata.first_incomplete_date // .metadata.firstIncompleteDate // null')
     fi
+    if [ "$aggregation" = null ]; then
+      aggregation=$(printf '%s' "$page" | jq -c '.responseAggregationType // null')
+    fi
     acc=$(jq -cn --argjson a "$acc" --argjson b "$page_rows" '$a + $b')
     total_rows=$(( total_rows + page_count ))
     # A short page means the result set is exhausted.
@@ -377,7 +380,8 @@ query_rows() {  # <property> <start> <end> <dimensions-json> <type> <data-state>
   done
 
   jq -cn --argjson rows "$acc" --argjson t "$truncated" --argjson f "$first_incomplete" \
-    '{rows:$rows, truncated:$t, firstIncompleteDate:$f}'
+    --argjson a "$aggregation" \
+    '{rows:$rows, truncated:$t, firstIncompleteDate:$f, aggregation:$a}'
 }
 
 # ── Aggregation and rendering ───────────────────────────────────────────
@@ -571,6 +575,7 @@ cmd_pull() {
   trap "rm -rf '$tmp'; cleanup" EXIT
 
   local dim day n result cache_file fresh_days=0 cached_days=0
+  local aggregations='{}'
   for dim in "${dim_keys[@]}"; do
     : > "$tmp/$dim.ndjson"
     if [ "$mode" = range ]; then
@@ -603,6 +608,13 @@ cmd_pull() {
     if [ "$first_incomplete" = null ]; then
       first_incomplete=$(jq -sc '[.[] | .firstIncompleteDate | select(. != null)] | (sort | first) // null' < "$tmp/$dim.ndjson")
     fi
+    # Google aggregates a page-dimension result byPage and the others
+    # byProperty, so the page table's totals are NOT comparable with the query
+    # or date tables'"'"'. Record which one produced each table rather than
+    # leaving a reader to assume one property-wide baseline.
+    aggregations=$(jq -c --arg d "$dim" \
+      --argjson a "$(jq -sc '[.[] | .aggregation | select(. != null)] | first // null' < "$tmp/$dim.ndjson")" \
+      '. + {($d): $a}' <<< "$aggregations")
   done
 
   aggregate < "$tmp/query.ndjson" > "$tmp/query.agg.json"
@@ -630,6 +642,7 @@ cmd_pull() {
     --arg truncated "${truncated_dims# }" \
     --argjson maxRows "$max" \
     --argjson firstIncompleteDate "$first_incomplete" \
+    --argjson aggregation "$aggregations" \
     --argjson freshDays "$fresh_days" --argjson cachedDays "$cached_days" \
     --argjson queryRows "$(jq length < "$tmp/query.agg.json")" \
     --argjson pageRows "$(jq length < "$tmp/page.agg.json")" \
@@ -640,6 +653,7 @@ cmd_pull() {
       maxRowsPerDimension: $maxRows,
       truncatedDimensions: (if $truncated == "" then [] else ($truncated | split(" ")) end),
       firstIncompleteDate: $firstIncompleteDate,
+      responseAggregationType: $aggregation,
       dayDimensionsQueried: $freshDays, dayDimensionsReadFromCache: $cachedDays,
       queryRows: $queryRows, pageRows: $pageRows,
       generatedAt: $generated

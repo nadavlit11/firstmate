@@ -156,6 +156,11 @@ Point at the owner and use its tool rather than hand-rolling the sweep again.
 - **A rate quoted without its baseline is a number pretending to be a finding.**
   `scripts/gsc_report.py` refuses to print a CTR without the expected CTR at that position, because a 0.45% CTR was once presented as the site's biggest fixable defect when the page ranked at position 33, where 0.45% is normal.
   Run it; do not recompute CTR by hand.
+- ⛔ **The three tables have three different baselines; never add them up or compare their totals.**
+  Search Console aggregates a page-dimension result `byPage` and the query and date results `byProperty`, and each pull's `manifest.json` records which one produced each table.
+  Measured on click-bateva over 2026-09-01..03: the date table read 88 clicks and 434 impressions, the query table 74 and 330, and the page table 98 and 989.
+  The date table is the property truth; the query table is short by every anonymised rare query, which was 16% of clicks and 24% of impressions on that sample and is the concrete size of the "lower bound" warning below; the page table is a different aggregation entirely and is larger than the property total.
+  A rate computed by dividing one table by another is meaningless.
 - **Never quote a blended average position as progress.**
   Brand is around 86% of click-bateva's clicks on around 14% of its impressions at position 1, so the blend improves whenever paid manufactures brand searches.
   Report brand and non-brand separately, every time.

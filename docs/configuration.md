@@ -596,6 +596,10 @@ Each day and dimension is paged at the documented per-request maximum of 25,000 
 `--mode range` issues one request for the whole range instead, matching what a UI export returns, at the cost of a more expensive query shape and no caching.
 The two modes can disagree slightly, because Google anonymises rare queries per request: a term below the anonymity threshold on every single day can vanish from a daily-mode pull while surviving a range-mode one.
 
+`manifest.json` records the `responseAggregationType` Google returned for each table.
+Google aggregates a page-dimension result `byPage` and the query and date results `byProperty`, so the page table's totals are not comparable with the query or date tables' - measured on 2026-09-08 over three days of clickbateva.co.il, the page table read 98 clicks against the property's true 88.
+Read each table against its own baseline.
+
 Every failure is reported as itself rather than as an empty result, with its own exit code: 2 usage or configuration, 3 authorization expired, revoked, or never granted for that property, 4 a quota rejection, 5 a network failure, and 6 the Search Console API not enabled for the project.
 
 ## Relay (.env)
