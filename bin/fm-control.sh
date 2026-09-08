@@ -527,7 +527,6 @@ PRIOR_HARNESS=$HARNESS
 PRIOR_RECORDED_HARNESS=$RECORDED_HARNESS
 CONFIG_HARNESS=
 CONFIG_MODEL=
-CONFIG_EFFORT=
 PRIOR_MODEL=
 PRIOR_EFFORT=
 PRIOR_EFFORT_OVERRIDE_REASON=
@@ -637,7 +636,6 @@ resolve_relaunch_profile() {
   fi
   CONFIG_HARNESS=
   CONFIG_MODEL=
-  CONFIG_EFFORT=
   if [ "$KIND" = secondmate ]; then
     # A secondmate's harness, model, and effort are a durable configured pin
     # that every respawn re-resolves (the secondmate-provisioning contract), so
@@ -648,14 +646,6 @@ resolve_relaunch_profile() {
     # re-resolving it would bypass that consultation.
     CONFIG_HARNESS=$("$SCRIPT_DIR/fm-harness.sh" secondmate 2>/dev/null || true)
     CONFIG_MODEL=$("$SCRIPT_DIR/fm-harness.sh" secondmate-model 2>/dev/null || true)
-    CONFIG_EFFORT=$("$SCRIPT_DIR/fm-harness.sh" secondmate-effort 2>/dev/null || true)
-    case "$CONFIG_EFFORT" in
-      ''|low|medium|high|xhigh|max) ;;
-      *)
-        echo "warning: config/secondmate-harness effort token '$CONFIG_EFFORT' is not one of low, medium, high, xhigh, max; ignoring" >&2
-        CONFIG_EFFORT=
-        ;;
-    esac
   fi
   if [ "$HARNESS_SET" = 1 ]; then
     fm_control_harness_supported "$NEW_HARNESS" \
@@ -686,12 +676,15 @@ resolve_relaunch_profile() {
   else
     TARGET_MODEL=default
   fi
+  # A RELAUNCH INHERITS IDENTITY AND WORK, NEVER AUTHORITY.
+  # The effort axis is where that rule bites: a recorded level and a configured
+  # level are both history, not permission. An unnamed effort therefore always
+  # resolves to default (which the launch owner reads as low), so non-low can
+  # only ever come from --effort on THIS invocation - and because the launch
+  # owner additionally demands a written reason for any non-low level, both
+  # halves of the pair have to be named here, exactly as a fresh spawn does.
   if [ "$EFFORT_SET" = 1 ]; then
     TARGET_EFFORT=$NEW_EFFORT
-  elif [ "$HARNESS_SET" = 0 ] && [ -n "$CONFIG_HARNESS" ]; then
-    TARGET_EFFORT=${CONFIG_EFFORT:-default}
-  elif [ "$TARGET_HARNESS" = "$PRIOR_HARNESS" ]; then
-    TARGET_EFFORT=$PRIOR_EFFORT
   else
     TARGET_EFFORT=default
   fi
@@ -715,14 +708,14 @@ resolve_relaunch_profile() {
   fi
   if ! fm_control_harness_enforces_low_effort "$TARGET_HARNESS" \
       && [ -z "$TARGET_EFFORT_OVERRIDE_REASON" ]; then
-    die "'$TARGET_HARNESS' has no verified low-effort launch axis and this relaunch carries no recorded capability reason, so the launch would be refused after the running agent had already been stopped; pass --effort-override-reason '<why this adapter is required despite unprovable effort>' or relaunch onto an adapter that can enforce low"
+    die "'$TARGET_HARNESS' has no verified low-effort launch axis and this relaunch carries no recorded capability reason, so the launch would be refused after the running agent had already been stopped; relaunch at low with --effort-override-reason '<why this adapter is required despite unprovable effort>' as capability cover, or relaunch onto an adapter that can enforce low. A non-low relaunch is a different request and needs --effort <level> and --effort-override-reason together"
   fi
   # The launch owner refuses a non-low effort that carries no written reason on
   # THIS invocation, but only after the agent is gone. Asking the same question
   # here keeps that refusal pre-stop, where nothing has been lost yet.
   if [ "$TARGET_EFFORT" != low ] && [ "$TARGET_EFFORT" != default ] \
       && [ -z "$TARGET_EFFORT_OVERRIDE_REASON" ]; then
-    die "relaunching $ID at effort '$TARGET_EFFORT' carries no --effort-override-reason on this invocation, and a recorded reason from a previous launch is not fresh authority, so the launch would be refused after the running agent had already been stopped; pass --effort-override-reason '<why>' or relaunch at low"
+    die "relaunching $ID at effort '$TARGET_EFFORT' carries no --effort-override-reason on this invocation, and a recorded reason from a previous launch is not fresh authority, so the launch would be refused after the running agent had already been stopped; name both halves on this invocation - --effort $TARGET_EFFORT --effort-override-reason '<why this task needs it>' - or drop --effort and relaunch at low"
   fi
 }
 
