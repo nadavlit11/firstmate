@@ -100,6 +100,7 @@ Verify the real spawn path selects Herdr.
 
 Planning gate: exception=precedent-following reason=backend auto-detection integration fixture brief
 EOF
+printf 'Retro: quick\nReason: test fixture ship task\n' > "$DATA/$ID/retro.md"
 
 PROJ="$TMP_ROOT/scratch-project"
 mkdir -p "$PROJ"

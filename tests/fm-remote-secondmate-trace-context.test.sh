@@ -90,11 +90,6 @@ esac
 exit 0
 SH
 chmod +x "$REMOTE_ROOT/bin/tmux"
-cat > "$REMOTE_ROOT/bin/kimi" <<'SH'
-#!/usr/bin/env bash
-exit 0
-SH
-chmod +x "$REMOTE_ROOT/bin/kimi"
 install_remote_herdr_fixture "$REMOTE_ROOT" "$HERDR_STATE" "$HERDR_LOG" \
   "$TMP_ROOT/herdr-send-fail" "$TMP_ROOT/herdr.sock"
 git -C "$REMOTE_ROOT" init -q -b main
@@ -321,14 +316,14 @@ pass "delivery: a parent-supplied carrier is accepted only for a secondmate laun
 reset_remote_herdr_fixture "$HERDR_STATE"
 : > "$HERDR_LOG"
 rm -f "$PARENT/state/ios.meta" "$REMOTE_HOME/state/parent-route/ios.meta"
-if ! out=$(remote_env "$ROOT/bin/fm-spawn.sh" ios --secondmate --harness kimi \
-  --effort-override-reason 'kimi is required for this mate despite an unprovable effort axis' 2>&1); then
+if ! out=$(remote_env "$ROOT/bin/fm-spawn.sh" ios --secondmate --harness opencode \
+  --effort-override-reason 'opencode is required for this mate despite an unprovable effort axis' 2>&1); then
   fail "a remote secondmate on a no-axis harness must launch when a written capability reason is given: $out"
 fi
 assert_present "$PARENT/state/ios.meta" "the authorized remote spawn published no parent metadata"
-grep -q 'kimi is required for this mate despite an unprovable effort axis' \
+grep -q 'opencode is required for this mate despite an unprovable effort axis' \
   "$REMOTE_HOME/state/parent-route/ios.meta" \
-  || grep -q 'kimi is required for this mate despite an unprovable effort axis' "$HERDR_LOG" \
+  || grep -q 'opencode is required for this mate despite an unprovable effort axis' "$HERDR_LOG" \
   || fail "the capability reason did not survive the host boundary"
 pass "authority: a written capability reason crosses to the remote host with the launch it authorizes"
 

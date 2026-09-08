@@ -99,6 +99,7 @@ Verify the crewmate uses its primary home's workspace.
 
 Planning gate: exception=precedent-following reason=Herdr primary-home integration fixture brief
 EOF
+printf 'Retro: quick\nReason: test fixture ship task\n' > "$PRIMARY_HOME/data/cm1/retro.md"
 
 SM_HOME="$TMP_ROOT/secondmate-home"
 mkdir -p "$SM_HOME/state" "$SM_HOME/data/cm2" "$SM_HOME/config" "$SM_HOME/projects" "$SM_HOME/bin"
@@ -116,6 +117,7 @@ Verify the crewmate uses its secondmate home's workspace.
 
 Planning gate: exception=precedent-following reason=Herdr secondmate-home integration fixture brief
 EOF
+printf 'Retro: quick\nReason: test fixture ship task\n' > "$SM_HOME/data/cm2/retro.md"
 
 make_scratch_project() {  # <dir>
   local dir=$1

@@ -196,6 +196,7 @@ Verify the worker is placed in the correct workspace.
 
 Planning gate: exception=precedent-following reason=Herdr launcher placement integration fixture brief
 EOF
+  printf 'Retro: quick\nReason: test fixture ship task\n' > "${1%/brief.md}/retro.md"
 }
 
 for id in uniqA uniqB dupC dupD staleF smE presU presD; do
