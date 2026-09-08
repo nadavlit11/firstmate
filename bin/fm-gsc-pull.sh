@@ -60,8 +60,8 @@
 # That horizon describes the moment a request was made, not the days it covers,
 # so it is never cached. Every run observes it once, with a single cheap
 # `dataState: all` request over the range, and reports it as
-# `firstIncompleteDate` with `firstIncompleteDateObserved` beside it. The
-# response aggregation type is request-time state too, and is read only from
+# `firstIncompleteDate`, which is null when Google reports no incompleteness
+# horizon for the range at all. The response aggregation type is request-time state too, and is read only from
 # responses received this run: a table served entirely from cache reports
 # `null` rather than replaying a stale value.
 #
@@ -644,7 +644,6 @@ cmd_pull() {
     --arg truncated "${truncated_dims# }" \
     --argjson maxRows "$max" \
     --argjson firstIncompleteDate "$first_incomplete" \
-    --argjson firstIncompleteDateObserved true \
     --argjson aggregation "$aggregations" \
     --argjson freshDays "$fresh_days" --argjson cachedDays "$cached_days" \
     --argjson queryRows "$(jq length < "$tmp/query.agg.json")" \
@@ -656,7 +655,6 @@ cmd_pull() {
       maxRowsPerDimension: $maxRows,
       truncatedDimensions: (if $truncated == "" then [] else ($truncated | split(" ")) end),
       firstIncompleteDate: $firstIncompleteDate,
-      firstIncompleteDateObserved: $firstIncompleteDateObserved,
       responseAggregationType: $aggregation,
       dayDimensionsQueried: $freshDays, dayDimensionsReadFromCache: $cachedDays,
       queryRows: $queryRows, pageRows: $pageRows,

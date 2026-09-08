@@ -220,8 +220,6 @@ pass "a repeated review re-reads cached days instead of re-querying the same his
 # is reported as unknown instead of being replayed out of the cache.
 [ "$(jq -r .firstIncompleteDate "$OUT2/manifest.json")" = "2026-09-06" ] \
   || fail "a fully cached run did not observe the current freshness horizon"
-[ "$(jq -r .firstIncompleteDateObserved "$OUT2/manifest.json")" = true ] \
-  || fail "the horizon is observed once per run and should be marked as such"
 [ "$(jq -r '.responseAggregationType | to_entries | map(select(.value != null)) | length' "$OUT2/manifest.json")" = 0 ] \
   || fail "a fully cached run replayed a stale response aggregation type"
 pass "the freshness horizon is observed fresh each run and never replayed from cache"
