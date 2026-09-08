@@ -592,7 +592,7 @@ That horizon describes the moment the request was made rather than the days it c
 
 A pull asks for one day at a time, which is what Google recommends over long ranges, and caches each day under `data/gsc-cache/`, so re-running a review over an overlapping range re-reads disk instead of re-querying history; a range is composed from those cached days.
 Only a settled day is history: a day fetched on or after the observed incomplete date was still moving when it was captured, so it is cached as provisional and re-fetched on every later run until it falls outside the horizon. A day captured settled is served from disk forever, and a cache entry written before this provenance existed is re-fetched once rather than trusted.
-Pass `--refresh` to re-query cached days regardless.
+Forcing a fresh pull of a day already captured as finalized - if Google ever restates finalized data - means deleting the relevant day files under `data/gsc-cache/`.
 Each day and dimension is paged at the documented per-request maximum of 25,000 rows and stops at `--max-rows` (default 25,000); on reaching that ceiling one more row is requested to settle whether anything was actually left behind, so a result of exactly `--max-rows` rows is reported complete and only a genuine overflow is recorded in the manifest and warned, never silently dropped.
 The cache is keyed by that cap as well, so a day first pulled under a low `--max-rows` is re-queried rather than re-served as if it were the complete day.
 

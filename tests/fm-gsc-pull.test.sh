@@ -15,8 +15,7 @@
 #   - a range is aggregated the way Search Console aggregates one: clicks and
 #     impressions sum, CTR comes from those sums, position is impression-weighted
 #   - the per-day table is the API's own `date` dimension and reads chronologically
-#   - a second run over the same days re-reads the cache instead of re-querying,
-#     and --refresh overrides that
+#   - a second run over the same days re-reads the cache instead of re-querying
 #   - --max-rows truncation is recorded and warned, never silent
 #   - paging follows startRow past one page
 #   - the API's first incomplete date is observed once per run and reaches the
@@ -223,12 +222,6 @@ pass "a repeated review re-reads cached days instead of re-querying the same his
 [ "$(jq -r '.responseAggregationType | to_entries | map(select(.value != null)) | length' "$OUT2/manifest.json")" = 0 ] \
   || fail "a fully cached run replayed a stale response aggregation type"
 pass "the freshness horizon is observed fresh each run and never replayed from cache"
-
-OUT3="$TMP_ROOT/out3"
-run_pull "$HOME1" "$OUT3" --refresh || fail "refresh pull failed: $(cat "$TMP_ROOT/stderr.txt")"
-[ "$(jq -r .dayDimensionsQueried "$OUT3/manifest.json")" = 6 ] \
-  || fail "--refresh did not re-query the cached days"
-pass "--refresh re-queries days that were cached before they finalized"
 
 # --- a day inside the incompleteness horizon is never cached as settled -------
 

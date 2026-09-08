@@ -31,7 +31,7 @@
 #
 #   fm-gsc-pull.sh pull --site <property> --start <YYYY-MM-DD> --end <YYYY-MM-DD>
 #                       [--out <dir>] [--data-state final|all]
-#                       [--max-rows <n>] [--refresh]
+#                       [--max-rows <n>]
 #       Pull search analytics for one property and write an export directory.
 #       --site takes the property exactly as Search Console names it, such as
 #       `sc-domain:clickbateva.co.il`; run `sites` to see the exact strings.
@@ -75,9 +75,10 @@
 # Cost and the row cap. A pull asks for one day at a time, which is what
 # Google recommends over long ranges, and caches each day's rows under
 # `data/gsc-cache/`, so re-running a review over an overlapping range re-reads
-# disk instead of re-querying history. Pass `--refresh` to re-query days
-# already cached (needed only when a day was first pulled before it
-# finalized). Each day/dimension is paged with `rowLimit` 25000 - the
+# disk instead of re-querying history. A day already captured as finalized is
+# served from that cache indefinitely, so forcing a fresh pull - if Google ever
+# restates finalized data - means deleting the relevant day files under
+# `data/gsc-cache/`. Each day/dimension is paged with `rowLimit` 25000 - the
 # documented per-request maximum - and stops at `--max-rows` (default 25000)
 # per dimension per day. On reaching that ceiling one more row is requested to
 # settle whether anything was actually left behind - a result of exactly
@@ -524,7 +525,7 @@ cmd_sites() {
 cmd_pull() {
   need_tool curl; need_tool jq; need_tool awk
   local site="" start="" end="" out="" state=final
-  local max=$PAGE_LIMIT refresh=false
+  local max=$PAGE_LIMIT
 
   while [ $# -gt 0 ]; do
     case "$1" in
@@ -534,7 +535,6 @@ cmd_pull() {
       --out) out=${2:-}; shift 2 ;;
       --data-state) state=${2:-}; shift 2 ;;
       --max-rows) max=${2:-}; shift 2 ;;
-      --refresh) refresh=true; shift ;;
       *) die "unexpected argument: $1" ;;
     esac
   done
@@ -594,7 +594,7 @@ cmd_pull() {
       cache_file="$cache_root/$dim/$day.json"
       provisional=false
       if [ -n "$horizon" ] && [[ ! $day < $horizon ]]; then provisional=true; fi
-      if [ -s "$cache_file" ] && [ "$refresh" = false ] \
+      if [ -s "$cache_file" ] \
          && [ "$(jq -r 'if .provisional == false then "settled" else "unusable" end' < "$cache_file")" = settled ]; then
         cached_days=$(( cached_days + 1 ))
       else
