@@ -190,7 +190,7 @@ done
 # two inputs. A secondmate charter carries no Tavily lines and bin/fm-spawn.sh
 # never wires a secondmate, so nothing below is resolved on that path.
 if [ "$KIND" != secondmate ]; then
-  TAVILY_NOTICE=$(fm_tavily_malformed_notice "$CONFIG")
+  TAVILY_NOTICE=$(fm_tavily_notice "$CONFIG")
   [ -z "$TAVILY_NOTICE" ] || printf '%s\n' "$TAVILY_NOTICE" >&2
   # The harness defaults to the standing crewmate resolution bin/fm-spawn.sh
   # lands on when no per-spawn harness is given, and --harness names it when the

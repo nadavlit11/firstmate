@@ -393,13 +393,13 @@ test_key_status_separates_absence_from_a_broken_spelling() {
 
   status=$(fm_tavily_key_status "$home/config")
   [ "$status" = absent ] || fail "a home with no key file was not absent: '$status'"
-  notice=$(fm_tavily_malformed_notice "$home/config")
+  notice=$(fm_tavily_notice "$home/config")
   [ -z "$notice" ] || fail "an absent key file produced a diagnostic: '$notice'"
 
   printf '# no key yet\nTAVILY_API_KEY=\n' > "$home/config/tavily.env"
   status=$(fm_tavily_key_status "$home/config")
   [ "$status" = absent ] || fail "an empty value was not treated as absence: '$status'"
-  notice=$(fm_tavily_malformed_notice "$home/config")
+  notice=$(fm_tavily_notice "$home/config")
   [ -z "$notice" ] || fail "an empty value produced a diagnostic: '$notice'"
 
   printf 'TAVILY_API_KEY=\nTAVILY_API_KEY=%s\n' "$SECRET" > "$home/config/tavily.env"
@@ -411,7 +411,7 @@ test_key_status_separates_absence_from_a_broken_spelling() {
   write_key "$home"
   status=$(fm_tavily_key_status "$home/config")
   [ "$status" = ok ] || fail "a well-formed key was not ok: '$status'"
-  notice=$(fm_tavily_malformed_notice "$home/config")
+  notice=$(fm_tavily_notice "$home/config")
   [ -z "$notice" ] || fail "a well-formed key produced a diagnostic: '$notice'"
 
   local spelling
@@ -422,7 +422,7 @@ test_key_status_separates_absence_from_a_broken_spelling() {
     [ "$status" = malformed ] || fail "a near-miss spelling was not malformed: '$spelling' -> '$status'"
     fm_tavily_key_present "$home/config" \
       && fail "a near-miss spelling still counted as a usable key: '$spelling'"
-    notice=$(fm_tavily_malformed_notice "$home/config")
+    notice=$(fm_tavily_notice "$home/config")
     case "$notice" in
       *"$home/config/tavily.env"*) : ;;
       *) fail "the diagnostic did not name the key file: '$notice'" ;;
@@ -436,6 +436,60 @@ test_key_status_separates_absence_from_a_broken_spelling() {
     esac
   done
   pass "an unset key is silent absence while a broken spelling is a named, value-free diagnostic"
+}
+
+# A key that exists but cannot be read is its own situation: the contents may be
+# perfectly fine and the permissions are wrong, so the remedy is the file rather
+# than the key line, and the operator must not be told the opposite.
+test_unreadable_key_file_is_reported_as_a_permissions_problem() {
+  local rec id out status notice
+  id=tv-unreadable-t8
+  rec=$(make_case unreadable claude "$id")
+  read_case_record "$rec"
+  write_key "$HOME_DIR"
+  chmod 000 "$HOME_DIR/config/tavily.env"
+  if [ -r "$HOME_DIR/config/tavily.env" ]; then
+    chmod 0600 "$HOME_DIR/config/tavily.env"
+    printf '# skip - mode 000 is still readable as this user (root?); the unreadable verdict cannot be exercised\n'
+    return 0
+  fi
+
+  status=$(fm_tavily_key_status "$HOME_DIR/config")
+  [ "$status" = unreadable ] || fail "an unreadable key file was not its own verdict: '$status'"
+  notice=$(fm_tavily_notice "$HOME_DIR/config")
+  case "$notice" in
+    *"$HOME_DIR/config/tavily.env"*) : ;;
+    *) fail "the unreadable notice did not name the key file: '$notice'" ;;
+  esac
+  case "$notice" in
+    *permissions*) : ;;
+    *) fail "the unreadable notice did not point at permissions: '$notice'" ;;
+  esac
+  case "$notice" in
+    *"$SECRET"*) fail "the unreadable notice printed the key value" ;;
+  esac
+
+  out=$(run_spawn "$id" --mode no-mistakes --yolo off 2>&1)
+  status=$?
+  expect_code 0 "$status" "an unreadable key should not break the spawn"
+  assert_no_grep 'mcp.tavily.com' "$LAUNCH_LOG" \
+    "an unreadable key file still wired the server"
+  assert_no_grep 'fm-tavily-exec.sh' "$LAUNCH_LOG" \
+    "an unreadable key file still wrapped the launch in the key injector"
+  case "$out" in
+    *"config/tavily.env"*) : ;;
+    *) fail "the spawn stayed silent about a key file it could not read: $out" ;;
+  esac
+  case "$out" in
+    *"$SECRET"*) fail "the spawn leaked the key value" ;;
+  esac
+
+  FM_HOME="$HOME_DIR" "$ROOT/bin/fm-brief.sh" tv-unreadable demo --base main --mode no-mistakes >/dev/null 2>&1 \
+    || fail "scaffolding a brief with an unreadable key file failed"
+  assert_no_grep 'tavily_search' "$HOME_DIR/data/tv-unreadable/brief.md" \
+    "a brief advertised Tavily from a key file that cannot be read"
+  chmod 0600 "$HOME_DIR/config/tavily.env"
+  pass "a key file that cannot be read is neither wired nor mistaken for absence"
 }
 
 test_malformed_key_leaves_the_launch_unwired_and_says_so() {
@@ -468,6 +522,7 @@ test_malformed_key_leaves_the_launch_unwired_and_says_so() {
 
 test_key_file_parsing
 test_key_status_separates_absence_from_a_broken_spelling
+test_unreadable_key_file_is_reported_as_a_permissions_problem
 test_exec_wrapper_injects_without_printing
 test_claude_launch_wires_tavily_and_withholds_research
 test_codex_launch_wires_tavily_and_withholds_research

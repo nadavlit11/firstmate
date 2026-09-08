@@ -3313,7 +3313,7 @@ sq_worktree=$(shell_quote "$WT")
 TAVILYFLAGS=
 TAVILY_KEY_FILE=
 if [ "$RAW_LAUNCH" != 1 ] && [ "$KIND" != secondmate ]; then
-  TAVILY_NOTICE=$(fm_tavily_malformed_notice "$CONFIG")
+  TAVILY_NOTICE=$(fm_tavily_notice "$CONFIG")
   [ -z "$TAVILY_NOTICE" ] || printf '%s\n' "$TAVILY_NOTICE" >&2
   if fm_tavily_harness_supported "$HARNESS" && fm_tavily_key_present "$CONFIG"; then
     TAVILY_KEY_FILE=$(fm_tavily_key_file "$CONFIG")

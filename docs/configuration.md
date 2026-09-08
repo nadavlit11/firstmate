@@ -202,8 +202,11 @@ The optional local, gitignored `config/tavily.env` gives spawned crewmates and s
 It holds one line, `TAVILY_API_KEY=<key>`, and should be mode `0600`.
 That exact form is the only one read: the line must start at column one with `TAVILY_API_KEY=`, the value is taken as written with surrounding whitespace trimmed, and it is never quoted or prefixed with `export`.
 The file is parsed rather than sourced, so any other line - a comment, another variable, anything else - is ignored rather than executed; an empty or whitespace-only value counts as no key at all.
-A `TAVILY_API_KEY` line written in any other spelling - quoted value, `export` prefix, leading indentation, CRLF ending - yields no key rather than one that would fail every call with an untraceable 401, and spawning or scaffolding a brief prints one warning naming the file and the accepted form, without ever printing the value.
-Absence stays a different case entirely and stays silent: no file, no assignment, or an empty value means nobody set a key, which is not a fault.
+The file has exactly four outcomes, and the three unusable ones are kept apart because each sends you somewhere different.
+*Absent* - no file, no `TAVILY_API_KEY` line, or an empty value - means nobody set a key; that is not a fault, so it stays completely silent and there is nothing to do about it.
+*Malformed* means a key line is there in some other spelling - quoted value, `export` prefix, leading indentation, CRLF ending - so the contents are wrong: rewrite the line in the accepted form.
+*Unreadable* means the file exists but cannot be read, so the contents may be perfectly fine and the permissions or ownership are wrong: make it mode `0600` owned by the user running the fleet, rather than touching the key.
+Malformed and unreadable each yield no key rather than one that would fail every call with an untraceable 401, and spawning or scaffolding a brief prints one warning naming the file and its own remedy, never the value.
 Absence is the ordinary state: a home without the file spawns exactly as it did before this capability existed, with no warning and no failure.
 
 With the key present, a spawned worker on `claude` or `codex` gets Tavily's official remote MCP server: `tavily_search`, `tavily_extract`, `tavily_map`, and `tavily_crawl`.

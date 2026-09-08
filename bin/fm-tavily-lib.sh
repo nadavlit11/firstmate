@@ -63,10 +63,10 @@ fm_tavily_key_file() {  # <config-dir>
   printf '%s/%s\n' "${1%/}" "$FM_TAVILY_ITEM"
 }
 
-# Scan <key-file> once and print its verdict: a first line of `ok`, `absent`, or
-# `malformed`, followed by the key itself on a second line when the verdict is
-# ok. This is the ONE scan, so the key a launch receives and the status an
-# operator is shown can never disagree about the same file.
+# Scan <key-file> once and print its verdict: a first line of `ok`, `absent`,
+# `malformed`, or `unreadable`, followed by the key itself on a second line when
+# the verdict is ok. This is the ONE scan, so the key a launch receives and the
+# status an operator is shown can never disagree about the same file.
 #
 # The file is parsed, never sourced: it is a credential store, not a script, and
 # sourcing it would execute whatever it contains.
@@ -79,14 +79,23 @@ fm_tavily_key_file() {  # <config-dir>
 # placeholder never hides a real key added after it. The first accepted
 # assignment wins.
 #
-# A near-miss spelling yields no key rather than a key that cannot authenticate,
-# and is remembered as `malformed` so the two unavailable states stay
-# distinguishable: absent means nobody set a key, which is the ordinary optional
-# state and stays silent, while malformed means somebody did and it will not
-# work, which is worth saying out loud rather than leaving as an untraceable 401.
+# The file has exactly four outcomes, and the three unavailable ones are kept
+# apart because they send an operator to different places:
+#   absent      nobody set a key - no file, no assignment, or an empty value.
+#               The ordinary optional-capability state; stays completely silent.
+#   malformed   a key IS set but in a spelling this parser does not accept. The
+#               contents are wrong: fix how the line was written. A near-miss
+#               yields no key rather than one that cannot authenticate.
+#   unreadable  the file exists but cannot be read. The contents may be perfectly
+#               fine; the permissions or ownership are wrong: fix the file, not
+#               the key. Decided from the file alone, never from its contents.
+#   ok          a usable key.
+# Collapsing any of these into another would hand the operator the wrong remedy,
+# which is exactly the time these verdicts exist to save.
 fm_tavily_scan() {  # <key-file>
   local file=$1 line probe value malformed=0
-  [ -f "$file" ] && [ -r "$file" ] || { printf 'absent\n'; return 0; }
+  [ -e "$file" ] || { printf 'absent\n'; return 0; }
+  [ -f "$file" ] && [ -r "$file" ] || { printf 'unreadable\n'; return 0; }
   while IFS= read -r line || [ -n "$line" ]; do
     probe=${line%$'\r'}
     probe="${probe#"${probe%%[![:space:]]*}"}"
@@ -122,23 +131,34 @@ fm_tavily_read_key() {  # <key-file>
   printf '%s\n' "${scan#*$'\n'}"
 }
 
-# Classify <config-dir>'s key file for an operator: `ok`, `absent`, or
-# `malformed`.
+# Classify <config-dir>'s key file for an operator: `ok`, `absent`, `malformed`,
+# or `unreadable`.
 fm_tavily_key_status() {  # <config-dir>
   local scan
   scan=$(fm_tavily_scan "$(fm_tavily_key_file "$1")")
   printf '%s\n' "${scan%%$'\n'*}"
 }
 
-# The operator-facing diagnostic for a malformed key file, or nothing at all for
-# any other state. Rendered here so both callers print the same sentence; they
-# send it to stderr. It names the file and the accepted form and NEVER prints the
-# value or any part of it - the whole point of the file is that the value does
-# not leak into output.
-fm_tavily_malformed_notice() {  # <config-dir>
-  [ "$(fm_tavily_key_status "$1")" = malformed ] || return 0
-  printf 'warning: %s sets %s but not in the accepted form, so Tavily is unavailable; write it as exactly `%s=<value>` at the start of a line, with no quotes, no `export` prefix, no leading whitespace, and no CR line ending.\n' \
-    "$(fm_tavily_key_file "$1")" "$FM_TAVILY_KEY_VAR" "$FM_TAVILY_KEY_VAR"
+# The operator-facing diagnostic for a key file that was set but cannot be used,
+# or nothing at all when the capability is simply not configured. Rendered here
+# so every caller prints the same sentence and none restates the rule; they send
+# it to stderr. Each verdict gets its own remedy, because a permissions problem
+# and a spelling problem are fixed in different places. It names the file and
+# NEVER prints the value or any part of it - the whole point of the file is that
+# the value does not leak into output.
+fm_tavily_notice() {  # <config-dir>
+  local file
+  file=$(fm_tavily_key_file "$1")
+  case "$(fm_tavily_key_status "$1")" in
+    malformed)
+      printf 'warning: %s sets %s but not in the accepted form, so Tavily is unavailable; write it as exactly `%s=<value>` at the start of a line, with no quotes, no `export` prefix, no leading whitespace, and no CR line ending.\n' \
+        "$file" "$FM_TAVILY_KEY_VAR" "$FM_TAVILY_KEY_VAR"
+      ;;
+    unreadable)
+      printf 'warning: %s exists but cannot be read, so Tavily is unavailable; this is a permissions or ownership problem rather than a key problem - the file should be mode 0600 and owned by the user running this command.\n' \
+        "$file"
+      ;;
+  esac
 }
 
 # True when <config-dir> holds a usable key. Silent either way: an absent file
