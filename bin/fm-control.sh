@@ -6,6 +6,7 @@
 #        fm-control.sh <task-id> exit
 #        fm-control.sh <task-id> relaunch [--harness <name>] [--model <name>]
 #                                         [--effort <level>]
+#                                         [--effort-override-reason <text>]
 #                                         (--note <text> | --note-file <path>)
 #
 # Why this exists, and how it differs from fm-send.sh. bin/fm-send.sh is the
@@ -33,13 +34,16 @@
 #              Already-stopped is success (idempotent).
 #   relaunch   Transactionally replace the running agent with a new one, in the
 #              SAME endpoint and SAME worktree, on the same or a newly chosen
-#              harness/model/effort - so switching harness is one ordinary use
-#              of this verb. An explicit `default` model or effort clears that
-#              axis for the replacement. With no explicit axis, a secondmate
-#              re-resolves its durable config/secondmate-harness pin (harness
-#              plus its optional model and effort tokens) exactly as any other
-#              respawn does, while a ship or scout keeps the exact adapter
-#              already recorded for it.
+#              harness/model - so switching harness is one ordinary use of this
+#              verb. An explicit `default` model clears that axis for the
+#              replacement. With no explicit harness, a secondmate re-resolves
+#              its durable config/secondmate-harness pin (harness plus its
+#              optional model token) exactly as any other respawn does, while a
+#              ship or scout keeps the exact adapter already recorded for it.
+#              Effort is not one of the inherited axes: a relaunch always
+#              launches at low unless --effort and --effort-override-reason are
+#              BOTH named on this invocation. Neither the task record nor the
+#              secondmate config can supply it.
 #              A prefixed raw-command basename cannot reconstruct its launch
 #              command, so relaunch requires an explicit --harness for it.
 #              --note is required for a ship or scout, whose replacement
@@ -134,6 +138,8 @@ DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
 . "$SCRIPT_DIR/fm-busy-lib.sh"
 # shellcheck source=bin/fm-control-lib.sh
 . "$SCRIPT_DIR/fm-control-lib.sh"
+# shellcheck source=bin/fm-planning-lib.sh
+. "$SCRIPT_DIR/fm-planning-lib.sh"
 # shellcheck source=bin/fm-pr-lib.sh
 . "$SCRIPT_DIR/fm-pr-lib.sh"
 # shellcheck source=bin/fm-wake-lib.sh
@@ -197,6 +203,8 @@ NEW_EFFORT=
 HARNESS_SET=0
 MODEL_SET=0
 EFFORT_SET=0
+NEW_EFFORT_OVERRIDE_REASON=
+EFFORT_OVERRIDE_REASON_SET=0
 NOTE=
 NOTE_SET=0
 control_want_value=
@@ -209,6 +217,7 @@ for control_arg in "$@"; do
       harness) NEW_HARNESS=$control_arg; HARNESS_SET=1 ;;
       model) NEW_MODEL=$control_arg; MODEL_SET=1 ;;
       effort) NEW_EFFORT=$control_arg; EFFORT_SET=1 ;;
+      effort_override_reason) NEW_EFFORT_OVERRIDE_REASON=$control_arg; EFFORT_OVERRIDE_REASON_SET=1 ;;
       note) NOTE=$control_arg; NOTE_SET=1 ;;
       note_file)
         [ -f "$control_arg" ] || die "--note-file '$control_arg' is not a readable file"
@@ -226,6 +235,8 @@ for control_arg in "$@"; do
     --model=*) NEW_MODEL=${control_arg#--model=}; MODEL_SET=1 ;;
     --effort) control_want_value=effort ;;
     --effort=*) NEW_EFFORT=${control_arg#--effort=}; EFFORT_SET=1 ;;
+    --effort-override-reason) control_want_value=effort_override_reason ;;
+    --effort-override-reason=*) NEW_EFFORT_OVERRIDE_REASON=${control_arg#--effort-override-reason=}; EFFORT_OVERRIDE_REASON_SET=1 ;;
     --note) control_want_value=note ;;
     --note=*) NOTE=${control_arg#--note=}; NOTE_SET=1 ;;
     --note-file) control_want_value=note_file ;;
@@ -243,12 +254,15 @@ if [ -n "$control_want_value" ]; then
 fi
 
 if [ "$VERB" != relaunch ]; then
-  [ "$HARNESS_SET" = 0 ] && [ "$MODEL_SET" = 0 ] && [ "$EFFORT_SET" = 0 ] && [ "$NOTE_SET" = 0 ] \
-    || die "--harness, --model, --effort, and --note apply to 'relaunch' only"
+  [ "$HARNESS_SET" = 0 ] && [ "$MODEL_SET" = 0 ] && [ "$EFFORT_SET" = 0 ] \
+    && [ "$EFFORT_OVERRIDE_REASON_SET" = 0 ] && [ "$NOTE_SET" = 0 ] \
+    || die "--harness, --model, --effort, --effort-override-reason, and --note apply to 'relaunch' only"
 fi
 [ "$HARNESS_SET" = 0 ] || [ -n "$NEW_HARNESS" ] || die "--harness requires a non-empty value"
 [ "$MODEL_SET" = 0 ] || [ -n "$NEW_MODEL" ] || die "--model requires a non-empty value"
 [ "$EFFORT_SET" = 0 ] || [ -n "$NEW_EFFORT" ] || die "--effort requires a non-empty value"
+[ "$EFFORT_OVERRIDE_REASON_SET" = 0 ] || [ -n "$NEW_EFFORT_OVERRIDE_REASON" ] \
+  || die "--effort-override-reason requires a non-empty value"
 case "$NEW_EFFORT" in
   ''|default|low|medium|high|xhigh|max) ;;
   *) die "--effort must be one of default, low, medium, high, xhigh, max" ;;
@@ -519,12 +533,12 @@ PRIOR_HARNESS=$HARNESS
 PRIOR_RECORDED_HARNESS=$RECORDED_HARNESS
 CONFIG_HARNESS=
 CONFIG_MODEL=
-CONFIG_EFFORT=
 PRIOR_MODEL=
-PRIOR_EFFORT=
+PRIOR_EFFORT_OVERRIDE_REASON=
 TARGET_HARNESS=$HARNESS
 TARGET_MODEL=
 TARGET_EFFORT=
+TARGET_EFFORT_OVERRIDE_REASON=
 
 journal_write() {  # <phase> [extra-line]...
   local phase=$1
@@ -540,7 +554,6 @@ journal_write() {  # <phase> [extra-line]...
     echo "kind=$KIND"
     echo "from_harness=$PRIOR_RECORDED_HARNESS"
     echo "from_model=$PRIOR_MODEL"
-    echo "from_effort=$PRIOR_EFFORT"
     echo "to_harness=$TARGET_HARNESS"
     echo "to_model=$TARGET_MODEL"
     echo "to_effort=$TARGET_EFFORT"
@@ -617,34 +630,24 @@ resolve_relaunch_profile() {
   PRIOR_HARNESS=$HARNESS
   PRIOR_RECORDED_HARNESS=$RECORDED_HARNESS
   PRIOR_MODEL=$(fm_meta_get "$META" model)
-  PRIOR_EFFORT=$(fm_meta_get "$META" effort)
+  PRIOR_EFFORT_OVERRIDE_REASON=$(fm_meta_get "$META" effort_override_reason)
   [ -n "$PRIOR_MODEL" ] || PRIOR_MODEL=default
-  [ -n "$PRIOR_EFFORT" ] || PRIOR_EFFORT=default
   if [ "$HARNESS_SET" = 0 ] \
      && [ "$PRIOR_RECORDED_HARNESS" != "$PRIOR_HARNESS" ]; then
     die "task $ID records harness '$PRIOR_RECORDED_HARNESS', whose original launch command cannot be reconstructed from its recorded basename; relaunching without --harness would substitute the canonical adapter '$PRIOR_HARNESS' for the command actually running. Pass an explicit --harness to choose the replacement runtime deliberately"
   fi
   CONFIG_HARNESS=
   CONFIG_MODEL=
-  CONFIG_EFFORT=
   if [ "$KIND" = secondmate ]; then
-    # A secondmate's harness, model, and effort are a durable configured pin
-    # that every respawn re-resolves (the secondmate-provisioning contract), so
-    # a relaunch with no explicit harness picks up a newly configured one
+    # A secondmate's harness and model are a durable configured pin that every
+    # respawn re-resolves (the secondmate-provisioning contract), so a relaunch
+    # with no explicit harness picks up a newly configured one
     # instead of freezing whatever this incarnation happens to run. Crewmates
     # and scouts deliberately do NOT resolve config here: their harness comes
     # from firstmate's own dispatch-profile judgment at intake, and silently
     # re-resolving it would bypass that consultation.
     CONFIG_HARNESS=$("$SCRIPT_DIR/fm-harness.sh" secondmate 2>/dev/null || true)
     CONFIG_MODEL=$("$SCRIPT_DIR/fm-harness.sh" secondmate-model 2>/dev/null || true)
-    CONFIG_EFFORT=$("$SCRIPT_DIR/fm-harness.sh" secondmate-effort 2>/dev/null || true)
-    case "$CONFIG_EFFORT" in
-      ''|low|medium|high|xhigh|max) ;;
-      *)
-        echo "warning: config/secondmate-harness effort token '$CONFIG_EFFORT' is not one of low, medium, high, xhigh, max; ignoring" >&2
-        CONFIG_EFFORT=
-        ;;
-    esac
   fi
   if [ "$HARNESS_SET" = 1 ]; then
     fm_control_harness_supported "$NEW_HARNESS" \
@@ -663,9 +666,9 @@ resolve_relaunch_profile() {
   # transaction, where nothing has changed yet.
   fm_control_harness_supports_kind "$TARGET_HARNESS" "$KIND" \
     || die "'$TARGET_HARNESS' is not verified to run a $KIND task, so relaunching $ID onto it would stop the running agent for a launch that must be refused; choose an adapter verified for this kind"
-  # A model or effort chosen for the previous harness does not transfer to a
-  # different one, so an explicit harness change resets both axes unless the
-  # caller names them too.
+  # A model chosen for the previous harness does not transfer to a different
+  # one, so an explicit harness change resets that axis unless the caller names
+  # it too. Effort transfers from nowhere at all; see the block below.
   if [ "$MODEL_SET" = 1 ]; then
     TARGET_MODEL=$NEW_MODEL
   elif [ "$HARNESS_SET" = 0 ] && [ -n "$CONFIG_HARNESS" ]; then
@@ -675,14 +678,46 @@ resolve_relaunch_profile() {
   else
     TARGET_MODEL=default
   fi
+  # A RELAUNCH INHERITS IDENTITY AND WORK, NEVER AUTHORITY.
+  # The effort axis is where that rule bites: a recorded level and a configured
+  # level are both history, not permission. An unnamed effort therefore always
+  # resolves to default (which the launch owner reads as low), so non-low can
+  # only ever come from --effort on THIS invocation - and because the launch
+  # owner additionally demands a written reason for any non-low level, both
+  # halves of the pair have to be named here, exactly as a fresh spawn does.
   if [ "$EFFORT_SET" = 1 ]; then
     TARGET_EFFORT=$NEW_EFFORT
-  elif [ "$HARNESS_SET" = 0 ] && [ -n "$CONFIG_HARNESS" ]; then
-    TARGET_EFFORT=${CONFIG_EFFORT:-default}
-  elif [ "$TARGET_HARNESS" = "$PRIOR_HARNESS" ]; then
-    TARGET_EFFORT=$PRIOR_EFFORT
   else
     TARGET_EFFORT=default
+  fi
+  # An adapter with no verified low-effort axis was legally dispatched under a
+  # written capability reason, so it must stay recoverable. The recorded reason
+  # is therefore carried forward ONLY as capability cover - only when this
+  # relaunch is itself launching at low - because that is the case recovery
+  # needs. It is never carried into a NON-LOW relaunch: a recorded effort=high
+  # plus a recorded reason is a stale record, and letting it authorize a fresh
+  # high launch is exactly the inheritance the effort gate exists to close.
+  # Non-low needs an explicit --effort-override-reason on THIS invocation, the
+  # same rule a fresh spawn obeys.
+  if [ "$EFFORT_OVERRIDE_REASON_SET" = 1 ]; then
+    TARGET_EFFORT_OVERRIDE_REASON=$NEW_EFFORT_OVERRIDE_REASON
+  elif [ "$TARGET_HARNESS" = "$PRIOR_HARNESS" ] \
+      && { [ "$TARGET_EFFORT" = low ] || [ "$TARGET_EFFORT" = default ]; } \
+      && ! fm_control_harness_enforces_effort "$TARGET_HARNESS" "$TARGET_EFFORT"; then
+    TARGET_EFFORT_OVERRIDE_REASON=$PRIOR_EFFORT_OVERRIDE_REASON
+  else
+    TARGET_EFFORT_OVERRIDE_REASON=
+  fi
+  if ! fm_control_harness_enforces_effort "$TARGET_HARNESS" "$TARGET_EFFORT" \
+      && [ -z "$TARGET_EFFORT_OVERRIDE_REASON" ]; then
+    die "'$TARGET_HARNESS' has no verified launch axis for effort '$TARGET_EFFORT' (it accepts $(fm_control_harness_effort_levels "$TARGET_HARNESS")) and this relaunch carries no recorded capability reason, so the launch would be refused after the running agent had already been stopped; choose a level that adapter accepts, relaunch onto an adapter that can enforce it, or pass --effort-override-reason '<why this adapter is required despite unprovable effort>' as capability cover. A non-low relaunch is a different request and needs --effort <level> and --effort-override-reason together"
+  fi
+  # The launch owner refuses a non-low effort that carries no written reason on
+  # THIS invocation, but only after the agent is gone. Asking the same question
+  # here keeps that refusal pre-stop, where nothing has been lost yet.
+  if [ "$TARGET_EFFORT" != low ] && [ "$TARGET_EFFORT" != default ] \
+      && [ -z "$TARGET_EFFORT_OVERRIDE_REASON" ]; then
+    die "relaunching $ID at effort '$TARGET_EFFORT' carries no --effort-override-reason on this invocation, and a recorded reason from a previous launch is not fresh authority, so the launch would be refused after the running agent had already been stopped; name both halves on this invocation - --effort $TARGET_EFFORT --effort-override-reason '<why this task needs it>' - or drop --effort and relaunch at low"
   fi
 }
 
@@ -797,6 +832,13 @@ do_relaunch() {
       RELAUNCH_BRIEF="$DATA/$ID/brief.md"
       [ -f "$RELAUNCH_BRIEF" ] \
         || die "task $ID has no instructions at $RELAUNCH_BRIEF; refusing to relaunch a worker with nothing to work from"
+      # The launch owner re-validates a ship's planning provenance, but only
+      # once the old agent is gone. Running the same shared validator here puts
+      # any refusal on the pre-stop side of the transaction.
+      if [ "$KIND" = ship ]; then
+        fm_planning_validate_provenance "$RELAUNCH_BRIEF" "$DATA" "$ID" "$META" >/dev/null \
+          || die "task $ID's planning provenance would be refused by the launch owner, so relaunching it would stop the running agent for a launch that cannot succeed"
+      fi
       [ "$NOTE_SET" = 1 ] && [ -n "$NOTE" ] \
         || die "relaunch of a $KIND task requires --note (or --note-file): the replacement worker inherits the local copy but none of the conversation, so it must be told what happened"
       ;;
@@ -839,6 +881,8 @@ do_relaunch() {
   spawn_args=("$ID" --relaunch --harness "$TARGET_HARNESS")
   [ "$TARGET_MODEL" = default ] || spawn_args+=(--model "$TARGET_MODEL")
   [ "$TARGET_EFFORT" = default ] || spawn_args+=(--effort "$TARGET_EFFORT")
+  [ -z "$TARGET_EFFORT_OVERRIDE_REASON" ] \
+    || spawn_args+=(--effort-override-reason "$TARGET_EFFORT_OVERRIDE_REASON")
   if FM_CONTROL_RELAUNCH_TX="$RELAUNCH_TX" \
       "$SCRIPT_DIR/fm-spawn.sh" "${spawn_args[@]}" >/dev/null; then
     RELAUNCH_META_PUBLISHED=1

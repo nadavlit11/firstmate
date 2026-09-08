@@ -40,6 +40,17 @@ run_spawn() {  # <home> <wt> <fakebin> <spawn-args...>
     fm_test_run_spawn "$home" "$wt" "$fakebin" "$@" --base main --mode no-mistakes --yolo off
 }
 
+# opencode, gemini, and raw launch commands expose no effort flag, so the spawn
+# cannot prove low and refuses without a written capability reason
+# (bin/fm-spawn.sh's EFFORT GATE). These cases are about busy-state wiring, so
+# they carry that reason exactly as a real dispatch on those adapters would.
+run_axisless_spawn() {  # <home> <wt> <fakebin> <spawn-args...>
+  local home=$1 wt=$2 fakebin=$3
+  shift 3
+  run_spawn "$home" "$wt" "$fakebin" "$@" \
+    --effort-override-reason 'this adapter exposes no effort flag, so low cannot be enforced on its launch'
+}
+
 read_case_record() {
   # shellcheck disable=SC2034 # CASE_DIR is part of the shared record shape
   IFS='|' read -r CASE_DIR HOME_DIR PROJ_DIR WT_DIR FAKEBIN_DIR <<EOF
@@ -175,7 +186,7 @@ test_opencode_plugin_semantic_lifecycle() {
   local rec id=busy-oc-1 out state plugin
   rec=$(make_spawn_case oc-lifecycle opencode "$id")
   read_case_record "$rec"
-  out=$(run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$id" "$PROJ_DIR")
+  out=$(run_axisless_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$id" "$PROJ_DIR")
   expect_code 0 $? "opencode spawn should succeed: $out"
   state="$HOME_DIR/state"
   plugin="$WT_DIR/.opencode/plugins/fm-busy-state.js"
@@ -312,7 +323,7 @@ test_gemini_hooks_semantic_lifecycle() {
   local rec id=busy-gm-1 out state settings
   rec=$(make_spawn_case gemini-lifecycle gemini "$id")
   read_case_record "$rec"
-  out=$(run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$id" "$PROJ_DIR")
+  out=$(run_axisless_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$id" "$PROJ_DIR")
   expect_code 0 $? "gemini spawn should succeed: $out"
   state="$HOME_DIR/state"
   settings="$state/$id.gemini-settings.json"
@@ -358,7 +369,7 @@ test_gemini_hooks_stale_incarnation_harmless() {
   local rec id=busy-gm-2 out state settings
   rec=$(make_spawn_case gemini-stale gemini "$id")
   read_case_record "$rec"
-  out=$(run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$id" "$PROJ_DIR")
+  out=$(run_axisless_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$id" "$PROJ_DIR")
   expect_code 0 $? "gemini spawn should succeed: $out"
   state="$HOME_DIR/state"
   settings="$state/$id.gemini-settings.json"
@@ -374,7 +385,7 @@ test_raw_gemini_launch_has_no_semantic_wiring() {
   local rec id=busy-gm-raw out state
   rec=$(make_spawn_case gemini-raw gemini "$id")
   read_case_record "$rec"
-  out=$(run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$id" "$PROJ_DIR" 'gemini --debug')
+  out=$(run_axisless_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$id" "$PROJ_DIR" 'gemini --debug')
   expect_code 0 $? "raw gemini spawn should succeed: $out"
   state="$HOME_DIR/state"
   assert_absent "$state/$id.busy-gen" "raw gemini launch must not arm a busy generation"

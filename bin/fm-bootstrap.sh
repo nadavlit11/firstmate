@@ -10,6 +10,7 @@
 #                 "BACKEND_INVALID: <name> (known: <names>)",
 #                 "STARTUP_MEMORY_BUDGET: invalid config/startup-memory-budget - <reason>",
 #                 "CREW_DISPATCH: invalid config/crew-dispatch.json - <reason>",
+#                 "SECONDMATE_HARNESS: invalid config/secondmate-harness - <reason>",
 #                 "FLEET_SYNC: <repo>: skipped|recovered|STUCK: <detail>",
 #                 "HOME_SUMMARY: <ledger never published|not republished since
 #                 <stamp>>; <n> failed attempt(s) ... last: <recorded failure>",
@@ -169,6 +170,8 @@ DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
 . "$SCRIPT_DIR/fm-config-inherit-lib.sh"
 # shellcheck source=bin/fm-secondmate-nudge-lib.sh disable=SC1091
 . "$SCRIPT_DIR/fm-secondmate-nudge-lib.sh"
+# shellcheck source=bin/fm-control-lib.sh disable=SC1091
+. "$SCRIPT_DIR/fm-control-lib.sh"
 # shellcheck source=bin/fm-startup-memory-budget-lib.sh disable=SC1091
 . "$SCRIPT_DIR/fm-startup-memory-budget-lib.sh"
 # shellcheck source=bin/fm-x-lib.sh disable=SC1091
@@ -1127,6 +1130,11 @@ crew_dispatch_validate() {
     def malformed_optional_fields($items):
       ($items | any(has("model") and (((.model | type) != "string") or (.model | length) == 0)))
       or ($items | any(has("effort") and (((.effort | type) != "string") or (.effort | length) == 0)));
+    def non_low_efforts:
+      configured_profiles
+      | map(.effort)
+      | map(select(. != null and (. | type) == "string" and . != "low"))
+      | unique;
     def bad_efforts:
       configured_profiles
       | map({h: .harness, e: .effort})
@@ -1134,6 +1142,14 @@ crew_dispatch_validate() {
       | map(select((.h | type) == "string" and verified(.h)))
       | map(select(. as $p | effort_ok($p.h; $p.e) | not))
       | map("\(.h):\(.e)")
+      | unique;
+    def axisless_harnesses:
+      configured_profiles
+      | map({h: .harness, e: .effort})
+      | map(select(.e == null))
+      | map(select((.h | type) == "string" and verified(.h)))
+      | map(select(. as $p | effort_ok($p.h; "low") | not))
+      | map(.h)
       | unique;
     if type != "object" then "top-level value must be an object"
     elif has("rules") and (.rules | type) != "array" then "rules must be an array"
@@ -1159,7 +1175,9 @@ crew_dispatch_validate() {
         | map(select(. as $h | verified($h) | not))
         | unique) as $bad_harnesses
       | if ($bad_harnesses | length) > 0 then "unverified harness: " + ($bad_harnesses | join(", "))
+        elif (non_low_efforts | length) > 0 then "profile effort \u0027" + (non_low_efforts | join(", ")) + "\u0027 is not low; standing config cannot authorize higher effort. Remove it or use a one-spawn --effort-override-reason after an explicit current captain exception"
         elif (bad_efforts | length) > 0 then "invalid effort: " + (bad_efforts | join(", "))
+        elif (axisless_harnesses | length) > 0 then "harness \u0027" + (axisless_harnesses | join(", ")) + "\u0027 has no verified low-effort launch axis, so every spawn selecting this profile refuses. Choose a harness that can enforce low; the profile names no effort field to correct"
         else empty
         end
     end
@@ -1434,6 +1452,43 @@ detect_local_tools() {
   fi
 }
 
+# config/secondmate-harness carries an optional third effort token. Standing
+# configuration can confirm low but never raise it (bin/fm-spawn.sh's EFFORT
+# GATE), and both the local and the remote secondmate spawn refuse a non-low
+# token, so report it here rather than letting a session discover it at dispatch.
+secondmate_harness_validate() {
+  local token harness
+  # Resolved next to THIS script rather than under FM_ROOT: the parsing owner is
+  # bin/fm-harness.sh, and a home whose FM_ROOT points elsewhere must still get
+  # this gate rather than silently skipping it, exactly as bin/fm-spawn.sh reads
+  # the same token.
+  token=$("$SCRIPT_DIR/fm-harness.sh" secondmate-effort 2>/dev/null || true)
+  case "$token" in
+    ''|low) ;;
+    *)
+      echo "SECONDMATE_HARNESS: invalid config/secondmate-harness - effort token '$token' is not low; standing config cannot authorize higher effort. Remove it or use a one-spawn --effort-override-reason after an explicit current captain exception"
+      return 0
+      ;;
+  esac
+  # Parity with the crew-dispatch validator above: a pinned adapter with no
+  # verified low-effort axis is refused by the effort gate at every spawn that
+  # selects it, so say so here instead of letting it surface later as a
+  # SECONDMATE_LIVENESS respawn failure. A WARNING, never a bootstrap failure:
+  # such a pin may already be running under a written exception this home
+  # recorded, and a home that was legally set up must not be refused on update.
+  # bin/fm-harness.sh answers "unknown" when no adapter identity could be
+  # resolved (and nothing at all when the resolver itself fails). Neither is a
+  # concrete adapter, so neither is evidence that low cannot be proven - only a
+  # named adapter is worth warning about.
+  harness=$("$SCRIPT_DIR/fm-harness.sh" secondmate 2>/dev/null || true)
+  case "$harness" in
+    ''|unknown) return 0 ;;
+  esac
+  if ! fm_control_harness_enforces_effort "$harness" low; then
+    echo "SECONDMATE_HARNESS: warning the resolved secondmate harness is '$harness', which has no verified low-effort launch axis; a spawn selecting it refuses unless that invocation carries --effort-override-reason naming the capability gap, or this mate's own record already carries one from an earlier exception. It resolves through config/secondmate-harness, then config/crew-harness, then the primary's own harness - correct whichever of those supplies it, or respawn once with a written exception so the recorded reason keeps the mate recoverable"
+  fi
+}
+
 detect_local_config() {
   # Worktree-tangle check: the firstmate primary checkout (FM_ROOT) must sit on its
   # default branch, not a feature branch (see fm-tangle-lib.sh). Scoped to the
@@ -1465,6 +1520,7 @@ detect_local_config() {
     echo "MISSING_MANUAL: cursor-agent (instructions: $(manual_install_url cursor-agent))"
   fi
   crew_dispatch_validate
+  secondmate_harness_validate
   if [ "${FM_BOOTSTRAP_VERBOSE_FACTS:-0}" = 1 ] \
     && ! fm_backlog_backend_manual "$CONFIG" && fm_tasks_axi_compatible; then
     echo "BOOTSTRAP_INFO: tasks-axi available"

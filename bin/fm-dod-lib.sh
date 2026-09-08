@@ -5,7 +5,7 @@
 # receives. Both paths must hand the worker the same contract: a promoted
 # no-mistakes worker that never received the ask-user escalation rule or the
 # `--yes` ban is the exact delivery hole this single owner exists to close.
-# fm_dod_block <no-mistakes|direct-PR|local-only> <task-id> <base-ref> [<project-dir>]
+# fm_dod_block <no-mistakes|direct-PR|local-only> <task-id> <base-ref> [<project-dir>] [<data-dir>]
 # prints the block on stdout with no trailing blank line. The caller validates the mode; an
 # unknown mode is refused rather than silently rendered as the pipeline contract.
 # The base ref is the branch or tag the task was dispatched from. It is named in
@@ -284,9 +284,11 @@ fm_ask_user_escalation_block() {  # <data-dir> <task-id>
 EOF
 }
 
-fm_dod_block() {  # <mode> <task-id> <base-ref> [<project-dir>]
-  local mode=$1 id=$2 base=${3:-} dir=${4:-}
-  local pr_base_rule pipeline_pr_base_rule rebase_target kind why
+fm_dod_block() {  # <mode> <task-id> <base-ref> [<project-dir>] [<data-dir>]
+  local mode=$1 id=$2 base=${3:-} dir=${4:-} data=${5:-}
+  local pr_base_rule pipeline_pr_base_rule rebase_target kind why retro_receipt
+  # The retro receipt path the `retro` skill writes and bin/fm-teardown.sh reads.
+  retro_receipt="${data:+${data%/}/}$id/retro.md"
   kind=
   [ -z "$base" ] || kind=$(fm_base_ref_kind "$base" "$dir")
   if [ -n "$base" ] && [ "$kind" != branch ]; then
@@ -315,6 +317,10 @@ Delivery contract: mode=direct-PR
 This task ships **direct-PR**: you raise the PR yourself, without the no-mistakes pipeline.
 The task is complete only when committed on your branch.
 When it is implemented and committed, push your branch and open a PR with \`gh-axi\`, then append \`done: PR {url}\` to the status file and stop.
+Before any of that, run the retro this ship owes.
+Load the \`retro\` skill, decide its tier, land any project-owned lesson (a rule for \`AGENTS.md\`, a \`.claude/review-rubrics/<lens>.md\` check, a regression test, a doc fix) in THIS branch, and write the receipt to \`$retro_receipt\`.
+Do it now, not after: once the branch is validated and merged, a lesson found here can no longer travel in the change that produced it.
+
 $pr_base_rule
 Do NOT run the no-mistakes skill (\`\$no-mistakes\` on Codex, \`/no-mistakes\` on every other harness). The configured merge authority decides whether to merge the PR; firstmate relays the outcome.
 EOF
@@ -327,6 +333,10 @@ This task ships **local-only**: no remote, no PR, no pipeline.
 The task is complete only when committed on your branch \`fm/$id\`. Do NOT push, do NOT open a PR, do NOT merge.
 $rebase_target
 When it is implemented and committed, append \`done: ready in branch fm/$id\` to the status file and stop.
+Before any of that, run the retro this ship owes.
+Load the \`retro\` skill, decide its tier, land any project-owned lesson (a rule for \`AGENTS.md\`, a \`.claude/review-rubrics/<lens>.md\` check, a regression test, a doc fix) in THIS branch, and write the receipt to \`$retro_receipt\`.
+Do it now, not after: once the branch is validated and merged, a lesson found here can no longer travel in the change that produced it.
+
 The configured merge authority approves the ready branch, then firstmate merges it into local \`main\` through the guarded fast-forward path.
 EOF
       ;;
@@ -336,6 +346,9 @@ EOF
 Delivery contract: mode=no-mistakes
 The task is complete only when committed on your branch.
 When you believe it is complete, append \`done: {summary}\` to the status file and stop.
+Before any of that, run the retro this ship owes.
+Load the \`retro\` skill, decide its tier, land any project-owned lesson (a rule for \`AGENTS.md\`, a \`.claude/review-rubrics/<lens>.md\` check, a regression test, a doc fix) in THIS branch, and write the receipt to \`$retro_receipt\`.
+Do it now, not after: once the branch is validated and merged, a lesson found here can no longer travel in the change that produced it.
 Firstmate will then instruct you to invoke the no-mistakes skill - \`\$no-mistakes\` on Codex, \`/no-mistakes\` on every other harness - to validate and ship a PR.
 $pipeline_pr_base_rule
 

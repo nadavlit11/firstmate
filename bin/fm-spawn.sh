@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Spawn a direct report: a crewmate in a treehouse or Orca worktree, or a
 # secondmate in its isolated firstmate home.
-# Usage: fm-spawn.sh <task-id> <project-dir> --base <ref> --mode <no-mistakes|direct-PR|local-only> --yolo <on|off> [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>]
-#        fm-spawn.sh <task-id> <project-dir> --base <ref> --scout [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>]
-#        fm-spawn.sh <task-id> [<firstmate-home>] [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] --secondmate
+# Usage: fm-spawn.sh <task-id> <project-dir> --base <ref> --mode <no-mistakes|direct-PR|local-only> --yolo <on|off> [--harness <name>|harness|launch-command] [--model <name>] [--effort <level> --effort-override-reason <text>] [--backend <name>]
+#        fm-spawn.sh <task-id> <project-dir> --base <ref> --scout [--harness <name>|harness|launch-command] [--model <name>] [--effort <level> --effort-override-reason <text>] [--backend <name>]
+#        fm-spawn.sh <task-id> [<firstmate-home>] [--harness <name>|harness|launch-command] [--model <name>] [--effort <level> --effort-override-reason <text>] [--backend <name>] --secondmate
 #   --mode and --yolo are this task's delivery contract, REQUIRED for every ship
 #   spawn and refused on --scout and --secondmate spawns. Firstmate resolves both
 #   per task at intake (AGENTS.md section 7); data/projects.md holds the captain's
@@ -14,6 +14,14 @@
 #   scaffolded before that line existed warns once and launches on the flag. A
 #   ship or scout spawn also refuses leftover `{TASK}` / `{FIRSTMATE_SPEC}`
 #   placeholders, an empty Task, or an incomplete pair of Task subsections.
+#   PLANNING GATE: a ship spawn re-reads the brief's fixed
+#   "Planning gate: plan=<report>" or
+#   "Planning gate: exception=<one-line|precedent-following> reason=<why>" line and
+#   refuses a missing, duplicated, or malformed one, revalidating the referenced
+#   report immediately before any worktree or endpoint mutation. The disposition
+#   is recorded as plan_report= or planning_exception=/planning_reason=, and an
+#   accepted exception is printed. bin/fm-brief.sh owns the flags that write that
+#   line; scouts and secondmates are not planning-gated.
 #   For a no-mistakes ship, spawn renders `launch-brief.md` with the current
 #   `--intent` contract and the extracted captain intent; a ship or scout whose
 #   launch wires Tavily gets the worker-facing web-retrieval section appended to
@@ -41,7 +49,7 @@
 #   branch, because bin/fm-merge-local.sh fast-forwards that branch alone; another
 #   line ships through --mode direct-PR or --mode no-mistakes, which land on their
 #   own line's merge path.
-#        fm-spawn.sh <task-id> --relaunch [--harness <name>] [--model <name>] [--effort <level>]
+#        fm-spawn.sh <task-id> --relaunch [--harness <name>] [--model <name>] [--effort <level> --effort-override-reason <text>]
 #   --relaunch launches a replacement agent for an EXISTING task into that
 #   task's own recorded endpoint and worktree, recreating that exact endpoint
 #   when it is authoritatively missing instead of allocating a new one. On tmux
@@ -67,6 +75,28 @@
 #   axes chosen by firstmate at intake. They are only threaded into harnesses whose
 #   installed CLIs were verified to support that axis; unsupported axes are omitted
 #   from that harness's launch rather than guessed.
+#   EFFORT GATE: every spawn kind - ship, scout, secondmate, remote secondmate,
+#   batch child, and relaunch - resolves to low unless THIS invocation supplies
+#   both a non-low --effort and a non-empty --effort-override-reason. An omitted
+#   --effort is low, not the harness default. No standing configuration authorizes
+#   a higher level: config/crew-dispatch.json, config/crew-model,
+#   config/secondmate-harness, inherited config, the environment, and a prior
+#   task record are all refused rather than obeyed, because the failure this gate
+#   exists to stop was a config file granting itself permission. A relaunch does
+#   not inherit a previous non-low effort as fresh authority; pass both flags
+#   again. --effort-override-reason is ALSO the adapter-capability exception: a
+#   harness with no verified launch axis for the requested level (opencode, kimi,
+#   cursor, gemini, a raw launch command, and any level a verified adapter's CLI
+#   does not accept) cannot be proven to run at low, so it is refused rather than
+#   recorded as low; the reason must state that the adapter has no enforceable
+#   axis, and it is capability cover, not permission to request a higher level.
+#   An accepted exception is printed on stderr before launch and recorded as
+#   effort_override_reason= in the task record. A SECONDMATE respawn - which a
+#   liveness sweep issues as a bare `fm-spawn.sh <id> --secondmate` with no flags
+#   to carry authority - adopts that recorded reason as capability cover, but only
+#   for the same harness at low and only while that adapter still cannot prove the
+#   level, so a mate legally dispatched under an exception stays recoverable
+#   without the record ever becoming permission for a higher level.
 #   --backend <name> is the explicit runtime session-provider backend for this
 #   exact task only (docs/configuration.md "Runtime backend" owns when that flag
 #   is authorized). Without it, the script resolves FM_BACKEND, then
@@ -345,6 +375,8 @@ fm_backlog_directory_present "$STATE" "state directory" || {
 . "$SCRIPT_DIR/fm-dod-lib.sh"
 # shellcheck source=bin/fm-tavily-lib.sh
 . "$SCRIPT_DIR/fm-tavily-lib.sh"
+# shellcheck source=bin/fm-planning-lib.sh
+. "$SCRIPT_DIR/fm-planning-lib.sh"
 # shellcheck source=bin/fm-tangle-lib.sh
 . "$SCRIPT_DIR/fm-tangle-lib.sh"
 # shellcheck source=bin/fm-trace-context-lib.sh
@@ -362,6 +394,7 @@ KIND_SET=0
 HARNESS_ARG=
 MODEL=
 EFFORT=
+EFFORT_OVERRIDE_REASON=
 BACKEND_ARG=
 MODE=
 YOLO=
@@ -370,6 +403,7 @@ TRACEPARENT_ARG=
 HARNESS_SET=0
 MODEL_SET=0
 EFFORT_SET=0
+EFFORT_OVERRIDE_REASON_SET=0
 BACKEND_SET=0
 MODE_SET=0
 YOLO_SET=0
@@ -387,6 +421,7 @@ for a in "$@"; do
       harness) HARNESS_ARG=$a; HARNESS_SET=1 ;;
       model) MODEL=$a; MODEL_SET=1 ;;
       effort) EFFORT=$a; EFFORT_SET=1 ;;
+      effort-override-reason) EFFORT_OVERRIDE_REASON=$a; EFFORT_OVERRIDE_REASON_SET=1 ;;
       backend) BACKEND_ARG=$a; BACKEND_SET=1 ;;
       mode) MODE=$a; MODE_SET=1 ;;
       yolo) YOLO=$a; YOLO_SET=1 ;;
@@ -407,6 +442,8 @@ for a in "$@"; do
     --model=*) MODEL=${a#--model=}; MODEL_SET=1 ;;
     --effort) want_value=effort ;;
     --effort=*) EFFORT=${a#--effort=}; EFFORT_SET=1 ;;
+    --effort-override-reason) want_value='effort-override-reason' ;;
+    --effort-override-reason=*) EFFORT_OVERRIDE_REASON=${a#--effort-override-reason=}; EFFORT_OVERRIDE_REASON_SET=1 ;;
     --backend) want_value=backend ;;
     --backend=*) BACKEND_ARG=${a#--backend=}; BACKEND_SET=1 ;;
     --mode) want_value=mode ;;
@@ -424,6 +461,7 @@ done
 [ "$HARNESS_SET" -eq 0 ] || [ -n "$HARNESS_ARG" ] || { echo "error: --harness requires a non-empty value" >&2; exit 1; }
 [ "$MODEL_SET" -eq 0 ] || [ -n "$MODEL" ] || { echo "error: --model requires a non-empty value" >&2; exit 1; }
 [ "$EFFORT_SET" -eq 0 ] || [ -n "$EFFORT" ] || { echo "error: --effort requires a non-empty value" >&2; exit 1; }
+[ "$EFFORT_OVERRIDE_REASON_SET" -eq 0 ] || [ -n "$EFFORT_OVERRIDE_REASON" ] || { echo "error: --effort-override-reason requires a non-empty value" >&2; exit 1; }
 [ "$BACKEND_SET" -eq 0 ] || [ -n "$BACKEND_ARG" ] || { echo "error: --backend requires a non-empty value" >&2; exit 1; }
 [ "$MODE_SET" -eq 0 ] || [ -n "$MODE" ] || { echo "error: --mode requires a non-empty value" >&2; exit 1; }
 [ "$YOLO_SET" -eq 0 ] || [ -n "$YOLO" ] || { echo "error: --yolo requires a non-empty value" >&2; exit 1; }
@@ -460,6 +498,21 @@ case "$EFFORT" in
   ''|low|medium|high|xhigh|max) ;;
   *) echo "error: --effort must be one of low, medium, high, xhigh, max" >&2; exit 1 ;;
 esac
+# The reason is recorded verbatim into the task record's line-oriented format and
+# printed as one operator line, so it is a single line here rather than at the
+# reader.
+case "$EFFORT_OVERRIDE_REASON" in
+  *[$'\n\r']*)
+    echo "error: --effort-override-reason must be a single line" >&2
+    exit 1 ;;
+esac
+# Effort defaults to low for EVERY spawn kind (see the EFFORT GATE note in the
+# header). Resolving it here, before any configured value is consulted, is what
+# makes standing configuration unable to raise it silently; enforce_effort_gate
+# below is the single owner of what may raise it and of the adapter-capability
+# refusal.
+[ "$EFFORT_SET" -eq 1 ] || EFFORT=low
+EFFORT_RECORD=$EFFORT
 
 # --relaunch reuses an existing task's endpoint, worktree, project, and kind,
 # so every axis this block resolves for a fresh spawn instead comes from that
@@ -523,6 +576,169 @@ else
   fi
 fi
 
+# config/secondmate-harness may carry an effort token. Standing configuration can
+# confirm low but never authorize more (header, EFFORT GATE), so a non-low token
+# is a refusal at both the local and the remote secondmate spawn rather than a
+# warning or an adopted value.
+secondmate_config_effort_is_low() {
+  local token
+  token=$("$SCRIPT_DIR/fm-harness.sh" secondmate-effort)
+  case "$token" in
+    ''|low) return 0 ;;
+  esac
+  echo "error: config/secondmate-harness effort token '$token' is not low; standing config cannot authorize higher effort. Remove it, or use a one-spawn --effort with --effort-override-reason after an explicit current captain exception." >&2
+  return 1
+}
+
+shell_quote() {
+  printf "'"
+  printf '%s' "$1" | sed "s/'/'\\\\''/g"
+  printf "'"
+}
+
+effort_flag_for_harness() {
+  local harness=$1 effort=$2
+  [ -n "$effort" ] && [ "$effort" != default ] || return 0
+  case "$harness" in
+    claude)
+      case "$effort" in
+        low|medium|high|xhigh|max) printf -- '--effort %s ' "$(shell_quote "$effort")" ;;
+      esac
+      ;;
+    codex)
+      # The installed codex config schema uses model_reasoning_effort, and the
+      # bundled model catalog advertises low|medium|high|xhigh. Omit max rather
+      # than passing an unsupported value.
+      case "$effort" in
+        low|medium|high|xhigh) printf -- '-c %s ' "$(shell_quote "model_reasoning_effort=\"$effort\"")" ;;
+      esac
+      ;;
+    grok)
+      # grok exposes both --effort and --reasoning-effort; firstmate's profile
+      # axis is the reasoning knob. As of grok 0.2.99, --reasoning-effort accepts
+      # only low|medium|high and rejects both xhigh and max, so omit those rather
+      # than passing a known-bad value.
+      case "$effort" in
+        low|medium|high) printf -- '--reasoning-effort %s ' "$(shell_quote "$effort")" ;;
+      esac
+      ;;
+    pi|pi-signed)
+      # Pi 0.80.6 accepts the full shared effort vocabulary, including max, through
+      # its --thinking flag.
+      case "$effort" in
+        low|medium|high|xhigh|max) printf -- '--thinking %s ' "$(shell_quote "$effort")" ;;
+      esac
+      ;;
+    muse)
+      # muse 0.1.0-R708.1 --reasoning-effort accepts none|minimal|low|medium|
+      # high|xhigh|ultra and defaults to high, so low..xhigh map straight across.
+      # ultra is muse's max-CLASS level, so firstmate's max maps onto it - but
+      # only ever as an EXPLICIT captain choice, never as a fallback, because
+      # AGENTS.md section 4 forbids selecting max without captain preference and
+      # the omitted effort here leaves muse on its own high default. muse's extra
+      # none/minimal levels sit below firstmate's shared vocabulary and are
+      # deliberately unreachable rather than remapped onto low.
+      case "$effort" in
+        low|medium|high|xhigh) printf -- '--reasoning-effort %s ' "$(shell_quote "$effort")" ;;
+        max) printf -- '--reasoning-effort %s ' "$(shell_quote ultra)" ;;
+      esac
+      ;;
+    # opencode's interactive `opencode --prompt` launch has a verified --model
+    # flag but no verified effort flag. Its `opencode run --variant` flag belongs
+    # to a different, non-interactive launch mode, so fm-spawn does not pass it.
+    # kimi likewise has no reasoning-effort flag; the requested axis stays in
+    # task metadata but never reaches the launch command. Cursor encodes effort
+    # in model ids such as cursor-grok-4.5-high, so it also receives no separate
+    # effort flag.
+  esac
+}
+
+# The single owner of "can this adapter be PROVEN to run at this level": the
+# launch mapping above renders a flag only for a level that adapter's installed
+# CLI was verified to accept, so an empty rendering is exactly the case where
+# recording the level would be a false guarantee.
+harness_enforces_effort() { # <harness> <effort>
+  [ -n "$(effort_flag_for_harness "$1" "$2")" ]
+}
+
+# The levels an adapter can actually be pinned to, so a refusal can name a real
+# alternative instead of only saying no. Asks the mapping above rather than
+# restating its per-adapter sets.
+harness_effort_levels() { # <harness>
+  local harness=$1 level out=
+  for level in low medium high xhigh max; do
+    [ -z "$(effort_flag_for_harness "$harness" "$level")" ] || out="$out${out:+, }$level"
+  done
+  printf '%s\n' "${out:-none}"
+}
+
+# The effort gate (header, EFFORT GATE). Runs before this spawn creates or
+# mutates anything, for every kind and every backend, because it executes ahead
+# of worktree, endpoint, and remote-transfer work rather than inside any one of
+# them.
+#
+# THE RECORD MUST DESCRIBE WHAT WAS ACTUALLY SENT, NEVER WHAT WAS ASKED FOR.
+# The capability question is therefore asked about the level being requested,
+# not about low: an adapter that accepts low can still reject xhigh, and writing
+# effort=xhigh for a launch command that carried no effort flag is the same
+# false guarantee the captain rejected for low, only more misleading because the
+# operator believes they bought stronger reasoning. A level that reaches no flag
+# is refused; when a written reason deliberately covers the gap, EFFORT_RECORD
+# marks the level as unenforced so the record still describes reality.
+enforce_effort_gate() { # <task-id> <harness> <raw-launch 0|1>
+  local id=$1 harness=$2 raw=$3 enforced=0 accepted
+  if [ "$raw" != 1 ] && harness_enforces_effort "$harness" "$EFFORT"; then
+    enforced=1
+  fi
+  if [ "$enforced" -eq 0 ] && [ -z "$EFFORT_OVERRIDE_REASON" ]; then
+    if [ "$raw" = 1 ]; then
+      accepted=none
+    else
+      accepted=$(harness_effort_levels "$harness")
+    fi
+    echo "error: effort gate refused $id: harness $harness has no verified $EFFORT-effort launch axis; it accepts $accepted. Choose a level that adapter accepts, select a harness that can enforce this one, or pass --effort-override-reason '<why this adapter is required despite unprovable effort>'." >&2
+    return 1
+  fi
+  if [ "$EFFORT" != low ] && [ -z "$EFFORT_OVERRIDE_REASON" ]; then
+    echo "error: effort gate refused $id: --effort $EFFORT is above low. Every spawned agent defaults to low; retry with --effort $EFFORT --effort-override-reason '<why this task needs it>' only under an explicit current captain exception." >&2
+    return 1
+  fi
+  if [ "$enforced" -eq 1 ]; then
+    EFFORT_RECORD=$EFFORT
+  else
+    EFFORT_RECORD="unenforced:$EFFORT"
+  fi
+  if [ -n "$EFFORT_OVERRIDE_REASON" ]; then
+    echo "EFFORT OVERRIDE: $id launches at $EFFORT: $EFFORT_OVERRIDE_REASON" >&2
+  fi
+  return 0
+}
+
+# An adapter with no verified axis for low was legally dispatched under a written
+# capability reason, so the mate it runs must stay automatically recoverable: a
+# liveness respawn arrives here as a plain `fm-spawn.sh <id> --secondmate` with no
+# flags to carry that authority. The recorded reason is therefore adopted as
+# capability cover under exactly the narrowing bin/fm-control.sh's relaunch uses -
+# same task, same harness, a low launch, and an adapter that cannot prove it - so
+# it never becomes inheritance: a non-low level, a changed harness, or an adapter
+# that CAN prove the level all fall through to the ordinary gate, which still
+# demands a fresh reason on this invocation.
+adopt_recorded_capability_cover() { # <task-id> <harness> <raw-launch 0|1>
+  local id=$1 harness=$2 raw=$3 meta recorded_reason
+  [ "$EFFORT_OVERRIDE_REASON_SET" -ne 1 ] || return 0
+  [ "$KIND" = secondmate ] || return 0
+  [ "$raw" != 1 ] || return 0
+  [ "$EFFORT" = low ] || return 0
+  ! harness_enforces_effort "$harness" "$EFFORT" || return 0
+  meta="$STATE/$id.meta"
+  [ -f "$meta" ] && [ ! -L "$meta" ] || return 0
+  [ "$(fm_meta_get "$meta" kind)" = secondmate ] || return 0
+  [ "$(fm_meta_get "$meta" harness)" = "$harness" ] || return 0
+  recorded_reason=$(fm_meta_get "$meta" effort_override_reason)
+  [ -n "$recorded_reason" ] || return 0
+  EFFORT_OVERRIDE_REASON=$recorded_reason
+}
+
 spawn_remote_secondmate() {
   local id=$1 remote host root home harness positional model effort backend out rc meta tmp
   local remote_backend remote_target remote_harness remote_herdr_session registry_lock remote_lock remote_generation
@@ -575,15 +791,19 @@ spawn_remote_secondmate() {
       ;;
   esac
   model=${MODEL:--}
-  effort=${EFFORT:--}
+  # The effort axis is resolved by the effort gate alone (header, EFFORT GATE).
+  # config/secondmate-harness's effort token may confirm low but never raise it,
+  # so a non-low token refuses this spawn instead of travelling to the host.
+  effort=$EFFORT
   if [ -z "$HARNESS_ARG" ] && [ -z "$positional" ]; then
     if [ "$MODEL_SET" -eq 0 ]; then
       model=$("$SCRIPT_DIR/fm-harness.sh" secondmate-model)
       [ -n "$model" ] || model=-
     fi
-    if [ "$EFFORT_SET" -eq 0 ]; then
-      effort=$("$SCRIPT_DIR/fm-harness.sh" secondmate-effort)
-      [ -n "$effort" ] || effort=-
+    if ! secondmate_config_effort_is_low; then
+      fm_lock_release "$registry_lock" || true
+      fm_lock_release "$SPAWN_TASK_LOCK" || true
+      return 1
     fi
   fi
   # A remote second mate always runs on Herdr: its server belongs to the host's
@@ -599,15 +819,12 @@ spawn_remote_secondmate() {
       return 1
       ;;
   esac
-  case "$effort" in
-    -|low|medium|high|xhigh|max) ;;
-    *)
+  adopt_recorded_capability_cover "$id" "$harness" 0
+  if ! enforce_effort_gate "$id" "$harness" 0; then
     fm_lock_release "$registry_lock" || true
     fm_lock_release "$SPAWN_TASK_LOCK" || true
-      echo "error: invalid configured remote secondmate effort: $effort" >&2
-      return 1
-      ;;
-  esac
+    return 1
+  fi
   meta="$STATE/$id.meta"
   if [ -e "$meta" ] || [ -L "$meta" ]; then
     if ! fm_backlog_record_present "$meta" "task record" "$STATE" \
@@ -698,7 +915,17 @@ spawn_remote_secondmate() {
     remote_traceparent=$(FM_TRACE_CONTEXT=on fm_trace_context_resolve "$CONFIG" "$meta" || true)
   fi
   launch_args=("$id" "$harness" "$model" "$effort" "$backend")
-  [ -z "$remote_traceparent" ] || launch_args+=("$remote_traceparent")
+  # The remote host re-runs the effort gate, so the capability reason that
+  # authorized this launch has to cross with it; without it an adapter with no
+  # verified axis for this level is refused on arrival even though the exception
+  # was granted here. The reason is the LAST positional and a "-" placeholder
+  # keeps the traceparent slot, so a control script predating it refuses loudly
+  # on the argument count instead of reading the reason as a traceparent.
+  if [ -n "$EFFORT_OVERRIDE_REASON" ]; then
+    launch_args+=("${remote_traceparent:--}" "$EFFORT_OVERRIDE_REASON")
+  elif [ -n "$remote_traceparent" ]; then
+    launch_args+=("$remote_traceparent")
+  fi
   if out=$("$SCRIPT_DIR/fm-on.sh" "$id" fm-remote-secondmate-control.sh launch \
     "${launch_args[@]}" < /dev/null 2>&1); then
     rc=0
@@ -760,7 +987,8 @@ spawn_remote_secondmate() {
     echo "yolo=off"
     echo "tasktmp="
     echo "model=${model#-}"
-    echo "effort=${effort#-}"
+    echo "effort=$EFFORT_RECORD"
+    [ -z "$EFFORT_OVERRIDE_REASON" ] || echo "effort_override_reason=$EFFORT_OVERRIDE_REASON"
     echo "home=$home"
     echo "projects=$(secondmate_registry_field "$DATA/secondmates.md" "$id" projects)"
     echo "remote_host=$host"
@@ -927,7 +1155,8 @@ spawn_abort_cleanup() {
             [ -z "${BASE:-}" ] || echo "base=$BASE"
             echo "tasktmp=${TASK_TMP:-}"
             echo "model=${MODEL:-default}"
-            echo "effort=${EFFORT:-default}"
+            echo "effort=$EFFORT_RECORD"
+            [ -z "$EFFORT_OVERRIDE_REASON" ] || echo "effort_override_reason=$EFFORT_OVERRIDE_REASON"
             echo "backend=orca"
             echo "orca_worktree_id=$ORCA_WORKTREE_ID"
             [ -z "${ORCA_TERMINAL:-}" ] || echo "terminal=$ORCA_TERMINAL"
@@ -1043,6 +1272,10 @@ if [ "${#POS[@]}" -gt 0 ] && [ "${POS[0]}" != "$idpart" ] && case "$idpart" in *
   [ -z "$HARNESS_ARG" ] || shared_args+=(--harness "$HARNESS_ARG")
   [ -z "$MODEL" ] || shared_args+=(--model "$MODEL")
   [ -z "$EFFORT" ] || shared_args+=(--effort "$EFFORT")
+  # The exceptional pair travels together or not at all: each child re-runs the
+  # whole gate, so a forwarded level with no forwarded reason would refuse every
+  # pair rather than silently launching them at low.
+  [ -z "$EFFORT_OVERRIDE_REASON" ] || shared_args+=(--effort-override-reason "$EFFORT_OVERRIDE_REASON")
   [ -z "$BACKEND_ARG" ] || shared_args+=(--backend "$BACKEND_ARG")
   # One delivery contract applies to every pair in a batch, exactly like the shared
   # harness. Each pair still re-validates it against its own brief, so a batch
@@ -1307,12 +1540,6 @@ else
 fi
 [ -z "$HARNESS_ARG" ] || ARG3=$HARNESS_ARG
 
-shell_quote() {
-  printf "'"
-  printf '%s' "$1" | sed "s/'/'\\\\''/g"
-  printf "'"
-}
-
 resolve_pi_executable() {
   local candidate dir
   candidate=$(type -P -- "$1" 2>/dev/null) || return 1
@@ -1572,23 +1799,22 @@ esac
 # harness ("<harness> [<model>] [<effort>]"). They apply only when this is a
 # --secondmate spawn and no explicit per-spawn harness/raw launch was supplied, so
 # the harness itself came from the secondmate config fallback chain. Resolving
-# here on every spawn makes the pin durable across respawns. Precedence: explicit
-# --model/--effort flags still win over the file's tokens.
+# here on every spawn makes the pin durable across respawns. Precedence: an
+# explicit --model flag still wins over the file's model token; the file's effort
+# token has no authority at all beyond confirming low.
 if [ "$KIND" = secondmate ] && [ -z "$ARG3" ]; then
   if [ "$MODEL_SET" -eq 0 ]; then
     SM_MODEL=$("$SCRIPT_DIR/fm-harness.sh" secondmate-model)
     [ -z "$SM_MODEL" ] || MODEL=$SM_MODEL
   fi
-  if [ "$EFFORT_SET" -eq 0 ]; then
-    SM_EFFORT=$("$SCRIPT_DIR/fm-harness.sh" secondmate-effort)
-    if [ -n "$SM_EFFORT" ]; then
-      case "$SM_EFFORT" in
-        low|medium|high|xhigh|max) EFFORT=$SM_EFFORT ;;
-        *) echo "warning: config/secondmate-harness effort token '$SM_EFFORT' is not one of low, medium, high, xhigh, max; ignoring" >&2 ;;
-      esac
-    fi
-  fi
+  secondmate_config_effort_is_low || exit 1
 fi
+
+# Every axis this spawn's effort could come from is now resolved, and nothing
+# below this point has created or mutated a worktree, an endpoint, or a task
+# record yet, so this is the fail-closed boundary for the effort gate.
+adopt_recorded_capability_cover "$ID" "$HARNESS" "$RAW_LAUNCH"
+enforce_effort_gate "$ID" "$HARNESS" "$RAW_LAUNCH" || exit 1
 
 secondmate_registry_value() {
   secondmate_registry_field "$DATA/secondmates.md" "$1" "$2"
@@ -1674,63 +1900,6 @@ model_flag_for_harness() {
     claude|codex|opencode|pi|pi-signed|grok|kimi|cursor|gemini|muse)
       printf -- '--model %s ' "$(shell_quote "$model")"
       ;;
-  esac
-}
-
-effort_flag_for_harness() {
-  local harness=$1 effort=$2
-  [ -n "$effort" ] && [ "$effort" != default ] || return 0
-  case "$harness" in
-    claude)
-      case "$effort" in
-        low|medium|high|xhigh|max) printf -- '--effort %s ' "$(shell_quote "$effort")" ;;
-      esac
-      ;;
-    codex)
-      # The installed codex config schema uses model_reasoning_effort, and the
-      # bundled model catalog advertises low|medium|high|xhigh. Omit max rather
-      # than passing an unsupported value.
-      case "$effort" in
-        low|medium|high|xhigh) printf -- '-c %s ' "$(shell_quote "model_reasoning_effort=\"$effort\"")" ;;
-      esac
-      ;;
-    grok)
-      # grok exposes both --effort and --reasoning-effort; firstmate's profile
-      # axis is the reasoning knob. As of grok 0.2.99, --reasoning-effort accepts
-      # only low|medium|high and rejects both xhigh and max, so omit those rather
-      # than passing a known-bad value.
-      case "$effort" in
-        low|medium|high) printf -- '--reasoning-effort %s ' "$(shell_quote "$effort")" ;;
-      esac
-      ;;
-    pi|pi-signed)
-      # Pi 0.80.6 accepts the full shared effort vocabulary, including max, through
-      # its --thinking flag.
-      case "$effort" in
-        low|medium|high|xhigh|max) printf -- '--thinking %s ' "$(shell_quote "$effort")" ;;
-      esac
-      ;;
-    muse)
-      # muse 0.1.0-R708.1 --reasoning-effort accepts none|minimal|low|medium|
-      # high|xhigh|ultra and defaults to high, so low..xhigh map straight across.
-      # ultra is muse's max-CLASS level, so firstmate's max maps onto it - but
-      # only ever as an EXPLICIT captain choice, never as a fallback, because
-      # AGENTS.md section 4 forbids selecting max without captain preference and
-      # the omitted effort here leaves muse on its own high default. muse's extra
-      # none/minimal levels sit below firstmate's shared vocabulary and are
-      # deliberately unreachable rather than remapped onto low.
-      case "$effort" in
-        low|medium|high|xhigh) printf -- '--reasoning-effort %s ' "$(shell_quote "$effort")" ;;
-        max) printf -- '--reasoning-effort %s ' "$(shell_quote ultra)" ;;
-      esac
-      ;;
-    # opencode's interactive `opencode --prompt` launch has a verified --model
-    # flag but no verified effort flag. Its `opencode run --variant` flag belongs
-    # to a different, non-interactive launch mode, so fm-spawn does not pass it.
-    # kimi likewise has no reasoning-effort flag; the requested axis stays in
-    # task metadata but never reaches the launch command. Cursor encodes effort
-    # in model ids such as cursor-grok-4.5-high, so it also receives no separate
-    # effort flag.
   esac
 }
 
@@ -2039,6 +2208,7 @@ if { [ "$KIND" = ship ] || [ "$KIND" = scout ]; } \
   fi
 fi
 
+
 # mode=local-only's landing precondition, owned by bin/fm-dod-lib.sh so this
 # dispatch door and bin/fm-promote.sh refuse the same thing in the same words.
 if [ "$KIND" = ship ] && [ "$MODE" = local-only ]; then
@@ -2067,6 +2237,24 @@ if [ "$KIND" = ship ]; then
   if [ -n "$STANDING_MODE" ] && [ "$STANDING_MODE" != no-mistakes-prod-only ] \
      && [ "$(delivery_rigor_rank "$MODE")" -lt "$(delivery_rigor_rank "$STANDING_MODE")" ]; then
     echo "notice: $ID ships mode=$MODE while the standing posture for $PROJ_NAME is $STANDING_MODE - less rigor than the captain's standing posture; proceed only on a current explicit captain instruction or an intake judgment you can state" >&2
+  fi
+fi
+
+# Planning provenance (AGENTS.md section 7). fm-brief.sh writes one fixed
+# "Planning gate:" line into every ship brief; this re-validates it here, before
+# any worktree or endpoint mutation, so an edited brief or a plan report deleted
+# since scaffolding refuses rather than launching an unplanned build. A relaunch
+# runs the same check against the same brief, so a plan cannot quietly vanish
+# between incarnations. PLANNING_DISPOSITION/PLANNING_REASON_RECORD carry the
+# result to metadata publication.
+PLANNING_DISPOSITION=
+PLANNING_PLAN_REPORT=
+PLANNING_REASON_RECORD=
+if [ "$KIND" = ship ]; then
+  if [ "$RELAUNCH" -eq 1 ]; then
+    fm_planning_validate_provenance "$BRIEF" "$DATA" "$ID" "$RELAUNCH_META" || exit 1
+  else
+    fm_planning_validate_provenance "$BRIEF" "$DATA" "$ID" || exit 1
   fi
 fi
 
@@ -3210,7 +3398,7 @@ SPAWN_META_PATH=$SPAWN_META_TMP
 preserve_relaunch_meta() {
   awk -F= '
     BEGIN {
-      split("window endpoint_task_id worktree project harness kind mode yolo base tasktmp model effort busy_gen spawn_gen traceparent backend herdr_session herdr_workspace_id herdr_tab_id herdr_pane_id zellij_session zellij_tab_id zellij_pane_id orca_worktree_id terminal cmux_workspace_id cmux_surface_id home projects control_relaunch_tx", keys, " ")
+      split("window endpoint_task_id worktree project harness kind mode yolo base tasktmp model effort effort_override_reason plan_report planning_exception planning_reason planning_legacy busy_gen spawn_gen traceparent backend herdr_session herdr_workspace_id herdr_tab_id herdr_pane_id zellij_session zellij_tab_id zellij_pane_id orca_worktree_id terminal cmux_workspace_id cmux_surface_id home projects control_relaunch_tx", keys, " ")
       for (i in keys) owned[keys[i]] = 1
     }
     !($1 in owned)
@@ -3228,7 +3416,13 @@ preserve_relaunch_meta() {
   [ -z "$BASE" ] || echo "base=$BASE"
   echo "tasktmp=$TASK_TMP"
   echo "model=${MODEL:-default}"
-  echo "effort=${EFFORT:-default}"
+  echo "effort=$EFFORT_RECORD"
+  [ -z "$EFFORT_OVERRIDE_REASON" ] || echo "effort_override_reason=$EFFORT_OVERRIDE_REASON"
+  [ -z "$PLANNING_PLAN_REPORT" ] || echo "plan_report=$PLANNING_PLAN_REPORT"
+  case "$PLANNING_DISPOSITION" in
+    exception:*) echo "planning_exception=${PLANNING_DISPOSITION#exception:}"; echo "planning_reason=$PLANNING_REASON_RECORD" ;;
+    legacy) echo "planning_legacy=relaunch-grandfathered" ;;
+  esac
   [ -z "${BUSY_GEN:-}" ] || echo "busy_gen=$BUSY_GEN"
   echo "spawn_gen=$SPAWN_GEN"
   # Default-off writes no traceparent= line.

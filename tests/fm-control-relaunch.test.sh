@@ -165,6 +165,8 @@ Exercise relaunch behavior for $id.
 
 ## Firstmate spec
 Preserve the task while replacing its agent process.
+
+Planning gate: exception=one-line reason=relaunch fixture brief
 EOF
   {
     echo "window=fmses:fm-$id"
@@ -699,8 +701,8 @@ test_harness_switch_does_not_carry_the_old_profile_axes() {
   expect_code 0 "$rc" "a harness switch should succeed"$'\n'"$out"
   [ "$(meta_field "$dir" rl5 model)" = default ] \
     || fail "a model chosen for the old harness must not carry to a different one"
-  [ "$(meta_field "$dir" rl5 effort)" = default ] \
-    || fail "an effort chosen for the old harness must not carry to a different one"
+  [ "$(meta_field "$dir" rl5 effort)" = low ] \
+    || fail "an effort chosen for the old harness must not carry to a different one; an unnamed effort is low"
   pass "fm-control relaunch: a harness switch resets model and effort unless they are named too"
 }
 
@@ -766,14 +768,19 @@ test_same_harness_relaunch_keeps_the_profile_axes() {
   local dir out rc
   dir=$(new_case keepprofile rl6)
   add_ship_task "$dir" rl6 claude
-  sed 's/^model=default$/model=opus/; s/^effort=default$/effort=high/' \
+  sed 's/^model=default$/model=opus/; s/^effort=default$/effort=medium/' \
     "$dir/home/state/rl6.meta" > "$dir/home/state/rl6.meta.tmp"
   mv "$dir/home/state/rl6.meta.tmp" "$dir/home/state/rl6.meta"
   out=$(run_control "$dir" rl6 relaunch --note "same runtime"); rc=$?
   expect_code 0 "$rc" "a same-harness relaunch should succeed"$'\n'"$out"
   [ "$(meta_field "$dir" rl6 model)" = opus ] || fail "the model should carry across a same-harness relaunch"
-  [ "$(meta_field "$dir" rl6 effort)" = high ] || fail "the effort should carry across a same-harness relaunch"
-  pass "fm-control relaunch: a same-harness relaunch keeps the profile axes it was running with"
+  # The journal distinguishes the two outcomes the record cannot: an unnamed
+  # effort resolves to 'default' here, while a carried one would read 'medium'.
+  [ "$(journal_field "$dir" rl6 to_effort)" = default ] \
+    || fail "an unnamed effort must not carry across a relaunch; the recorded level is history, not authority"
+  [ "$(meta_field "$dir" rl6 effort)" = low ] \
+    || fail "a relaunch with no --effort must land at low"
+  pass "fm-control relaunch: a same-harness relaunch keeps the model it was running with and never the effort"
 }
 
 test_explicit_model_wins_over_the_recorded_one() {
@@ -893,46 +900,13 @@ test_secondmate_relaunch_picks_up_the_configured_harness_pin() {
     || fail "a secondmate relaunch should pick up the configured harness pin, got '$(journal_field "$dir" sm3 to_harness)'"
   [ "$(journal_field "$dir" sm3 to_model)" = some-model ] \
     || fail "the configured model token should come with the pin"
-  [ "$(journal_field "$dir" sm3 to_effort)" = high ] \
-    || fail "the configured effort token should come with the pin"
+  [ "$(journal_field "$dir" sm3 to_effort)" = default ] \
+    || fail "a configured effort must not come with the pin; a config file may not grant a relaunch non-low effort"
+  [ "$(meta_field "$dir" sm3 effort)" = low ] \
+    || fail "a secondmate relaunch under a non-low configured effort must still land at low"
+  assert_not_contains "$out" "EFFORT OVERRIDE" "a configured effort is not an authorized override"
   assert_not_contains "$out" "not a verified harness" "codex is a verified harness"
   pass "fm-control relaunch: a secondmate relaunch re-resolves its durable configured harness pin"
-}
-
-test_secondmate_relaunch_ignores_invalid_configured_effort_before_stop() {
-  local dir home out rc
-  dir=$(new_case invalid-effort sm6)
-  home="$dir/home"
-  mkdir -p "$home/config" "$home/data/sm6"
-  printf 'codex some-model impossible\n' > "$home/config/secondmate-harness"
-  printf '# secondmate brief\n' > "$home/data/sm6/brief.md"
-  fm_git_worktree "$dir/proj" "$dir/smhome" sm-branch
-  mkdir -p "$dir/smhome/state" "$dir/smhome/data" "$dir/smhome/bin"
-  printf 'sm6\n' > "$dir/smhome/.fm-secondmate-home"
-  printf '# agents\n' > "$dir/smhome/AGENTS.md"
-  {
-    echo "window=fmses:fm-sm6"
-    echo "endpoint_task_id=sm6"
-    echo "worktree=$dir/smhome"
-    echo "project=$dir/smhome"
-    echo "harness=claude"
-    echo "kind=secondmate"
-    echo "mode=secondmate"
-    echo "yolo=off"
-    echo "model=default"
-    echo "effort=default"
-    echo "home=$dir/smhome"
-  } > "$home/state/sm6.meta"
-  printf '%s\n' "fm-sm6" > "$dir/fake/windows"
-  printf '%s' "$dir/smhome" > "$dir/fake/cwd"
-  printf 'codex' > "$dir/fake/becomes"
-  out=$(run_control "$dir" sm6 relaunch); rc=$?
-  expect_code 0 "$rc" "an invalid configured effort should be ignored before stop"$'\n'"$out"
-  assert_contains "$out" "effort token 'impossible'" \
-    "relaunch should surface the same warning as a normal secondmate spawn"
-  [ "$(journal_field "$dir" sm6 to_effort)" = default ] \
-    || fail "invalid configured effort should normalize to default"
-  pass "fm-control relaunch: invalid configured effort is ignored before stop"
 }
 
 # muse is a verified adapter, but only for crewmates and scouts: it has no
@@ -941,6 +915,112 @@ test_secondmate_relaunch_ignores_invalid_configured_effort_before_stop() {
 # only AFTER the running agent has been stopped - a secondmate would be left
 # with no agent at all. The control plane asks the same capability question
 # before it touches anything, so the refusal lands while the agent is still up.
+# An adapter with no verified low-effort axis was dispatched under a written
+# capability reason, so it stays recoverable: fm-control carries that recorded
+# reason forward and the launch owner's effort gate accepts it. This asserts the
+# forwarding contract rather than a completed launch, because no axis-less
+# adapter has a launchable stub in this suite - the EFFORT OVERRIDE line is
+# emitted by bin/fm-spawn.sh's gate, so seeing it proves the reason arrived.
+test_relaunch_carries_the_recorded_effort_capability_reason() {
+  local dir out
+  dir=$(new_case axiscarry rl-axis1)
+  add_ship_task "$dir" rl-axis1 kimi
+  {
+    echo "effort_override_reason=kimi is required for this task despite unprovable effort"
+  } >> "$dir/home/state/rl-axis1.meta"
+  printf 'kimi' > "$dir/fake/becomes"
+  out=$(run_control "$dir" rl-axis1 relaunch --note "recovering the agent")
+  assert_contains "$out" "EFFORT OVERRIDE: rl-axis1 launches at low: kimi is required for this task despite unprovable effort" \
+    "the recorded capability reason was not forwarded to the launch owner"
+  case "$out" in
+    *"no verified low-effort launch axis"*)
+      fail "the effort gate refused a relaunch whose capability reason was recorded" ;;
+  esac
+  pass "fm-control relaunch: an axis-less adapter's recorded capability reason reaches the effort gate"
+}
+
+# A recorded non-low effort plus a recorded reason is a STALE RECORD, not fresh
+# authority: only an explicit flag pair on this invocation may authorize non-low.
+# This drives the real fm-control relaunch path, because that is where both
+# values are resolved and forwarded - tests/fm-spawn-dispatch-profile.test.sh
+# calls fm-spawn --relaunch directly and so cannot see this.
+test_recorded_non_low_effort_does_not_authorize_its_own_relaunch() {
+  local dir out rc
+  dir=$(new_case staleeffort rl-stale1)
+  add_ship_task "$dir" rl-stale1 claude
+  sed 's/^effort=default$/effort=high/' "$dir/home/state/rl-stale1.meta" > "$dir/home/state/rl-stale1.meta.tmp"
+  mv "$dir/home/state/rl-stale1.meta.tmp" "$dir/home/state/rl-stale1.meta"
+  {
+    echo "effort_override_reason=captain exception 2026-09-07"
+  } >> "$dir/home/state/rl-stale1.meta"
+  out=$(run_control "$dir" rl-stale1 relaunch --note "recovering the agent"); rc=$?
+  expect_code 0 "$rc" "a relaunch that names no effort should succeed at low"$'\n'"$out"
+  case "$out" in
+    *"EFFORT OVERRIDE"*)
+      fail "the recorded reason authorized an override; a stale record is not fresh authority" ;;
+  esac
+  [ "$(journal_field "$dir" rl-stale1 to_effort)" = default ] \
+    || fail "the recorded high effort was inherited as the relaunch level"
+  [ "$(meta_field "$dir" rl-stale1 effort)" = low ] \
+    || fail "a relaunch carrying neither half of the pair must land at low"
+  pass "fm-control relaunch: a recorded non-low effort is not its own authority"
+}
+
+# A fresh reason authorizes nothing by itself: the LEVEL is the other half of the
+# pair, and an unnamed effort on a relaunch is always low. Following the
+# capability wording verbatim must therefore never re-authorize a recorded high.
+test_a_fresh_reason_alone_does_not_restore_a_recorded_non_low_effort() {
+  local dir out rc
+  dir=$(new_case freshreason rl-stale2)
+  add_ship_task "$dir" rl-stale2 claude
+  sed 's/^effort=default$/effort=high/' "$dir/home/state/rl-stale2.meta" > "$dir/home/state/rl-stale2.meta.tmp"
+  mv "$dir/home/state/rl-stale2.meta.tmp" "$dir/home/state/rl-stale2.meta"
+  out=$(run_control "$dir" rl-stale2 relaunch --note "recovering the agent" \
+    --effort-override-reason "fresh captain call"); rc=$?
+  expect_code 0 "$rc" "a low relaunch carrying a fresh reason should succeed"$'\n'"$out"
+  [ "$(journal_field "$dir" rl-stale2 to_effort)" = default ] \
+    || fail "a reason without --effort must not restore the recorded level"
+  [ "$(meta_field "$dir" rl-stale2 effort)" = low ] \
+    || fail "a relaunch that names no --effort must land at low, whatever the record says"
+  pass "fm-control relaunch: a fresh reason without --effort cannot restore a recorded non-low effort"
+}
+
+# The other half of the same rule: naming BOTH halves on this invocation is the
+# one way a relaunch reaches non-low, exactly as a fresh spawn does.
+test_both_halves_named_on_this_invocation_relaunch_at_non_low() {
+  local dir out rc
+  dir=$(new_case bothhalves rl-pair1)
+  add_ship_task "$dir" rl-pair1 claude
+  out=$(run_control "$dir" rl-pair1 relaunch --note "recovering the agent" \
+    --effort high --effort-override-reason "captain exception 2026-09-08"); rc=$?
+  expect_code 0 "$rc" "an explicit flag pair should relaunch at the named level"$'\n'"$out"
+  assert_contains "$out" "EFFORT OVERRIDE: rl-pair1 launches at high: captain exception 2026-09-08" \
+    "the explicit pair did not reach the launch owner's effort gate"
+  [ "$(meta_field "$dir" rl-pair1 effort)" = high ] \
+    || fail "an explicitly named non-low effort should be recorded"
+  pass "fm-control relaunch: an explicit --effort plus --effort-override-reason is the only road to non-low"
+}
+
+# The same refusal must land BEFORE the stop, or the task is left with no agent
+# and no way back (bin/fm-control.sh's own pre-stop invariant).
+test_relaunch_without_an_effort_capability_reason_refuses_before_stop() {
+  local dir out rc
+  dir=$(new_case axisrefuse rl-axis2)
+  add_ship_task "$dir" rl-axis2 claude
+  printf 'kimi' > "$dir/fake/becomes"
+  out=$(run_control "$dir" rl-axis2 relaunch --harness kimi --note "switching runtime"); rc=$?
+  expect_code 1 "$rc" "an axis-less adapter with no capability reason must refuse"
+  assert_contains "$out" "no verified launch axis for effort 'default'" \
+    "the refusal should name the missing capability and the level it was asked about"
+  assert_contains "$out" "it accepts none" \
+    "the refusal should name the levels the adapter does accept"
+  [ "$(cat "$dir/fake/command")" = claude ] \
+    || fail "the refusal must land before the running agent is stopped"
+  [ "$(meta_field "$dir" rl-axis2 harness)" = claude ] \
+    || fail "a refused relaunch must leave the durable record on the recorded harness"
+  pass "fm-control relaunch: a missing effort capability reason refuses before the agent is stopped"
+}
+
 test_secondmate_relaunch_onto_a_crewmate_only_adapter_refuses_before_stop() {
   local dir home out rc
   dir=$(new_case smkind sm7)
@@ -1009,8 +1089,8 @@ test_explicit_secondmate_harness_ignores_configured_profile_axes() {
   expect_code 0 "$rc" "an explicit secondmate harness should relaunch"$'\n'"$out"
   [ "$(meta_field "$dir" sm4 model)" = default ] \
     || fail "an explicit secondmate harness must not inherit the configured model"
-  [ "$(meta_field "$dir" sm4 effort)" = default ] \
-    || fail "an explicit secondmate harness must not inherit the configured effort"
+  [ "$(meta_field "$dir" sm4 effort)" = low ] \
+    || fail "an explicit secondmate harness must not inherit the configured effort; an unnamed effort is low"
   pass "fm-control relaunch: explicit secondmate harness resets unnamed profile axes"
 }
 
@@ -1711,8 +1791,12 @@ test_prior_harness_turnend_registry_entry_is_cleared
 test_wiring_removal_failure_refuses_before_replacement_arm
 test_turnend_auth_paths_are_owned_by_the_control_adapter
 test_secondmate_relaunch_picks_up_the_configured_harness_pin
-test_secondmate_relaunch_ignores_invalid_configured_effort_before_stop
 test_secondmate_relaunch_onto_a_crewmate_only_adapter_refuses_before_stop
+test_relaunch_carries_the_recorded_effort_capability_reason
+test_relaunch_without_an_effort_capability_reason_refuses_before_stop
+test_recorded_non_low_effort_does_not_authorize_its_own_relaunch
+test_a_fresh_reason_alone_does_not_restore_a_recorded_non_low_effort
+test_both_halves_named_on_this_invocation_relaunch_at_non_low
 test_explicit_secondmate_harness_ignores_configured_profile_axes
 test_ship_relaunch_ignores_the_crew_harness_config
 test_spawn_relaunch_without_a_harness_reuses_the_recorded_one

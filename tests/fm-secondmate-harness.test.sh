@@ -726,8 +726,9 @@ test_spawn_explicit_backend_precedence_over_env_and_inherited_config() {
 }
 
 # A bare "<harness>" secondmate-harness file (today's format) must launch with
-# NO --model/--effort flag at all, and meta must keep recording model=default,
-# effort=default - the core backward-compat requirement of the new format.
+# NO --model flag and keep recording model=default. Effort is not part of that
+# compatibility surface: every spawn runs at low (bin/fm-spawn.sh's EFFORT GATE),
+# so the launch carries low and meta records it.
 test_spawn_bare_harness_no_model_effort_flag() {
   local w sm meta launchlog launch out status
   w="$TMP_ROOT/spawn-bare-tokens"
@@ -742,13 +743,13 @@ test_spawn_bare_harness_no_model_effort_flag() {
 
   meta="$w/home/state/sm.meta"
   [ "$(meta_field "$meta" model)" = default ] || fail "bare-tokens: meta model not default (got '$(meta_field "$meta" model)')"
-  [ "$(meta_field "$meta" effort)" = default ] || fail "bare-tokens: meta effort not default (got '$(meta_field "$meta" effort)')"
+  [ "$(meta_field "$meta" effort)" = low ] || fail "bare-tokens: meta effort not low (got '$(meta_field "$meta" effort)')"
   launch=$(cat "$launchlog")
   assert_contains "$launch" "CLAUDE_CODE_SEND_FEEDBACK=0 claude" \
     "bare-tokens: Claude secondmate launch did not disable feedback drafts"
   assert_not_contains "$launch" "--model" "bare-tokens: launch must not carry a --model flag"
-  assert_not_contains "$launch" "--effort" "bare-tokens: launch must not carry an --effort flag"
-  pass "C2 spawn: a bare harness-only secondmate-harness file launches with no model/effort flag (backward-compat)"
+  assert_contains "$launch" "--effort 'low'" "bare-tokens: launch did not carry the default low effort"
+  pass "C2 spawn: a bare harness-only secondmate-harness file launches with no model flag and at low effort"
 }
 
 # "<harness> <model>" durably threads --model into the secondmate launch and
@@ -767,17 +768,18 @@ test_spawn_secondmate_harness_model_token() {
   meta="$w/home/state/sm.meta"
   [ "$(meta_field "$meta" harness)" = claude ] || fail "model-token: meta harness not claude"
   [ "$(meta_field "$meta" model)" = opus ] || fail "model-token: meta model not opus (got '$(meta_field "$meta" model)')"
-  [ "$(meta_field "$meta" effort)" = default ] || fail "model-token: meta effort not default (got '$(meta_field "$meta" effort)')"
+  [ "$(meta_field "$meta" effort)" = low ] || fail "model-token: meta effort not low (got '$(meta_field "$meta" effort)')"
   launch=$(cat "$launchlog")
-  assert_contains "$launch" "claude --dangerously-skip-permissions --settings '{\"feedbackDrafts\":\"off\"}' --model 'opus'" \
-    "model-token: launch did not carry --model opus"
-  assert_not_contains "$launch" "--effort" "model-token: launch must not carry an --effort flag"
+  assert_contains "$launch" "claude --dangerously-skip-permissions --settings '{\"feedbackDrafts\":\"off\"}' --model 'opus' --effort 'low'" \
+    "model-token: launch did not carry --model opus at the default low effort"
   pass "C3 spawn: config/secondmate-harness's model token threads --model into the launch and meta"
 }
 
-# "<harness> <model> <effort>" threads both flags into the launch and meta.
+# "<harness> <model> <effort>" threads the model, but the effort token has no
+# authority to raise effort: standing configuration cannot make non-low effort
+# policy, so a non-low token refuses the spawn instead of being applied.
 test_spawn_secondmate_harness_model_and_effort_tokens() {
-  local w sm meta launchlog launch
+  local w sm meta launchlog out status
   w="$TMP_ROOT/spawn-model-effort-tokens"
   sm="$w/sm"
   launchlog="$w/launch.log"
@@ -785,15 +787,18 @@ test_spawn_secondmate_harness_model_and_effort_tokens() {
   printf 'claude opus high\n' > "$w/home/config/secondmate-harness"
   make_seeded_home "$sm" sm
 
-  spawn_secondmate_capture "$w" sm "$sm" "$launchlog" >/dev/null 2>&1
-
+  out=$(spawn_secondmate_capture "$w" sm "$sm" "$launchlog" 2>&1); status=$?
+  expect_code 1 "$status" "a non-low secondmate effort token must refuse the spawn"
+  assert_contains "$out" "effort token 'high' is not low" \
+    "model-effort-tokens: the refusal did not name the standing token"
   meta="$w/home/state/sm.meta"
+  assert_absent "$meta" "model-effort-tokens: the refusal must precede any task record"
+
+  printf 'claude opus low\n' > "$w/home/config/secondmate-harness"
+  spawn_secondmate_capture "$w" sm "$sm" "$launchlog" >/dev/null 2>&1
   [ "$(meta_field "$meta" model)" = opus ] || fail "model-effort-tokens: meta model not opus"
-  [ "$(meta_field "$meta" effort)" = high ] || fail "model-effort-tokens: meta effort not high (got '$(meta_field "$meta" effort)')"
-  launch=$(cat "$launchlog")
-  assert_contains "$launch" "claude --dangerously-skip-permissions --settings '{\"feedbackDrafts\":\"off\"}' --model 'opus' --effort 'high'" \
-    "model-effort-tokens: launch did not carry both --model opus and --effort high"
-  pass "C4 spawn: config/secondmate-harness's model+effort tokens thread into the launch and meta"
+  [ "$(meta_field "$meta" effort)" = low ] || fail "model-effort-tokens: meta effort not low"
+  pass "C4 spawn: the secondmate effort token may confirm low and can never raise it"
 }
 
 # Precedence: an explicit per-spawn --model overrides the file's model token.
@@ -803,7 +808,7 @@ test_spawn_explicit_model_overrides_secondmate_harness_token() {
   sm="$w/sm"
   launchlog="$w/launch.log"
   mkdir -p "$w/home/config"
-  printf 'claude opus high\n' > "$w/home/config/secondmate-harness"
+  printf 'claude opus low\n' > "$w/home/config/secondmate-harness"
   make_seeded_home "$sm" sm
 
   spawn_secondmate_capture "$w" sm "$sm" "$launchlog" --model sonnet >/dev/null 2>&1
@@ -811,21 +816,22 @@ test_spawn_explicit_model_overrides_secondmate_harness_token() {
   meta="$w/home/state/sm.meta"
   [ "$(meta_field "$meta" model)" = sonnet ] \
     || fail "explicit-model: meta model not sonnet (got '$(meta_field "$meta" model)'), explicit flag did not win over file token"
-  [ "$(meta_field "$meta" effort)" = high ] || fail "explicit-model: file's effort token should still apply"
+  [ "$(meta_field "$meta" effort)" = low ] || fail "explicit-model: the spawn should run at low"
   launch=$(cat "$launchlog")
   assert_contains "$launch" "--model 'sonnet'" "explicit-model: launch did not use the explicit --model"
   assert_not_contains "$launch" "--model 'opus'" "explicit-model: launch leaked the file's model token"
-  pass "C5 spawn: an explicit --model overrides config/secondmate-harness's model token; the file's effort token still applies"
+  pass "C5 spawn: an explicit --model overrides config/secondmate-harness's model token"
 }
 
-# Precedence: an explicit per-spawn --effort overrides the file's effort token.
+# An explicit per-spawn --effort low is the same value the gate resolves anyway,
+# and the file's model token still applies alongside it.
 test_spawn_explicit_effort_overrides_secondmate_harness_token() {
   local w sm meta launchlog launch
   w="$TMP_ROOT/spawn-explicit-effort"
   sm="$w/sm"
   launchlog="$w/launch.log"
   mkdir -p "$w/home/config"
-  printf 'claude opus high\n' > "$w/home/config/secondmate-harness"
+  printf 'claude opus low\n' > "$w/home/config/secondmate-harness"
   make_seeded_home "$sm" sm
 
   spawn_secondmate_capture "$w" sm "$sm" "$launchlog" --effort low >/dev/null 2>&1
@@ -833,11 +839,11 @@ test_spawn_explicit_effort_overrides_secondmate_harness_token() {
   meta="$w/home/state/sm.meta"
   [ "$(meta_field "$meta" model)" = opus ] || fail "explicit-effort: file's model token should still apply"
   [ "$(meta_field "$meta" effort)" = low ] \
-    || fail "explicit-effort: meta effort not low (got '$(meta_field "$meta" effort)'), explicit flag did not win over file token"
+    || fail "explicit-effort: meta effort not low (got '$(meta_field "$meta" effort)')"
   launch=$(cat "$launchlog")
   assert_contains "$launch" "--effort 'low'" "explicit-effort: launch did not use the explicit --effort"
-  assert_not_contains "$launch" "--effort 'high'" "explicit-effort: launch leaked the file's effort token"
-  pass "C6 spawn: an explicit --effort overrides config/secondmate-harness's effort token; the file's model token still applies"
+  assert_not_contains "$launch" "--effort 'high'" "explicit-effort: a non-low effort reached the launch"
+  pass "C6 spawn: an explicit --effort low launches at low; the file's model token still applies"
 }
 
 test_spawn_explicit_harness_does_not_inherit_secondmate_harness_tokens() {
@@ -846,7 +852,7 @@ test_spawn_explicit_harness_does_not_inherit_secondmate_harness_tokens() {
   sm="$w/sm"
   launchlog="$w/launch.log"
   mkdir -p "$w/home/config"
-  printf 'claude opus high\n' > "$w/home/config/secondmate-harness"
+  printf 'claude opus low\n' > "$w/home/config/secondmate-harness"
   make_seeded_home "$sm" sm
 
   spawn_secondmate_capture "$w" sm "$sm" "$launchlog" --harness codex >/dev/null 2>&1
@@ -854,14 +860,13 @@ test_spawn_explicit_harness_does_not_inherit_secondmate_harness_tokens() {
   meta="$w/home/state/sm.meta"
   [ "$(meta_field "$meta" harness)" = codex ] || fail "explicit-harness-no-tokens: meta harness not codex"
   [ "$(meta_field "$meta" model)" = default ] || fail "explicit-harness-no-tokens: meta model should stay default"
-  [ "$(meta_field "$meta" effort)" = default ] || fail "explicit-harness-no-tokens: meta effort should stay default"
+  [ "$(meta_field "$meta" effort)" = low ] || fail "explicit-harness-no-tokens: meta effort not low"
   launch=$(cat "$launchlog")
-  assert_contains "$launch" "codex --dangerously-bypass-approvals-and-sandbox" \
-    "explicit-harness-no-tokens: launch did not use codex"
+  assert_contains "$launch" "codex" "explicit-harness-no-tokens: launch did not use codex"
   assert_not_contains "$launch" "--model" "explicit-harness-no-tokens: launch must not carry a --model flag"
-  assert_not_contains "$launch" "model_reasoning_effort" \
-    "explicit-harness-no-tokens: launch must not carry a codex effort flag"
-  pass "C7 spawn: an explicit --harness starts with clean model/effort defaults"
+  assert_contains "$launch" "model_reasoning_effort=\"low\"" \
+    "explicit-harness-no-tokens: launch did not carry the default low effort"
+  pass "C7 spawn: an explicit --harness starts with a clean model default and the standing low effort"
 }
 
 test_spawn_explicit_harness_uses_explicit_profile_axes() {
@@ -870,10 +875,11 @@ test_spawn_explicit_harness_uses_explicit_profile_axes() {
   sm="$w/sm"
   launchlog="$w/launch.log"
   mkdir -p "$w/home/config"
-  printf 'claude opus high\n' > "$w/home/config/secondmate-harness"
+  printf 'claude opus low\n' > "$w/home/config/secondmate-harness"
   make_seeded_home "$sm" sm
 
-  spawn_secondmate_capture "$w" sm "$sm" "$launchlog" --harness codex --model gpt-5.5 --effort xhigh >/dev/null 2>&1
+  spawn_secondmate_capture "$w" sm "$sm" "$launchlog" --harness codex --model gpt-5.5 --effort xhigh \
+    --effort-override-reason 'captain exception for this secondmate' >/dev/null 2>&1
 
   meta="$w/home/state/sm.meta"
   [ "$(meta_field "$meta" harness)" = codex ] || fail "explicit-harness-explicit-axes: meta harness not codex"
@@ -886,9 +892,11 @@ test_spawn_explicit_harness_uses_explicit_profile_axes() {
     "explicit-harness-explicit-axes: launch did not use the explicit --effort"
   assert_not_contains "$launch" "--model 'opus'" \
     "explicit-harness-explicit-axes: launch leaked the file's model token"
-  assert_not_contains "$launch" "model_reasoning_effort=\"high\"" \
-    "explicit-harness-explicit-axes: launch leaked the file's effort token"
-  pass "C8 spawn: an explicit --harness still honors explicit model/effort flags"
+  assert_not_contains "$launch" "model_reasoning_effort=\"low\"" \
+    "explicit-harness-explicit-axes: the authorized exception did not replace the default low"
+  assert_grep "effort_override_reason=captain exception for this secondmate" "$meta" \
+    "explicit-harness-explicit-axes: the exception reason was not recorded"
+  pass "C8 spawn: an explicit --harness still honors explicit model and an authorized effort exception"
 }
 
 test_spawned_secondmate_uses_its_harness_supervision_model() {
@@ -949,7 +957,7 @@ test_spawn_fallback_chain_and_crew_scout_unaffected() {
   [ "$(meta_field "$meta" harness)" = codex ] \
     || fail "fallback: secondmate harness did not fall back to crew-harness codex"
   [ "$(meta_field "$meta" model)" = default ] || fail "fallback: meta model should stay default with no tokens anywhere"
-  [ "$(meta_field "$meta" effort)" = default ] || fail "fallback: meta effort should stay default with no tokens anywhere"
+  [ "$(meta_field "$meta" effort)" = low ] || fail "fallback: meta effort should be the standing low with no tokens anywhere"
 
   # Crew/scout launch: same crew-harness config, no --secondmate. Must resolve
   # the crew harness and record no model/effort - this codepath must never read
@@ -968,6 +976,8 @@ Exercise an ordinary crew launch.
 
 ## Firstmate spec
 Verify secondmate harness settings do not affect it.
+
+Planning gate: exception=one-line reason=crew-unaffected fixture brief
 EOF
   : > "$launchlog"
   PATH="$fakebin:$BASE_PATH" TMUX="fake,1,0" CLAUDECODE=1 \
@@ -980,10 +990,11 @@ EOF
   [ "$(meta_field "$meta" kind)" = ship ] || fail "crew-unaffected: expected an ordinary ship task"
   [ "$(meta_field "$meta" harness)" = codex ] || fail "crew-unaffected: crew harness resolution changed"
   [ "$(meta_field "$meta" model)" = default ] || fail "crew-unaffected: crew task must not invent a model"
-  [ "$(meta_field "$meta" effort)" = default ] || fail "crew-unaffected: crew task must not invent an effort"
+  [ "$(meta_field "$meta" effort)" = low ] || fail "crew-unaffected: crew task must run at the standing low"
   launch=$(cat "$launchlog")
   assert_not_contains "$launch" "--model" "crew-unaffected: crew launch must not carry a --model flag"
-  assert_not_contains "$launch" "--effort" "crew-unaffected: crew launch must not carry an --effort flag"
+  assert_contains "$launch" "model_reasoning_effort=\"low\"" \
+    "crew-unaffected: crew launch did not carry the standing low effort"
   pass "C9 spawn: the harness fallback chain still resolves with no tokens; crew/scout launches are unaffected by this feature"
 }
 

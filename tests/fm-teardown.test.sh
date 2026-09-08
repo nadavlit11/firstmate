@@ -195,6 +195,13 @@ write_meta() {
     "kind=$kind" \
     "mode=$mode" \
     "spawn_gen=teardown-test-task-x1"
+  # A ship task carries the retro receipt its worker wrote before validation
+  # (bin/fm-retro-lib.sh); the retro gate itself has its own tests below.
+  if [ "$kind" = ship ]; then
+    mkdir -p "$case_dir/data/task-x1"
+    printf 'Retro: quick\nReason: teardown fixture ship task\n' \
+      > "$case_dir/data/task-x1/retro.md"
+  fi
 }
 
 # Commit something on the worktree's task branch. Args: case_dir [message]
@@ -3252,6 +3259,175 @@ test_parked_run_advanced_head_locally_fetched_is_still_aborted
 test_parked_advanced_run_without_anchor_is_never_aborted
 test_parked_advanced_run_ancestor_anchor_is_never_aborted
 test_parked_terminal_unfetched_row_is_never_aborted
+# --- retro gate (bin/fm-retro-lib.sh) ----------------------------------------
+# A ship's lessons belong in the branch that produced them, so the worker owes a
+# retro receipt before validation. This is the destructive-boundary backstop:
+# cleanup refuses to erase a ship task's records when that receipt is missing or
+# when the task is claiming a skip it did not earn.
+
+retro_receipt() { # <case-dir> <contents...>
+  local case_dir=$1; shift
+  mkdir -p "$case_dir/data/task-x1"
+  printf '%s\n' "$@" > "$case_dir/data/task-x1/retro.md"
+}
+
+retro_case() { # <name> <mode>
+  local case_dir
+  case_dir=$(make_case "$1")
+  write_meta "$case_dir" "${2:-no-mistakes}" ship
+  wt_commit "$case_dir" "fix: the thing"
+  add_fork_with_pushed_branch "$case_dir"
+  printf '%s\n' "$case_dir"
+}
+
+test_teardown_refuses_eligible_ship_without_retro_receipt() {
+  local case_dir rc
+  case_dir=$(retro_case retro-missing)
+  rm -f "$case_dir/data/task-x1/retro.md"
+
+  set +e
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "retro-missing: cleanup continued with no retro receipt"
+  assert_grep "has no retro receipt" "$case_dir/stderr" \
+    "retro-missing: the refusal did not name the missing receipt"
+  [ -e "$case_dir/state/task-x1.meta" ] \
+    || fail "retro-missing: the refusal erased the task record"
+  [ -d "$case_dir/wt" ] || fail "retro-missing: the refusal removed the isolated copy"
+  pass "cleanup refuses a ship task with no retro receipt and changes nothing"
+}
+
+test_teardown_accepts_valid_quick_and_full_receipts() {
+  local case_dir rc tier
+  for tier in quick full; do
+    case_dir=$(retro_case "retro-$tier")
+    retro_receipt "$case_dir" "Retro: $tier" "Reason: the work taught something worth keeping"
+
+    set +e
+    run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+    rc=$?
+    set -e
+    expect_code 0 "$rc" "retro-$tier: cleanup should proceed on a completed retro"
+    ! grep -q "retro" "$case_dir/stderr" || fail "retro-$tier: a completed retro still printed a retro line"
+  done
+  pass "cleanup proceeds on a quick or full retro receipt"
+}
+
+test_teardown_accepts_reasoned_skip_for_trivial_ship() {
+  local case_dir rc
+  case_dir=$(make_case retro-skip)
+  fm_write_meta "$case_dir/state/task-x1.meta" \
+    "window=firstmate:fm-task-x1" \
+    "endpoint_task_id=task-x1" \
+    "worktree=$case_dir/wt" \
+    "project=$case_dir/project" \
+    "kind=ship" \
+    "mode=no-mistakes" \
+    "base=main" \
+    "planning_exception=one-line" \
+    "spawn_gen=teardown-test-task-x1"
+  wt_commit "$case_dir" "raise the timeout constant"
+  add_fork_with_pushed_branch "$case_dir"
+  retro_receipt "$case_dir" "Retro: skip" "Reason: a one-line constant change that stayed one line"
+
+  set +e
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+  expect_code 0 "$rc" "retro-skip: a reasoned skip on an exempt one-line ship should proceed"
+  assert_grep "RETRO SKIPPED: task-x1: a one-line constant change that stayed one line" \
+    "$case_dir/stderr" "retro-skip: the accepted skip and its reason were not surfaced"
+  pass "cleanup accepts a reasoned skip from a ship that shipped under a planning exemption"
+}
+
+test_teardown_rejects_skip_on_a_planned_ship() {
+  local case_dir rc
+  case_dir=$(retro_case retro-skip-planned)
+  retro_receipt "$case_dir" "Retro: skip" "Reason: nothing interesting happened"
+
+  set +e
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "retro-skip-planned: a planned ship skipped its retro"
+  assert_grep "it was planned, so it was already classified as non-trivial" "$case_dir/stderr" \
+    "retro-skip-planned: the refusal did not explain why a planned ship cannot skip"
+  pass "cleanup rejects a skip from a ship that was planned"
+}
+
+test_retro_gate_runs_before_any_destructive_action() {
+  local case_dir rc
+  case_dir=$(retro_case retro-ordering)
+  rm -f "$case_dir/data/task-x1/retro.md"
+  : > "$case_dir/treehouse.log"
+  cat > "$case_dir/fakebin/treehouse" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$FM_FAKE_TREEHOUSE_LOG"
+exit 0
+SH
+  chmod +x "$case_dir/fakebin/treehouse"
+
+  set +e
+  FM_FAKE_TREEHOUSE_LOG="$case_dir/treehouse.log" \
+    run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "retro-ordering: cleanup continued past the retro gate"
+  [ ! -s "$case_dir/treehouse.log" ] \
+    || fail "retro-ordering: the isolated copy was returned before the retro gate ran"
+  [ -d "$case_dir/wt" ] || fail "retro-ordering: the refusal removed the isolated copy"
+  [ -e "$case_dir/state/task-x1.meta" ] || fail "retro-ordering: the refusal erased the task record"
+  pass "the retro gate runs before the isolated copy, endpoint, or records are touched"
+}
+
+test_force_bypasses_retro_only_as_explicit_discard() {
+  local case_dir rc
+  case_dir=$(retro_case retro-force)
+  rm -f "$case_dir/data/task-x1/retro.md"
+
+  set +e
+  run_teardown "$case_dir" --force > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+  expect_code 0 "$rc" "retro-force: explicit discard authority should carry past the retro gate"
+  ! grep -q "has no retro receipt" "$case_dir/stderr" \
+    || fail "retro-force: --force still refused on the retro gate"
+  pass "--force carries past the retro gate the way it carries past every other cleanup gate"
+}
+
+test_scout_and_secondmate_teardown_are_retro_exempt() {
+  local case_dir kind
+  # A scout's deliverable is already knowledge and a secondmate is not one task,
+  # so neither owes a retro. Each still meets its OWN completion gate, so what
+  # this pins is that whatever stops them is never the retro receipt.
+  for kind in scout secondmate; do
+    case_dir=$(make_case "retro-exempt-$kind")
+    write_meta "$case_dir" no-mistakes "$kind"
+    rm -f "$case_dir/data/task-x1/retro.md"
+    wt_commit "$case_dir" "fix: work that would make a ship owe a retro"
+    add_fork_with_pushed_branch "$case_dir"
+
+    set +e
+    run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+    set -e
+    ! grep -q "retro receipt" "$case_dir/stderr" \
+      || fail "retro-exempt-$kind: a $kind was refused for a missing retro receipt"
+    ! grep -q "cannot skip retro" "$case_dir/stderr" \
+      || fail "retro-exempt-$kind: a $kind was held to the ship retro eligibility test"
+  done
+  # The same shape as a ship, which IS refused, so the exemption is a real
+  # difference rather than a gate that never fires.
+  case_dir=$(retro_case retro-exempt-ship-control)
+  rm -f "$case_dir/data/task-x1/retro.md"
+  set +e
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  set -e
+  assert_grep "has no retro receipt" "$case_dir/stderr" \
+    "retro-exempt: the control ship was not refused, so the exemption proves nothing"
+  pass "scouts and secondmates are not retro-gated, while the same-shaped ship is"
+}
+
 test_parked_run_terminal_newest_row_at_own_head_is_never_aborted
 test_parked_run_behind_diverged_newer_row_is_never_aborted
 test_parked_advanced_run_ambiguous_rows_are_never_aborted
@@ -3272,3 +3448,10 @@ test_process_spawned_during_grace_is_reaped_on_later_pass
 test_persistent_scan_refuses_after_bounded_retries
 test_process_exit_during_identity_lookup_does_not_refuse
 test_run_abort_precedes_process_reap_precedes_worktree_removal
+test_teardown_refuses_eligible_ship_without_retro_receipt
+test_teardown_accepts_valid_quick_and_full_receipts
+test_teardown_accepts_reasoned_skip_for_trivial_ship
+test_teardown_rejects_skip_on_a_planned_ship
+test_retro_gate_runs_before_any_destructive_action
+test_force_bypasses_retro_only_as_explicit_discard
+test_scout_and_secondmate_teardown_are_retro_exempt

@@ -65,6 +65,8 @@ Exercise backlog dispatch for $id.
 ## Firstmate spec
 Verify the atomic backlog transition.
 
+Planning gate: exception=one-line reason=backlog dispatch fixture brief
+
 # Definition of done
 Delivery contract: mode=no-mistakes
 EOF
@@ -389,6 +391,17 @@ write_task_meta() {  # <case-dir> <id> <kind> <mode> [extra-line...]
     "mode=$mode" \
     "yolo=off" \
     "$@"
+  # A ship task carries the retro receipt its worker wrote before validation
+  # (bin/fm-retro-lib.sh). This suite is about backlog transitions, so every
+  # ship fixture satisfies that gate the way a real one does; the retro gate has
+  # its own tests in tests/fm-teardown.test.sh.
+  [ "$kind" != ship ] || write_retro_receipt "$(home_of "$case_dir")/data" "$id"
+}
+
+# write_retro_receipt <data-dir> <id>
+write_retro_receipt() {
+  mkdir -p "$1/$2"
+  printf 'Retro: quick\nReason: backlog-transition fixture ship task\n' > "$1/$2/retro.md"
 }
 
 run_spawn() {  # <case-dir> <args...>
@@ -406,8 +419,12 @@ run_spawn() {  # <case-dir> <args...>
 }
 
 run_ship_spawn() {  # <case-dir> <id>
-  local case_dir=$1 id=$2
-  run_spawn "$case_dir" "$id" "$case_dir/project" --base main --mode no-mistakes --yolo off
+  local case_dir=$1 id=$2 rc=0
+  run_spawn "$case_dir" "$id" "$case_dir/project" --base main --mode no-mistakes --yolo off || rc=$?
+  # A real worker writes its retro receipt before validation (bin/fm-retro-lib.sh),
+  # so a spawned ship fixture that a later teardown must complete carries one too.
+  write_retro_receipt "${FM_DATA_OVERRIDE:-$(home_of "$case_dir")/data}" "$id"
+  return "$rc"
 }
 
 # Teardown against a recorded worktree that no longer exists: the landed-work and
@@ -658,6 +675,7 @@ test_completion_targets_a_nested_relative_data_directory() {
   tasks-axi add "$id" "item for $id" --kind ship --file "$backlog" >/dev/null
   tasks-axi start "$id" --file "$backlog" >/dev/null
   write_task_meta "$case_dir" "$id" ship local-only "spawn_gen=spawn-relative-data"
+  write_retro_receipt "$data" "$id"
 
   out=$(cd "$case_dir" && \
     FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$(home_of "$case_dir")" \
@@ -691,6 +709,7 @@ test_immediate_child_absolute_data_dispatches_and_completes() {
     || fail "immediate-child absolute dispatch mutated a different backlog"
   rm -f "$(home_of "$case_dir")/state/$id.meta"
   write_task_meta "$case_dir" "$id" ship local-only "spawn_gen=spawn-immediate-child"
+  write_retro_receipt "$data" "$id"
   out=$(FM_DATA_OVERRIDE="$data" run_teardown "$case_dir" "$id") \
     || fail "immediate-child-data teardown failed: $out"
   [ "$(tasks-axi show "$id" --file "$backlog" 2>/dev/null | sed -n 's/^  state: *//p' | head -1)" = "done" ] \
@@ -715,6 +734,7 @@ test_bare_relative_data_dispatches_and_completes() {
     || fail "bare relative dispatch mutated a different backlog"
   rm -f "$(home_of "$case_dir")/state/$id.meta"
   write_task_meta "$case_dir" "$id" ship local-only "spawn_gen=spawn-bare-relative"
+  write_retro_receipt "$data" "$id"
   out=$(cd "$case_dir" && FM_DATA_OVERRIDE=records run_teardown "$case_dir" "$id") \
     || fail "bare-relative-data teardown failed: $out"
   [ "$(tasks-axi show "$id" --file "$backlog" 2>/dev/null | sed -n 's/^  state: *//p' | head -1)" = "done" ] \

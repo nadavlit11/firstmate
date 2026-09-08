@@ -20,6 +20,8 @@ Exercise trace propagation for $2.
 
 ## Firstmate spec
 Verify the spawned process receives the expected trace context.
+
+Planning gate: exception=one-line reason=trace context dispatch fixture brief
 EOF
 }
 

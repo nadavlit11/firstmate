@@ -60,6 +60,8 @@ SH
   ln -s "$ROOT/bin/fm-cursor-lib.sh" "$fake/bin/fm-cursor-lib.sh"
   ln -s "$ROOT/bin/fm-composer-lib.sh" "$fake/bin/fm-composer-lib.sh"
   ln -s "$ROOT/bin/fm-nm-run-lib.sh" "$fake/bin/fm-nm-run-lib.sh"
+  # fm-retro-lib.sh: teardown sources it for the ship retro receipt gate.
+  ln -s "$ROOT/bin/fm-retro-lib.sh" "$fake/bin/fm-retro-lib.sh"
   # fm-lock-lib.sh: teardown sources it for the shared lock-staleness proof.
   ln -s "$ROOT/bin/fm-lock-lib.sh" "$fake/bin/fm-lock-lib.sh"
   # fm-lease-lib.sh: teardown sources it for the supervision lease guard.
@@ -124,7 +126,16 @@ mode=no-mistakes
 yolo=off
 tasktmp=$tasktmp
 META
+  write_retro_receipt "$fake" "$id"
   printf '%s' "$fake"
+}
+
+# A ship task carries the retro receipt its worker wrote before validation
+# (bin/fm-retro-lib.sh); this suite is about the per-task temp root, so its
+# fixtures satisfy that cleanup gate the way a real ship does.
+write_retro_receipt() {  # <home> <id>
+  mkdir -p "$1/data/$2"
+  printf 'Retro: quick\nReason: tasktmp fixture ship task\n' > "$1/data/$2/retro.md"
 }
 
 # --- fm-teardown side (real subprocess) ---
@@ -161,6 +172,8 @@ SH
   ln -s "$ROOT/bin/fm-cursor-lib.sh" "$fake/bin/fm-cursor-lib.sh"
   ln -s "$ROOT/bin/fm-composer-lib.sh" "$fake/bin/fm-composer-lib.sh"
   ln -s "$ROOT/bin/fm-nm-run-lib.sh" "$fake/bin/fm-nm-run-lib.sh"
+  # fm-retro-lib.sh: teardown sources it for the ship retro receipt gate.
+  ln -s "$ROOT/bin/fm-retro-lib.sh" "$fake/bin/fm-retro-lib.sh"
   ln -s "$ROOT/bin/fm-lock-lib.sh" "$fake/bin/fm-lock-lib.sh"
   # fm-lease-lib.sh: teardown sources it for the supervision lease guard.
   ln -s "$ROOT/bin/fm-lease-lib.sh" "$fake/bin/fm-lease-lib.sh"
@@ -213,6 +226,7 @@ kind=ship
 mode=no-mistakes
 yolo=off
 META
+  write_retro_receipt "$fake" "$id"
   FM_HOME="$fake" bash "$fake/bin/fm-teardown.sh" "$id" >/dev/null 2>&1 \
     || fail "teardown exited non-zero when tasktmp= was absent"
   pass "fm-teardown skips gracefully when tasktmp= is absent (backward compat)"

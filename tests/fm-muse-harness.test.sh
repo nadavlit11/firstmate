@@ -133,6 +133,8 @@ Exercise Muse dispatch.
 
 ## Firstmate spec
 Verify the Muse harness behavior under test.
+
+Planning gate: exception=one-line reason=muse dispatch fixture brief
 EOF
   fm_git_worktree "$proj" "$wt" "fm/$id"
   touch "$home/state/.last-watcher-beat"
@@ -272,23 +274,29 @@ test_spawn_maps_effort_and_model() {
     "xhigh|--reasoning-effort 'xhigh'"
     "max|--reasoning-effort 'ultra'"
   )
-  local entry effort expect
+  local entry effort expect reason
   for entry in "${cases[@]}"; do
     effort=${entry%%|*}
     expect=${entry#*|}
+    # Above low, the launch happens only under an explicit current exception
+    # (bin/fm-spawn.sh's EFFORT GATE); low needs none.
+    reason=
+    [ "$effort" = low ] || reason='captain exception recorded for this mapping test'
     rec=$(make_spawn_case "effort-$effort")
     IFS='|' read -r case_dir home proj wt fakebin id <<EOF
 $rec
 EOF
     run_muse_spawn "$home" "$proj" "$wt" "$fakebin" "$id" \
-      --base main --mode no-mistakes --yolo off --model muse-spark-1.2 --effort "$effort" >/dev/null \
+      --base main --mode no-mistakes --yolo off --model muse-spark-1.2 --effort "$effort" \
+      ${reason:+--effort-override-reason "$reason"} >/dev/null \
       || fail "muse spawn with effort $effort failed"
     launch=$(cat "$home/launch.log")
     assert_contains "$launch" "$expect" "muse effort $effort did not map to '$expect'"
     assert_contains "$launch" "--model 'muse-spark-1.2'" "muse spawn dropped the model axis"
   done
   # ultra is muse's max-class level and must be reachable ONLY through an
-  # explicit max, never as the fallback when no effort was chosen.
+  # explicit max with its own captain exception, never as a fallback: with no
+  # effort chosen at all, the spawn runs at low.
   rec=$(make_spawn_case effort-default)
   IFS='|' read -r case_dir home proj wt fakebin id <<EOF
 $rec
@@ -296,8 +304,11 @@ EOF
   run_muse_spawn "$home" "$proj" "$wt" "$fakebin" "$id" --base main --mode no-mistakes --yolo off >/dev/null \
     || fail "muse spawn without an effort axis failed"
   launch=$(cat "$home/launch.log")
-  assert_not_contains "$launch" '--reasoning-effort' "muse spawn invented an effort when none was chosen"
-  pass "muse maps the shared effort vocabulary and reaches ultra only via explicit max"
+  assert_contains "$launch" "--reasoning-effort 'low'" \
+    "muse spawn without an explicit effort did not default to low"
+  assert_no_grep "effort_override_reason=" "$home/state/$id.meta" \
+    "an unexceptional muse spawn must record no effort override reason"
+  pass "muse maps the shared effort vocabulary, defaults to low, and reaches ultra only via explicit max"
 }
 
 # An unauthenticated muse pane does not exit: it sits on an OAuth device-code

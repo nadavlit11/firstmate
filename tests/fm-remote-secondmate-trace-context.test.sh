@@ -307,4 +307,24 @@ try_flag 'requires a non-empty value' \
   --secondmate --traceparent=
 pass "delivery: a parent-supplied carrier is accepted only for a secondmate launch and only as a strict W3C value"
 
+# --- the effort gate's AUTHORITY must cross the host boundary too -----------
+# The remote host re-runs enforce_effort_gate, so a capability reason accepted
+# here has to arrive there: without it an adapter with no verified low-effort
+# axis is refused on the far side even though the exception was granted, and a
+# remote secondmate on kimi/opencode/cursor becomes unspawnable. The reason must
+# SURVIVE the boundary rather than be reconstructed there.
+reset_remote_herdr_fixture "$HERDR_STATE"
+: > "$HERDR_LOG"
+rm -f "$PARENT/state/ios.meta" "$REMOTE_HOME/state/parent-route/ios.meta"
+if ! out=$(remote_env "$ROOT/bin/fm-spawn.sh" ios --secondmate --harness opencode \
+  --effort-override-reason 'opencode is required for this mate despite an unprovable effort axis' 2>&1); then
+  fail "a remote secondmate on a no-axis harness must launch when a written capability reason is given: $out"
+fi
+assert_present "$PARENT/state/ios.meta" "the authorized remote spawn published no parent metadata"
+grep -q 'opencode is required for this mate despite an unprovable effort axis' \
+  "$REMOTE_HOME/state/parent-route/ios.meta" \
+  || grep -q 'opencode is required for this mate despite an unprovable effort axis' "$HERDR_LOG" \
+  || fail "the capability reason did not survive the host boundary"
+pass "authority: a written capability reason crosses to the remote host with the launch it authorizes"
+
 echo "ALL TESTS PASSED"

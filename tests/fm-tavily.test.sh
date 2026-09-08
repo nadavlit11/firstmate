@@ -273,7 +273,8 @@ test_unwired_harness_gets_nothing() {
   read_case_record "$rec"
   write_key "$HOME_DIR"
 
-  out=$(run_spawn "$id" --mode no-mistakes --yolo off)
+  out=$(run_spawn "$id" --mode no-mistakes --yolo off \
+    --effort-override-reason 'the Tavily fixture requires the unwired OpenCode harness')
   status=$?
   expect_code 0 "$status" "a spawn on an unwired harness should still succeed"
   assert_no_grep 'mcp.tavily.com' "$LAUNCH_LOG" \
@@ -293,10 +294,12 @@ test_scaffolded_brief_never_mentions_tavily() {
   home="$dir/home"
   fm_test_spawn_home "$home" claude
 
-  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" tv-off demo --base main --mode no-mistakes >/dev/null \
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" tv-off demo --base main --mode no-mistakes \
+    --planning-exception precedent-following --planning-reason 'Tavily scaffold fixture brief' >/dev/null \
     || fail "scaffolding a brief without a key failed"
   write_key "$home"
-  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" tv-on demo --base main --mode no-mistakes >/dev/null \
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" tv-on demo --base main --mode no-mistakes \
+    --planning-exception precedent-following --planning-reason 'Tavily scaffold fixture brief' >/dev/null \
     || fail "scaffolding a brief with a key failed"
   FM_HOME="$home" "$ROOT/bin/fm-brief.sh" tv-scout demo --base main --scout >/dev/null \
     || fail "scaffolding a scout brief with a key failed"
@@ -304,7 +307,8 @@ test_scaffolded_brief_never_mentions_tavily() {
   # A dispatch profile is no longer a special case for scaffolding, because a
   # brief that makes no harness-specific claim cannot make a wrong one.
   printf '{}\n' > "$home/config/crew-dispatch.json"
-  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" tv-dispatch demo --base main --mode no-mistakes >/dev/null \
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" tv-dispatch demo --base main --mode no-mistakes \
+    --planning-exception precedent-following --planning-reason 'Tavily scaffold fixture brief' >/dev/null \
     || fail "a dispatch-profile scaffold with a key was refused"
 
   for id in tv-off tv-on tv-scout tv-dispatch; do
@@ -364,7 +368,8 @@ test_unwired_launch_tells_the_worker_nothing() {
   read_case_record "$rec"
   write_key "$HOME_DIR"
 
-  out=$(run_spawn "$id" --mode no-mistakes --yolo off)
+  out=$(run_spawn "$id" --mode no-mistakes --yolo off \
+    --effort-override-reason 'the Tavily fixture requires the unwired OpenCode harness')
   status=$?
   expect_code 0 "$status" "a spawn on an unwired harness should still succeed"
   brief=$(launched_brief_path)
@@ -384,7 +389,8 @@ test_explicit_harness_override_cannot_drift_from_the_brief() {
   read_case_record "$rec"
   write_key "$HOME_DIR"
   rm -f "$HOME_DIR/data/$id/brief.md"
-  FM_HOME="$HOME_DIR" "$ROOT/bin/fm-brief.sh" "$id" demo --base main --mode no-mistakes >/dev/null \
+  FM_HOME="$HOME_DIR" "$ROOT/bin/fm-brief.sh" "$id" demo --base main --mode no-mistakes \
+    --planning-exception precedent-following --planning-reason 'Tavily scaffold fixture brief' >/dev/null \
     || fail "scaffolding the brief failed"
   # Firstmate fills these before dispatch; spawn refuses a brief that still has them.
   if sed -e 's/{TASK}/Investigate the thing./' -e 's/{FIRSTMATE_SPEC}/Exercise the spawn behavior under test./' \
@@ -395,7 +401,8 @@ test_explicit_harness_override_cannot_drift_from_the_brief() {
     fail "could not fill the scaffolded brief"
   fi
 
-  out=$(run_spawn "$id" --mode no-mistakes --yolo off --harness opencode)
+  out=$(run_spawn "$id" --mode no-mistakes --yolo off --harness opencode \
+    --effort-override-reason 'the Tavily fixture requires the unwired OpenCode harness')
   status=$?
   expect_code 0 "$status" "spawning with an explicit unwired harness should succeed: $out"
   brief=$(launched_brief_path)
@@ -524,7 +531,9 @@ test_unreadable_key_file_is_reported_as_a_permissions_problem() {
     *"$SECRET"*) fail "the spawn leaked the key value" ;;
   esac
 
-  FM_HOME="$HOME_DIR" "$ROOT/bin/fm-brief.sh" tv-unreadable demo --base main --mode no-mistakes >/dev/null 2>&1 \
+  FM_HOME="$HOME_DIR" "$ROOT/bin/fm-brief.sh" tv-unreadable demo --base main --mode no-mistakes \
+    --planning-exception precedent-following \
+    --planning-reason 'this fixture repeats the established Tavily brief behavior' >/dev/null 2>&1 \
     || fail "scaffolding a brief with an unreadable key file failed"
   assert_no_grep 'tavily_search' "$HOME_DIR/data/tv-unreadable/brief.md" \
     "a brief advertised Tavily from a key file that cannot be read"

@@ -611,7 +611,14 @@ test_relaunch_only_flags_are_rejected_on_other_verbs() {
   out=$(run_control "$dir" t1 exit --harness codex); rc=$?
   expect_code 1 "$rc" "--harness should not apply to exit"
   assert_contains "$out" "apply to 'relaunch' only" "the refusal should scope the flags"
-  pass "fm-control: profile and note flags belong to relaunch only"
+  out=$(run_control "$dir" t1 exit --effort-override-reason "captain exception"); rc=$?
+  expect_code 1 "$rc" "--effort-override-reason should not apply to exit"
+  assert_contains "$out" "apply to 'relaunch' only" "the refusal should scope the flags"
+  out=$(run_control "$dir" t1 relaunch --effort-override-reason= --note "x"); rc=$?
+  expect_code 1 "$rc" "an empty --effort-override-reason should be refused"
+  assert_contains "$out" "--effort-override-reason requires a non-empty value" \
+    "an override reason with no text behind it must not stand in for one"
+  pass "fm-control: profile and note flags belong to relaunch only, and carry non-empty values"
 }
 
 # --- 5. lifecycle states ----------------------------------------------------

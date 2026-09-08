@@ -153,6 +153,8 @@ Exercise Kimi dispatch.
 
 ## Firstmate spec
 Verify launch and delivery behavior.
+
+Planning gate: exception=one-line reason=kimi dispatch fixture brief
 EOF
   printf 'kimi\n' > "$home/config/crew-harness"
   fm_git_worktree "$proj" "$wt" "wt-$name"
@@ -180,7 +182,9 @@ run_spawn() {
     FM_FAKE_BRIEF_REAL="$(cd "$home/data/$id" && pwd -P)/launch-brief.md" \
     FM_KIMI_READY_POLLS=2 FM_KIMI_DELIVERY_POLLS=2 FM_KIMI_POLL_INTERVAL=0 \
     PATH="$fakebin:$BASE_PATH" \
-    "$SPAWN" "$id" "$proj" --harness kimi --base main --mode no-mistakes --yolo off "$@" 2>&1
+    "$SPAWN" "$id" "$proj" --harness kimi --base main --mode no-mistakes --yolo off \
+    --effort-override-reason 'kimi exposes no reasoning-effort flag, so low cannot be enforced on its launch' \
+    "$@" 2>&1
 }
 
 read_spawn_record() {
@@ -217,7 +221,8 @@ test_kimi_launch_then_send_is_verified() {
     || fail "kimi pointer was not the exact absolute-path-only instruction: $pointer"
   meta="$HOME_DIR/state/$id.meta"
   assert_grep 'model=kimi-code/k3' "$meta" "kimi meta lost the requested model"
-  assert_grep 'effort=high' "$meta" "kimi meta did not retain the unsupported effort axis"
+  assert_grep 'effort=unenforced:high' "$meta" \
+    "kimi's launch carried no effort flag, so the record must mark the level unenforced rather than claim it"
   assert_grep "tasktmp=$task_tmp" "$meta" "kimi meta did not record its task temp root"
   assert_present "$task_tmp/gotmp" "kimi spawn did not create its Go temp directory"
   assert_grep "export GOTMPDIR=$task_tmp/gotmp" "$CASE_DIR/tmux-calls.log" \

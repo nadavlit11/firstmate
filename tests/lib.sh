@@ -289,6 +289,20 @@ fm_write_meta() {
   done
 }
 
+# fm_write_retro_receipt <meta-file>: write the retro receipt a real ship task
+# carries by the time it is torn down (bin/fm-retro-lib.sh). The worker writes it
+# before validation, so a fixture standing in for a shipped task needs it or
+# cleanup refuses for a reason the suite is not measuring. Both the home and the
+# task id are derived from the meta path, so callers pass only the file they
+# just wrote.
+fm_write_retro_receipt() {
+  local file=$1 home id
+  home=$(dirname "$(dirname "$file")")
+  id=$(basename "$file" .meta)
+  mkdir -p "$home/data/$id"
+  printf 'Retro: quick\nReason: test fixture ship task\n' > "$home/data/$id/retro.md"
+}
+
 # fm_write_secondmate_meta <file> <home> [window] [projects] [harness]: write the
 # standard kind=secondmate meta block used across the secondmate suites. Window
 # defaults to firstmate:fm-<id>, projects defaults to alpha, and harness defaults

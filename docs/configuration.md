@@ -264,6 +264,18 @@ Fleet-local operational facts and gotchas live locally in `data/learnings.md`; i
 The file is created lazily on first learning and follows the internal [`stow` skill's](../.agents/skills/stow/SKILL.md) aging-tier and cold-archive contract: inspect the current file first and curate it instead of appending forever.
 There is no shared learnings file by captain decision.
 
+## Ship retro receipts (data/<task-id>/retro.md)
+
+Every ship task writes a retro receipt at `data/<task-id>/retro.md` before its work is validated or its PR is opened, and cleanup refuses to remove a ship task that has none.
+The receipt records the tier the work earned (`quick`, `full`, or a reasoned `skip`), why that tier applies, and where each lesson went.
+Project-owned lessons - a rule for the project's `AGENTS.md`, a `.claude/review-rubrics/<lens>.md` check, a regression test, a doc fix - are committed in the task's own branch, so they ship with the change that produced them.
+Lessons that belong to this home are recorded on the receipt as candidates and applied by firstmate to `data/learnings.md` or `data/captain.md`, because a worker cannot write outside its own copy.
+
+A `skip` is not freely available: a task that was planned, or that grew past the exemption it shipped under, must complete a retro, and `bin/fm-retro-lib.sh` owns the receipt format and that exact eligibility test.
+Scouts and persistent secondmates are not retro-gated: a scout's deliverable is already knowledge, and a secondmate is not one task.
+The internal [`retro` skill](../.agents/skills/retro/SKILL.md) owns the judgment - which tier applies, which lessons are worth keeping, and where each one belongs.
+The escape hatch is the same one every other cleanup gate has: `bin/fm-teardown.sh --force` is explicit discard authority and carries past this gate too.
+
 ## Startup memory budget (config/startup-memory-budget)
 
 `config/startup-memory-budget` is the primary-authoritative per-home allowance for the startup prompt-memory surface: `data/captain.md`, `data/captain-shared.md`, and `data/learnings.md` together.
@@ -365,9 +377,12 @@ The first non-empty, non-comment line is parsed as `<harness> [<model>] [<effort
 A bare `<harness>` preserves the previous behavior: harness only, with no model or effort launch flag.
 When the harness token is absent or `default`, secondmate launch falls back through `config/crew-harness` and then the primary's own harness, and no model or effort is read from that file.
 `fm-harness.sh secondmate-model` and `fm-harness.sh secondmate-effort` expose only the optional tokens from `config/secondmate-harness`; `config/crew-harness` remains a bare adapter-name file.
+The effort token may only be `low`, which is what every spawn already runs at; any other value is refused by both the local and the remote secondmate spawn and reported at session start as `SECONDMATE_HARNESS: invalid config/secondmate-harness - ...`.
+A resolved secondmate harness with no verified low-effort launch axis (`opencode`, `kimi`, `cursor`) is reported at session start as `SECONDMATE_HARNESS: warning ...` rather than refused - resolved through this file, then `config/crew-harness`, then the primary's own harness, so the warning names the resolution chain rather than assuming this file supplied it: every spawn selecting it needs `--effort-override-reason` naming the capability gap, and once such a spawn has recorded that reason the mate's own record carries it so a liveness respawn or relaunch stays automatic.
 Changing this pin affects the next secondmate spawn or control-plane relaunch; the relaunch profile rules are owned by [`docs/agent-control.md`](agent-control.md#transactional-relaunch).
 An explicit harness argument to `fm-spawn.sh` still overrides either config file for that spawn only.
-An explicit `--model` or `--effort` overrides the matching token from `config/secondmate-harness`; for a local route, an explicit harness or raw launch command starts with clean model and effort defaults unless those flags are also passed.
+An explicit `--model` overrides the model token from `config/secondmate-harness`; for a local route, an explicit harness or raw launch command starts with a clean model default unless that flag is also passed.
+Effort is not part of that precedence at all: `AGENTS.md` section 4 and `bin/fm-spawn.sh --help` own the rule that every spawn runs at `low` unless the current invocation carries an explicit written exception.
 Remote secondmate routes accept verified harness adapters only and reject raw launch commands.
 When `config/crew-dispatch.json` exists, crewmate and scout spawns require an explicit resolved harness instead of automatically falling back to `config/crew-harness`.
 The inherited-local-material contract is owned by [`secondmate-provisioning`](../.agents/skills/secondmate-provisioning/SKILL.md); its harness-relevant consequence is that a secondmate's own crewmates use the primary's dispatch profiles and static harness value.
@@ -411,14 +426,15 @@ Per rule, `when` and `use` are required.
 Both `use` and the optional top-level `default` accept either one profile object or a non-empty array of profile objects.
 The single-object form stays fully backward-compatible, and every profile needs `harness`.
 Profile `model` and `effort` fields and rule `why` are optional.
-An omitted model or effort means the selected harness uses its own default for that axis.
+An omitted model means the selected harness uses its own default model.
+An omitted effort means `low`, and `low` is the only value a profile may carry: standing configuration cannot authorize a higher level, so any other value is refused rather than applied.
 Every profile array is an implicit quota-aware choice resolved through `quota-array-dispatch`.
 If no dispatch rule fits, firstmate resolves `default` through the same object-or-array path before falling back to `config/crew-harness`.
-If a selected profile carries an effort value the chosen harness does not accept, `fm-spawn.sh` records the requested `effort=` in task meta for traceability but omits the launch flag, and bootstrap reports the invalid harness/effort pair as a `CREW_DISPATCH` diagnostic when it is visible in the file.
+A profile carrying any effort other than `low`, or a `low` the chosen harness has no verified launch axis for, is reported by bootstrap as a `CREW_DISPATCH` diagnostic and must be corrected in the file; raising effort for one task is a per-spawn exception on the command line, never a stored value.
 See [`docs/examples/crew-dispatch.json`](examples/crew-dispatch.json) for a starting point to copy into local `config/crew-dispatch.json`.
 When the file exists, bootstrap validates it with `jq`.
 Valid files stay silent by default; with `FM_BOOTSTRAP_VERBOSE_FACTS=1`, bootstrap emits `BOOTSTRAP_INFO: crew dispatch active config/crew-dispatch.json`, one `BOOTSTRAP_INFO:` fact per rule, and one fact for the optional default profile set.
-Malformed JSON, an empty or malformed rule/default array, an unverified harness, or an effort value unsupported by that harness is reported as `CREW_DISPATCH: invalid config/crew-dispatch.json - ...`; missing `jq` is reported through the normal `MISSING: jq` install-consent flow.
+Malformed JSON, an empty or malformed rule/default array, an unverified harness, a non-`low` effort, or an effort value unsupported by that harness is reported as `CREW_DISPATCH: invalid config/crew-dispatch.json - ...`; missing `jq` is reported through the normal `MISSING: jq` install-consent flow.
 While the file remains present, no crewmate or scout spawn may proceed without an explicit resolved harness; malformed configuration must be reported and corrected rather than selected around.
 Secondmate homes inherit this file from the primary, so a secondmate's own crewmates apply the same dispatch profile behavior.
 

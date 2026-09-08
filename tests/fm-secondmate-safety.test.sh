@@ -59,7 +59,13 @@ test_fm_home_parameterization() {
   out=$(FM_HOME="$home_two" "$ROOT/bin/fm-project-mode.sh" app 2>/dev/null)
   [ "$out" = "no-mistakes off" ] || fail "fm-project-mode did not isolate missing registry by home"
 
-  FM_HOME="$home_one" "$ROOT/bin/fm-brief.sh" task-a app --base main --mode no-mistakes >/dev/null || fail "brief scaffold failed under FM_HOME"
+  # This suite measures FM_HOME path parameterization, not the planning gate, so
+  # its ship scaffold carries the typed disposition every ship brief now needs
+  # (bin/fm-brief.sh "PLANNING GATE").
+  FM_HOME="$home_one" "$ROOT/bin/fm-brief.sh" task-a app --base main --mode no-mistakes \
+    --planning-exception precedent-following \
+    --planning-reason "fixture following tests/fm-secondmate-safety.test.sh home parameterization precedent" \
+    >/dev/null || fail "brief scaffold failed under FM_HOME"
   brief="$home_one/data/task-a/brief.md"
   [ -f "$brief" ] || fail "brief was not written under FM_HOME/data"
   grep -F ">> '$home_one/state/task-a.status'" "$brief" >/dev/null || fail "brief did not shell-quote FM_HOME state path"

@@ -202,8 +202,8 @@ test_ship_modes_generate_clean_briefs() {
   for id_mode in "brief-nomistakes-a1:no-mistakes" "brief-directpr-a2:direct-PR" "brief-localonly-a3:local-only"; do
     id=${id_mode%%:*}
     mode=${id_mode##*:}
-    FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" some-proj --base main --mode "$mode" >/dev/null 2>&1; status=$?
-    expect_code 0 "$status" "fm-brief.sh $id --base main --mode $mode should exit 0"
+    FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" some-proj --base main --mode "$mode" --planning-exception one-line --planning-reason 'test scaffold for brief behavior' >/dev/null 2>&1; status=$?
+    expect_code 0 "$status" "fm-brief.sh $id --base main --mode $mode should exit 0" --planning-exception one-line --planning-reason 'test scaffold for brief behavior'
     brief="$home/data/$id/brief.md"
     assert_present "$brief" "$id: brief was not scaffolded"
     assert_grep "# Definition of done" "$brief" "$id: brief missing Definition of done section"
@@ -245,7 +245,7 @@ empty --mode value|--mode|requires a value
 unknown mode value|--mode nope|must be one of no-mistakes, direct-PR, local-only
 conditional policy is not a task mode|--mode no-mistakes-prod-only|classify this task's surface
 ROWS
-  pass "fm-brief.sh: ship --mode is required and closed-set validated"
+  pass "fm-brief.sh: ship --mode is required and closed-set validated" --planning-exception one-line --planning-reason 'test scaffold for brief behavior'
 }
 
 # The registry is the captain's standing posture, not this task's answer: the
@@ -255,7 +255,7 @@ test_ship_mode_is_explicit_not_registry() {
   local home brief
   home="$TMP_ROOT/explicit-over-registry-home"
   write_registry "$home"
-  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" brief-explicit-a5 direct-proj --base main --mode no-mistakes >/dev/null 2>&1 \
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" brief-explicit-a5 direct-proj --base main --mode no-mistakes --planning-exception one-line --planning-reason 'test scaffold for brief behavior' >/dev/null 2>&1 \
     || fail "explicit no-mistakes brief on a direct-PR project should scaffold"
   brief="$home/data/brief-explicit-a5/brief.md"
   grep -qx "Delivery contract: mode=no-mistakes" "$brief" \
@@ -264,7 +264,7 @@ test_ship_mode_is_explicit_not_registry() {
     "explicit no-mistakes brief did not render the pipeline definition of done"
 
   # An unregistered project is not a blocker either, because nothing is looked up.
-  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" brief-explicit-a6 never-registered --base main --mode local-only >/dev/null 2>&1 \
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" brief-explicit-a6 never-registered --base main --mode local-only --planning-exception one-line --planning-reason 'test scaffold for brief behavior' >/dev/null 2>&1 \
     || fail "unregistered project should still scaffold from the explicit mode"
   grep -qx "Delivery contract: mode=local-only" "$home/data/brief-explicit-a6/brief.md" \
     || fail "unregistered project did not honour the explicit --mode"
@@ -291,7 +291,7 @@ yolo=value form on a ship brief|brief-refused-b2 some-proj --mode direct-PR --yo
 mode on a scout brief|brief-refused-b3 some-proj --scout --mode direct-PR|--mode applies only to ship briefs
 mode on a secondmate charter|brief-refused-b4 --secondmate --no-projects --mode no-mistakes|--mode applies only to ship briefs
 ROWS
-  pass "fm-brief.sh: --yolo and scout/secondmate --mode are refused, never silently dropped"
+  pass "fm-brief.sh: --yolo and scout/secondmate --mode are refused, never silently dropped" --planning-exception one-line --planning-reason 'test scaffold for brief behavior'
 }
 
 test_faster_paths_use_configured_authority_without_stacked_review() {
@@ -299,14 +299,14 @@ test_faster_paths_use_configured_authority_without_stacked_review() {
   home="$TMP_ROOT/configured-authority-home"
   write_registry "$home"
   id="brief-direct-authority-a4"
-  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" direct-proj --base main --mode direct-PR >/dev/null 2>&1
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" direct-proj --base main --mode direct-PR --planning-exception one-line --planning-reason 'test scaffold for brief behavior' >/dev/null 2>&1
   brief="$home/data/$id/brief.md"
   assert_grep "The configured merge authority decides whether to merge the PR; firstmate relays the outcome." "$brief" \
     "direct-PR brief lost configured merge authority"
   assert_no_grep "The captain reviews and merges the PR" "$brief" \
     "direct-PR brief hard-coded captain-only authority"
   id="brief-local-authority-a4"
-  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" local-proj --base main --mode local-only >/dev/null 2>&1
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" local-proj --base main --mode local-only --planning-exception one-line --planning-reason 'test scaffold for brief behavior' >/dev/null 2>&1
   brief="$home/data/$id/brief.md"
   assert_grep "The configured merge authority approves the ready branch, then firstmate merges it into local \`main\` through the guarded fast-forward path." "$brief" \
     "local-only brief lost configured merge authority and guarded landing"
@@ -317,7 +317,7 @@ test_faster_paths_use_configured_authority_without_stacked_review() {
   assert_no_grep "pass \`--intent\` as only this brief's \`## Captain's intent\`" "$home/data/$id/brief.md" \
     "local-only brief must not include the no-mistakes --intent contract"
   id="brief-direct-intent-a4"
-  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" direct-proj --base main --mode direct-PR >/dev/null 2>&1
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" direct-proj --base main --mode direct-PR --planning-exception one-line --planning-reason 'test scaffold for brief behavior' >/dev/null 2>&1
   assert_no_grep "pass \`--intent\` as only this brief's \`## Captain's intent\`" "$home/data/$id/brief.md" \
     "direct-PR brief must not include the no-mistakes --intent contract"
   pass "fm-brief.sh: faster paths use configured authority without stacked review"
@@ -332,7 +332,7 @@ test_browser_rule_is_harness_neutral() {
   local home id brief
   home="$TMP_ROOT/harness-neutral-home"
   mkdir -p "$home/data"
-  for id_mode in "brief-browser-ship:--mode no-mistakes" "brief-browser-scout:--scout"; do
+  for id_mode in "brief-browser-ship:--mode no-mistakes --planning-exception one-line --planning-reason test-scaffold" "brief-browser-scout:--scout"; do
     id=${id_mode%%:*}
     # shellcheck disable=SC2086  # the flag pair is deliberately word-split
     FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" some-proj --base main ${id_mode#*:} >/dev/null 2>&1 \
@@ -357,7 +357,7 @@ test_pipeline_invocation_names_both_harness_forms() {
   home="$TMP_ROOT/invocation-home"
   mkdir -p "$home/data"
   id="brief-invocation-nm"
-  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" some-proj --base main --mode no-mistakes >/dev/null 2>&1
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" some-proj --base main --mode no-mistakes --planning-exception one-line --planning-reason 'test scaffold for brief behavior' >/dev/null 2>&1
   brief="$home/data/$id/brief.md"
   # shellcheck disable=SC2016  # single quotes are deliberate: $no-mistakes must stay literal
   assert_grep 'invoke the no-mistakes skill - `$no-mistakes` on Codex, `/no-mistakes` on every other harness' "$brief" \
@@ -367,7 +367,7 @@ test_pipeline_invocation_names_both_harness_forms() {
   assert_grep "After the no-mistakes pipeline reports CI green" "$brief" \
     "no-mistakes brief still tied the CI-green return point to one harness's invocation"
   id="brief-invocation-direct"
-  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" some-proj --base main --mode direct-PR >/dev/null 2>&1
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" some-proj --base main --mode direct-PR --planning-exception one-line --planning-reason 'test scaffold for brief behavior' >/dev/null 2>&1
   brief="$home/data/$id/brief.md"
   # shellcheck disable=SC2016  # single quotes are deliberate: $no-mistakes must stay literal
   assert_grep 'Do NOT run the no-mistakes skill (`$no-mistakes` on Codex, `/no-mistakes` on every other harness).' "$brief" \
@@ -380,7 +380,7 @@ test_no_mistakes_dod_wording() {
   home="$TMP_ROOT/wording-home"
   mkdir -p "$home/data"
   id="brief-wording-b1"
-  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" some-proj --base main --mode no-mistakes >/dev/null 2>&1
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" some-proj --base main --mode no-mistakes --planning-exception one-line --planning-reason 'test scaffold for brief behavior' >/dev/null 2>&1
   brief="$home/data/$id/brief.md"
   assert_present "$brief" "brief was not scaffolded"
   assert_grep "no-mistakes itself provides for the mechanics" "$brief" \
@@ -433,7 +433,7 @@ test_no_ci_contract_is_rendered_for_no_mistakes() {
   home="$TMP_ROOT/no-ci-home"
   mkdir -p "$home/data"
   id="brief-no-ci-e1"
-  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" some-proj --base main --mode no-mistakes >/dev/null 2>&1
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" some-proj --base main --mode no-mistakes --planning-exception one-line --planning-reason 'test scaffold for brief behavior' >/dev/null 2>&1
   brief="$home/data/$id/brief.md"
   assert_present "$brief" "brief was not scaffolded"
 
@@ -461,7 +461,7 @@ test_no_ci_contract_is_rendered_for_no_mistakes() {
   # The contract belongs to the pipeline mode only: a direct-PR worker never runs
   # no-mistakes, so handing it a CI-skip instruction would be a second, wrong owner.
   other_id="brief-no-ci-e2"
-  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$other_id" some-proj --base main --mode direct-PR >/dev/null 2>&1
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$other_id" some-proj --base main --mode direct-PR --planning-exception one-line --planning-reason 'test scaffold for brief behavior' >/dev/null 2>&1
   other_brief="$home/data/$other_id/brief.md"
   assert_present "$other_brief" "direct-PR brief was not scaffolded"
   assert_no_grep "--skip ci" "$other_brief" \
@@ -474,7 +474,7 @@ test_ask_user_escalation_format() {
   home="$TMP_ROOT/ask-user-home"
   mkdir -p "$home/data"
   id="brief-ask-user-d1"
-  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" some-proj --base main --mode no-mistakes >/dev/null 2>&1
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" some-proj --base main --mode no-mistakes --planning-exception one-line --planning-reason 'test scaffold for brief behavior' >/dev/null 2>&1
   brief="$home/data/$id/brief.md"
   assert_present "$brief" "brief was not scaffolded"
 
@@ -510,7 +510,7 @@ test_ask_user_escalation_format() {
 
   for mode in direct-PR local-only; do
     other_id="brief-no-ask-user-$(printf '%s' "$mode" | tr '[:upper:]' '[:lower:]')"
-    FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$other_id" some-proj --base main --mode "$mode" >/dev/null 2>&1
+    FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$other_id" some-proj --base main --mode "$mode" --planning-exception one-line --planning-reason 'test scaffold for brief behavior' >/dev/null 2>&1
     other_brief="$home/data/$other_id/brief.md"
     assert_no_grep "nm-<run>-findings.txt" "$other_brief" \
       "$mode brief received a no-mistakes-only escalation format"
@@ -526,7 +526,7 @@ test_ship_project_memory_wording() {
   home="$TMP_ROOT/project-memory-home"
   mkdir -p "$home/data"
   id="brief-memory-c1"
-  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" some-proj --base main --mode no-mistakes >/dev/null 2>&1
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" some-proj --base main --mode no-mistakes --planning-exception one-line --planning-reason 'test scaffold for brief behavior' >/dev/null 2>&1
   brief="$home/data/$id/brief.md"
   assert_present "$brief" "brief was not scaffolded"
   assert_grep "Record only project knowledge useful to almost every future session." "$brief" \
@@ -543,7 +543,7 @@ test_herdr_lab_contract_is_explicit_and_complete() {
   home="$TMP_ROOT/herdr-lab-home"
   mkdir -p "$home/data"
   id="brief-herdr-lab-d1"
-  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" firstmate --base main --mode no-mistakes --herdr-lab >/dev/null 2>&1
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" firstmate --base main --mode no-mistakes --herdr-lab --planning-exception one-line --planning-reason 'test scaffold for brief behavior' >/dev/null 2>&1
   brief="$home/data/$id/brief.md"
   assert_present "$brief" "Herdr lab brief was not scaffolded"
   assert_grep "# Herdr isolation - HARD SAFETY CONTRACT" "$brief" \
@@ -595,7 +595,7 @@ test_herdr_lab_omission_is_loud_for_ship_and_scout() {
     if [ "$kind" = scout ]; then
       FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" firstmate --base main --scout >/dev/null 2>&1
     else
-      FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" firstmate --base main --mode no-mistakes >/dev/null 2>&1
+      FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" firstmate --base main --mode no-mistakes --planning-exception one-line --planning-reason 'test scaffold for brief behavior' >/dev/null 2>&1
     fi
     brief="$home/data/$id/brief.md"
     assert_grep "# Herdr lifecycle declaration - NOT ENABLED" "$brief" \
@@ -624,7 +624,7 @@ test_documented_global_replace_leaves_the_herdr_gate_intact() {
     if [ "$kind" = scout ]; then
       FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" firstmate --base main --scout >/dev/null 2>&1
     else
-      FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" firstmate --base main --mode no-mistakes >/dev/null 2>&1
+      FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" firstmate --base main --mode no-mistakes --planning-exception one-line --planning-reason 'test scaffold for brief behavior' >/dev/null 2>&1
     fi
     brief="$home/data/$id/brief.md"
     assert_present "$brief" "$kind brief was not scaffolded"
@@ -867,7 +867,7 @@ test_pause_verb_override_renders_all_brief_scaffolds() {
     case "$kind" in
       ship)
         FM_HOME="$home" FM_CLASSIFY_PAUSED_VERB=awaiting \
-          "$ROOT/bin/fm-brief.sh" "$id" firstmate --base main --mode no-mistakes >/dev/null 2>&1
+          "$ROOT/bin/fm-brief.sh" "$id" firstmate --base main --mode no-mistakes --planning-exception one-line --planning-reason 'test scaffold for brief behavior' >/dev/null 2>&1
         ;;
       scout)
         FM_HOME="$home" FM_CLASSIFY_PAUSED_VERB=awaiting \
@@ -963,7 +963,7 @@ test_base_ref_is_named_in_brief_and_dod() {
   git clone -q "$origin" "$home/projects/some-proj"
   for mode in no-mistakes direct-PR local-only; do
     id="brief-base-$mode"
-    FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" some-proj --base prod-2026-09 --mode "$mode" >/dev/null 2>&1 \
+    FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" some-proj --base prod-2026-09 --mode "$mode" --planning-exception one-line --planning-reason 'test scaffold for brief behavior' >/dev/null 2>&1 \
       || fail "base-named: $mode brief did not scaffold"
     brief="$home/data/$id/brief.md"
     assert_grep 'the base ref firstmate dispatched this task from' "$brief" \
@@ -1074,7 +1074,7 @@ test_dod_tells_a_tag_base_from_a_branch_base() {
 
   for mode in direct-PR no-mistakes; do
     id="brief-kind-branch-$mode"
-    FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" kind-proj --base release-2026-09 --mode "$mode" >/dev/null 2>&1 \
+    FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" kind-proj --base release-2026-09 --mode "$mode" --planning-exception one-line --planning-reason 'test scaffold for brief behavior' >/dev/null 2>&1 \
       || fail "base-kind: $mode brief from a branch did not scaffold"
     brief="$home/data/$id/brief.md"
     # shellcheck disable=SC2016  # single quotes are deliberate: the backticks must stay literal
@@ -1086,7 +1086,7 @@ test_dod_tells_a_tag_base_from_a_branch_base() {
 
   for mode in direct-PR no-mistakes; do
     id="brief-kind-tag-$mode"
-    FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" kind-proj --base prod-2026-09-02 --mode "$mode" >/dev/null 2>&1 \
+    FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" kind-proj --base prod-2026-09-02 --mode "$mode" --planning-exception one-line --planning-reason 'test scaffold for brief behavior' >/dev/null 2>&1 \
       || fail "base-kind: $mode brief from a tag did not scaffold"
     brief="$home/data/$id/brief.md"
     # shellcheck disable=SC2016  # single quotes are deliberate: the backticks must stay literal
@@ -1114,7 +1114,7 @@ test_dod_tells_a_tag_base_from_a_branch_base() {
 
   # A full tag refname is a tag by its own spelling, with no clone to consult.
   id='brief-kind-tagref'
-  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" no-such-clone --base refs/tags/v1.2.3 --mode direct-PR >/dev/null 2>&1 \
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" no-such-clone --base refs/tags/v1.2.3 --mode direct-PR --planning-exception one-line --planning-reason 'test scaffold for brief behavior' >/dev/null 2>&1 \
     || fail "base-kind: brief from a full tag refname did not scaffold"
   assert_grep 'cannot be a pull-request target' "$home/data/$id/brief.md" \
     "base-kind: a refs/tags/ base was not recognised as a tag from its own spelling"
@@ -1123,7 +1123,7 @@ test_dod_tells_a_tag_base_from_a_branch_base() {
   # deliberate-target wording and is told so, never the branch instruction.
   rm -rf "$origin"
   id='brief-kind-unreachable'
-  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" kind-proj --base release-2026-09 --mode direct-PR >/dev/null 2>&1 \
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" kind-proj --base release-2026-09 --mode direct-PR --planning-exception one-line --planning-reason 'test scaffold for brief behavior' >/dev/null 2>&1 \
     || fail "base-kind: brief with an unreachable origin did not scaffold"
   brief="$home/data/$id/brief.md"
   # shellcheck disable=SC2016  # single quotes are deliberate: the backticks must stay literal
@@ -1158,7 +1158,7 @@ test_dod_base_kind_lookup_that_never_answers_falls_back() {
   id='brief-kind-hang'
   started=$(date +%s)
   PATH="$fakebin:$PATH" FM_HOME="$home" FM_BASE_KIND_PROBE_SECS=1 \
-    "$ROOT/bin/fm-brief.sh" "$id" hang-proj --base release-2026-09 --mode direct-PR >/dev/null 2>&1 \
+    "$ROOT/bin/fm-brief.sh" "$id" hang-proj --base release-2026-09 --mode direct-PR --planning-exception one-line --planning-reason 'test scaffold for brief behavior' >/dev/null 2>&1 \
     || fail "base-kind: brief with an origin that never answers did not scaffold"
   elapsed=$(( $(date +%s) - started ))
   [ "$elapsed" -lt 30 ] \
@@ -1175,6 +1175,182 @@ test_dod_base_kind_lookup_that_never_answers_falls_back() {
   pass "fm-brief: a base-kind lookup that never answers is bounded and falls back to unconfirmed"
 }
 
+# --- planning gate (bin/fm-planning-lib.sh) ----------------------------------
+# A ship brief must name its planning provenance: a completed scout report, or a
+# typed exception with a reason. These pin what the scaffold accepts and what it
+# writes, through the script's own interface.
+
+planning_gate_home() {
+  local home=$1
+  mkdir -p "$home/data/plan-scout"
+  printf 'a completed investigation with implementation-ready findings\n' \
+    > "$home/data/plan-scout/report.md"
+  printf '%s\n' "$home"
+}
+
+test_ship_brief_requires_exactly_one_planning_disposition() {
+  local home out
+  home=$(planning_gate_home "$TMP_ROOT/planning-required")
+
+  out=$(FM_HOME="$home" "$ROOT/bin/fm-brief.sh" plan-none some-proj --base main --mode no-mistakes 2>&1) \
+    && fail "a ship brief with no planning disposition should refuse"
+  assert_contains "$out" "planning gate refused plan-none: ship briefs require either --plan-report" \
+    "the missing-disposition refusal did not name both alternatives"
+  assert_absent "$home/data/plan-none/brief.md" "the refusal must not leave a brief behind"
+
+  out=$(FM_HOME="$home" "$ROOT/bin/fm-brief.sh" plan-both some-proj --base main --mode no-mistakes \
+    --plan-report plan-scout/report.md --planning-exception one-line --planning-reason 'both' 2>&1) \
+    && fail "naming a plan and an exception at once should refuse"
+  assert_contains "$out" "are the two alternatives, not a pair" \
+    "the two-dispositions refusal did not explain the choice"
+  pass "a ship brief names exactly one planning disposition or refuses"
+}
+
+test_ship_brief_records_canonical_plan_report() {
+  local home brief
+  home=$(planning_gate_home "$TMP_ROOT/planning-plan")
+
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" plan-ok some-proj --base main --mode no-mistakes \
+    --plan-report "$home/data/plan-scout/report.md" >/dev/null 2>&1 \
+    || fail "a ship brief naming a completed report should scaffold"
+  brief="$home/data/plan-ok/brief.md"
+  assert_grep "Planning gate: plan=plan-scout/report.md" "$brief" \
+    "an absolute plan path was not recorded canonically, relative to data/"
+  assert_grep "Read \`$home/data/plan-scout/report.md\` and follow it" "$brief" \
+    "the worker was not told to follow the plan it was given"
+  pass "a plan report is recorded canonically and handed to the worker"
+}
+
+test_ship_brief_records_typed_planning_exception() {
+  local home brief out
+  home=$(planning_gate_home "$TMP_ROOT/planning-exception")
+
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" plan-exc some-proj --base main --mode no-mistakes \
+    --planning-exception precedent-following \
+    --planning-reason 'follows the pattern in bin/fm-lease-lib.sh' >/dev/null 2>&1 \
+    || fail "a typed exception with a reason should scaffold"
+  brief="$home/data/plan-exc/brief.md"
+  assert_grep "Planning gate: exception=precedent-following reason=follows the pattern in bin/fm-lease-lib.sh" \
+    "$brief" "the typed exception and its reason were not recorded"
+
+  out=$(FM_HOME="$home" "$ROOT/bin/fm-brief.sh" plan-exc-bare some-proj --base main --mode no-mistakes \
+    --planning-exception one-line 2>&1) && fail "an exception with no reason should refuse"
+  assert_contains "$out" "requires a specific single-line --planning-reason" \
+    "a reasonless exception was not refused with the reason requirement"
+
+  out=$(FM_HOME="$home" "$ROOT/bin/fm-brief.sh" plan-exc-bad some-proj --base main --mode no-mistakes \
+    --planning-exception trivial --planning-reason 'it is small' 2>&1) \
+    && fail "an untyped exception kind should refuse"
+  assert_contains "$out" "must be one-line or precedent-following" \
+    "an unknown exception kind was not refused against the closed set"
+  pass "a planning exception must be typed and reasoned"
+}
+
+test_planning_flags_are_refused_for_scout_and_secondmate() {
+  local home out
+  home=$(planning_gate_home "$TMP_ROOT/planning-nonship")
+
+  out=$(FM_HOME="$home" "$ROOT/bin/fm-brief.sh" plan-scout-flag some-proj --base main --scout \
+    --plan-report plan-scout/report.md 2>&1) && fail "a scout brief should refuse planning flags"
+  assert_contains "$out" "applies only to ship briefs" "the scout refusal did not explain the scope"
+
+  out=$(FM_HOME="$home" "$ROOT/bin/fm-brief.sh" plan-sm-flag --secondmate --no-projects \
+    --planning-exception one-line --planning-reason 'x' 2>&1) \
+    && fail "a secondmate charter should refuse planning flags"
+  assert_contains "$out" "applies only to ship briefs" "the charter refusal did not explain the scope"
+
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" plan-scout-ok some-proj --base main --scout >/dev/null 2>&1 \
+    || fail "an ordinary scout brief should still scaffold"
+  assert_no_grep "Planning gate:" "$home/data/plan-scout-ok/brief.md" \
+    "a scout brief must carry no planning line"
+  pass "the planning gate applies to ship briefs only"
+}
+
+test_plan_report_must_be_nonempty_regular_and_inside_data() {
+  local home out outside
+  home=$(planning_gate_home "$TMP_ROOT/planning-report-shape")
+  : > "$home/data/plan-scout/empty.md"
+  outside="$TMP_ROOT/planning-report-shape-outside.md"
+  printf 'a report that does not belong to this home\n' > "$outside"
+  ln -s "$outside" "$home/data/plan-scout/linked.md"
+
+  out=$(FM_HOME="$home" "$ROOT/bin/fm-brief.sh" plan-empty some-proj --base main --mode no-mistakes \
+    --plan-report plan-scout/empty.md 2>&1) && fail "an empty plan report should refuse"
+  assert_contains "$out" "must be a non-empty regular file inside" \
+    "an empty report was not refused as incomplete"
+
+  out=$(FM_HOME="$home" "$ROOT/bin/fm-brief.sh" plan-missing some-proj --base main --mode no-mistakes \
+    --plan-report plan-scout/absent.md 2>&1) && fail "a missing plan report should refuse"
+  assert_contains "$out" "must be a non-empty regular file inside" \
+    "a missing report was not refused"
+
+  out=$(FM_HOME="$home" "$ROOT/bin/fm-brief.sh" plan-outside some-proj --base main --mode no-mistakes \
+    --plan-report "$outside" 2>&1) && fail "a report outside data/ should refuse"
+  assert_contains "$out" "must be a non-empty regular file inside" \
+    "a report outside this home's data tree was accepted"
+
+  out=$(FM_HOME="$home" "$ROOT/bin/fm-brief.sh" plan-link some-proj --base main --mode no-mistakes \
+    --plan-report plan-scout/linked.md 2>&1) && fail "a symlinked plan report should refuse"
+  assert_contains "$out" "must be a non-empty regular file inside" \
+    "a symlink standing in for a completed report was accepted"
+  pass "a plan report must be a non-empty regular file inside this home's data tree"
+}
+
+
+# --- retro trigger (.agents/skills/retro) ------------------------------------
+# A ship's lessons must land in its own branch before validation, so every ship
+# brief carries the trigger and the exact receipt path; a scout's deliverable is
+# already knowledge and a charter is not a build, so neither carries it.
+
+test_ship_brief_triggers_retro_before_definition_of_done() {
+  local home brief mode id
+  home="$TMP_ROOT/retro-trigger"
+  mkdir -p "$home/data"
+
+  for mode in no-mistakes direct-PR local-only; do
+    id="retro-trigger-$mode"
+    FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" some-proj --base main --mode "$mode" \
+      --planning-exception one-line --planning-reason 'retro trigger scaffold' >/dev/null 2>&1 \
+      || fail "retro: $mode ship brief should scaffold"
+    brief="$home/data/$id/brief.md"
+    # shellcheck disable=SC2016  # single quotes are deliberate: the backticks must stay literal
+    assert_grep 'Load the `retro` skill' "$brief" \
+      "retro: the $mode ship brief does not trigger the retro skill"
+    assert_grep "write the receipt to \`$home/data/$id/retro.md\`" "$brief" \
+      "retro: the $mode ship brief does not name this task's exact receipt path"
+    assert_grep "Do it now, not after" "$brief" \
+      "retro: the $mode ship brief does not place the retro before validation"
+    # The receipt lives outside the worktree, so the brief's own worktree rule
+    # must enumerate it; otherwise a rule-following worker cannot write it.
+    assert_grep 'the only files you may write outside it are the status file below and the retro receipt' "$brief" \
+      "retro: the $mode ship brief forbids the very receipt teardown demands"
+    assert_no_grep 'modify nothing outside it' "$brief" \
+      "retro: the $mode ship brief still carries the blanket no-write-outside rule"
+  done
+  pass "every ship mode's definition of done triggers the retro before it validates or ships"
+}
+
+test_scout_and_secondmate_briefs_do_not_trigger_ship_retro() {
+  local home
+  home="$TMP_ROOT/retro-nonship"
+  mkdir -p "$home/data"
+
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" retro-scout-brief some-proj --base main --scout >/dev/null 2>&1 \
+    || fail "retro: scout brief should scaffold"
+  # shellcheck disable=SC2016  # single quotes are deliberate: the backticks must stay literal
+  assert_no_grep 'Load the `retro` skill' "$home/data/retro-scout-brief/brief.md" \
+    "retro: a scout brief must not carry the ship retro trigger"
+
+  FM_SECONDMATE_CHARTER='Own the fixture domain.' \
+    FM_HOME="$home" "$ROOT/bin/fm-brief.sh" retro-sm-brief --secondmate --no-projects >/dev/null 2>&1 \
+    || fail "retro: secondmate charter should scaffold"
+  # shellcheck disable=SC2016  # single quotes are deliberate: the backticks must stay literal
+  assert_no_grep 'Load the `retro` skill' "$home/data/retro-sm-brief/brief.md" \
+    "retro: a secondmate charter must not carry the ship retro trigger"
+  pass "scout briefs and secondmate charters carry no ship retro trigger"
+}
+
+
 test_documented_global_replace_leaves_the_herdr_gate_intact
 test_herdr_lab_contract_applies_to_scouts_but_not_secondmates
 test_secondmate_no_projects_charter
@@ -1185,3 +1361,10 @@ test_scout_and_secondmate_load_decision_hold_policy
 test_scout_and_secondmate_scaffold
 test_dod_tells_a_tag_base_from_a_branch_base
 test_dod_base_kind_lookup_that_never_answers_falls_back
+test_ship_brief_requires_exactly_one_planning_disposition
+test_ship_brief_records_canonical_plan_report
+test_ship_brief_records_typed_planning_exception
+test_planning_flags_are_refused_for_scout_and_secondmate
+test_plan_report_must_be_nonempty_regular_and_inside_data
+test_ship_brief_triggers_retro_before_definition_of_done
+test_scout_and_secondmate_briefs_do_not_trigger_ship_retro

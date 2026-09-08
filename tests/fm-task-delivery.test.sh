@@ -47,9 +47,16 @@ write_brief() {  # <home> <id> [<recorded-mode>] [<recorded-base>]
   {
     printf 'You are a crewmate.\n\n# Setup\n'
     [ -z "$base" ] || printf 'Base ref: %s\n' "$base"
+    # These briefs stand in for scaffolded ship briefs, so they carry the
+    # planning line every ship brief records (bin/fm-planning-lib.sh); the
+    # planning gate itself is covered by its own test files.
+    printf 'Planning gate: exception=one-line reason=delivery-contract fixture brief\n'
     printf '\n# Task\n## Captain'\''s intent\nExercise the delivery contract.\n\n## Firstmate spec\nVerify the selected delivery behavior.\n\n# Definition of done\n'
     [ -z "$mode" ] || printf 'Delivery contract: mode=%s\n' "$mode"
   } > "$home/data/$id/brief.md"
+  # A scout that reaches promotion has a completed report, which is the natural
+  # planning disposition bin/fm-promote.sh uses (bin/fm-planning-lib.sh).
+  printf 'findings for %s\n' "$id" > "$home/data/$id/report.md"
 }
 
 # A project directory that is a real git repo on a named default branch, so the
@@ -322,7 +329,7 @@ test_promote_refuses_local_only_on_a_non_default_base() {
   printf 'window=fm-promote-base-f1\nkind=scout\nworktree=/tmp/wt\nproject=%s\nbase=prod\n' "$proj" \
     > "$home/state/promote-base-f1.meta"
   out=$(FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" \
-    "$PROMOTE" promote-base-f1 --mode local-only --yolo off 2>&1)
+    "$PROMOTE" promote-base-f1 --mode local-only --yolo off --plan-report promote-base-f1/report.md 2>&1)
   status=$?
   [ "$status" -ne 0 ] || fail "promotion to local-only from a non-default base should exit non-zero"
   assert_contains "$out" "mode=local-only cannot ship from base 'prod'" \
@@ -338,7 +345,7 @@ test_promote_refuses_local_only_on_a_non_default_base() {
   printf 'window=fm-promote-base-f2\nkind=scout\nworktree=/tmp/wt\nproject=%s\nbase=main\n' "$proj" \
     > "$home/state/promote-base-f2.meta"
   out=$(FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" \
-    "$PROMOTE" promote-base-f2 --mode local-only --yolo off 2>&1)
+    "$PROMOTE" promote-base-f2 --mode local-only --yolo off --plan-report promote-base-f2/report.md 2>&1)
   status=$?
   [ "$status" -eq 0 ] || fail "promotion to local-only from the default branch should succeed: $out"
   grep -qx 'mode=local-only' "$home/state/promote-base-f2.meta" \
@@ -349,7 +356,7 @@ test_promote_refuses_local_only_on_a_non_default_base() {
   printf 'window=fm-promote-base-f3\nkind=scout\nworktree=/tmp/wt\nproject=%s\n' "$proj" \
     > "$home/state/promote-base-f3.meta"
   out=$(FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" \
-    "$PROMOTE" promote-base-f3 --mode local-only --yolo off 2>&1)
+    "$PROMOTE" promote-base-f3 --mode local-only --yolo off --plan-report promote-base-f3/report.md 2>&1)
   status=$?
   [ "$status" -eq 0 ] || fail "promotion of a legacy record with no recorded base should succeed: $out"
   pass "fm-promote: local-only promotion refuses a base the local landing could never fast-forward"
@@ -375,7 +382,7 @@ test_promotion_tells_a_tag_base_from_a_branch_base() {
   printf 'window=fm-promote-kind-t1\nkind=scout\nworktree=/tmp/wt\nproject=%s\nbase=prod-2026-09-02\n' "$proj" \
     > "$home/state/promote-kind-t1.meta"
   out=$(FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" \
-    "$PROMOTE" promote-kind-t1 --mode direct-PR --yolo off 2>&1)
+    "$PROMOTE" promote-kind-t1 --mode direct-PR --yolo off --plan-report promote-kind-t1/report.md 2>&1)
   status=$?
   [ "$status" -eq 0 ] || fail "promotion to direct-PR from a tag base should succeed: $out"
   brief="$home/data/promote-kind-t1/ship-instructions.md"
@@ -390,7 +397,7 @@ test_promotion_tells_a_tag_base_from_a_branch_base() {
   printf 'window=fm-promote-kind-b1\nkind=scout\nworktree=/tmp/wt\nproject=%s\nbase=main\n' "$proj" \
     > "$home/state/promote-kind-b1.meta"
   out=$(FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" \
-    "$PROMOTE" promote-kind-b1 --mode direct-PR --yolo off 2>&1)
+    "$PROMOTE" promote-kind-b1 --mode direct-PR --yolo off --plan-report promote-kind-b1/report.md 2>&1)
   status=$?
   [ "$status" -eq 0 ] || fail "promotion to direct-PR from a branch base should succeed: $out"
   brief="$home/data/promote-kind-b1/ship-instructions.md"
@@ -433,7 +440,7 @@ test_promote_requires_and_records_the_delivery_contract() {
   blocked_data="$home/data-blocked"
   printf 'not a directory\n' > "$blocked_data"
   out=$(FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$blocked_data" \
-    "$PROMOTE" promote-d1 --mode direct-PR --yolo on 2>&1)
+    "$PROMOTE" promote-d1 --mode direct-PR --yolo on --plan-report promote-d1/report.md 2>&1)
   status=$?
   [ "$status" -ne 0 ] || fail "promotion without writable instruction storage should exit non-zero"
   assert_grep 'kind=scout' "$meta" "failed instruction publication still promoted the task"
@@ -443,7 +450,7 @@ test_promote_requires_and_records_the_delivery_contract() {
   instructions_path="$home/data/promote-d1/ship-instructions.md"
   mkdir -p "$instructions_path"
   out=$(FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" \
-    "$PROMOTE" promote-d1 --mode direct-PR --yolo on 2>&1)
+    "$PROMOTE" promote-d1 --mode direct-PR --yolo on --plan-report promote-d1/report.md 2>&1)
   status=$?
   [ "$status" -ne 0 ] || fail "promotion over an instruction directory should exit non-zero"
   assert_contains "$out" "ship instructions path is a directory" \
@@ -453,7 +460,7 @@ test_promote_requires_and_records_the_delivery_contract() {
   assert_no_grep '^yolo=' "$meta" "invalid instruction destination recorded a merge posture"
   rmdir "$instructions_path"
 
-  out=$(FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" "$PROMOTE" promote-d1 --mode direct-PR --yolo on 2>&1)
+  out=$(FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" "$PROMOTE" promote-d1 --mode direct-PR --yolo on --plan-report promote-d1/report.md 2>&1)
   status=$?
   expect_code 0 "$status" "a promotion carrying both flags should succeed"
   assert_grep 'kind=ship' "$meta" "promotion did not restore ship teardown protection"
@@ -516,9 +523,14 @@ STUB
     printf 'window=fm-%s\nkind=scout\nworktree=/tmp/wt\nbase=main\n' "$id" > "$meta"
     FM_HOME="$home" "$BRIEF" "$id" fixture-project --base main --scout >/dev/null 2>&1 \
       || fail "$mode: scout brief generation should succeed"
+    # A scout that reaches promotion has a completed report, which is the
+    # planning disposition bin/fm-promote.sh uses.
+    printf 'findings for %s\n' "$id" > "$home/data/$id/report.md"
     fill_brief_subsections "$home/data/$id/brief.md" \
       "Ship the delivery-contract change." "Preserve the selected delivery mode."
-    out=$(FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" "$PROMOTE" "$id" --mode "$mode" --yolo off 2>&1) \
+    # The completed report is this promotion's planning disposition.
+    printf 'findings for %s\n' "$id" > "$home/data/$id/report.md"
+    out=$(FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" "$PROMOTE" "$id" --mode "$mode" --yolo off --plan-report "$id"/report.md 2>&1) \
       || fail "$mode: promotion should succeed"
 
     payload="$TMP_ROOT/promote-dod/payload-$id"
@@ -551,7 +563,8 @@ STUB
     # payload ends at its Definition of done, as does an ordinary generated
     # brief, so identical suffixes prove both workers receive the same contract.
     rm "$home/data/$id/brief.md"
-    FM_HOME="$home" "$BRIEF" "$id" fixture-project --base main --mode "$mode" >/dev/null 2>&1 \
+    FM_HOME="$home" "$BRIEF" "$id" fixture-project --base main --mode "$mode" \
+      --plan-report "$id/report.md" >/dev/null 2>&1 \
       || fail "$mode: ordinary ship brief generation should succeed"
     brief_dod="$TMP_ROOT/promote-dod/brief-dod-$id"
     delivered_dod="$TMP_ROOT/promote-dod/delivered-dod-$id"
@@ -634,7 +647,7 @@ $rec
 EOF
 
   id=delivery-unfilled-ship
-  FM_HOME="$home" "$BRIEF" "$id" proj --base main --mode no-mistakes >/dev/null 2>&1 \
+  FM_HOME="$home" "$BRIEF" "$id" proj --base main --mode no-mistakes --planning-exception one-line --planning-reason 'delivery-contract fixture brief' >/dev/null 2>&1 \
     || fail "unfilled ship brief should still scaffold"
   out=$(run_spawn "$home" "$fakebin" "$id" "$proj" claude --base main --mode no-mistakes --yolo off)
   status=$?
@@ -646,7 +659,7 @@ EOF
   assert_absent "$home/state/$id.meta" "unfilled ship spawn wrote task metadata"
 
   id=delivery-filled-ship
-  FM_HOME="$home" "$BRIEF" "$id" proj --base main --mode direct-PR >/dev/null 2>&1 \
+  FM_HOME="$home" "$BRIEF" "$id" proj --base main --mode direct-PR --planning-exception one-line --planning-reason 'delivery-contract fixture brief' >/dev/null 2>&1 \
     || fail "filled-ship brief should scaffold"
   fill_brief_subsections "$home/data/$id/brief.md" \
     "Fix replacement of \`{TASK}\` in Herdr briefs." \
@@ -767,6 +780,9 @@ EOF
   id=delivery-unfilled-scout
   FM_HOME="$home" "$BRIEF" "$id" proj --base main --scout >/dev/null 2>&1 \
     || fail "unfilled scout brief should still scaffold"
+  # A scout that reaches promotion has a completed report, which is the
+  # planning disposition bin/fm-promote.sh uses.
+  printf 'findings for %s\n' "$id" > "$home/data/$id/report.md"
   out=$(run_spawn "$home" "$fakebin" "$id" "$proj" claude --base main --scout)
   status=$?
   [ "$status" -ne 0 ] || fail "spawn of an unfilled scout brief should exit non-zero"
@@ -775,7 +791,7 @@ EOF
   assert_absent "$home/state/$id.meta" "unfilled scout spawn wrote task metadata"
 
   id=delivery-empty-ship
-  FM_HOME="$home" "$BRIEF" "$id" proj --base main --mode direct-PR >/dev/null 2>&1 \
+  FM_HOME="$home" "$BRIEF" "$id" proj --base main --mode direct-PR --planning-exception one-line --planning-reason 'delivery-contract fixture brief' >/dev/null 2>&1 \
     || fail "empty-ship brief should scaffold"
   fill_brief_subsections "$home/data/$id/brief.md" "" ""
   out=$(run_spawn "$home" "$fakebin" "$id" "$proj" claude --base main --mode direct-PR --yolo off)
@@ -791,7 +807,10 @@ EOF
   printf 'window=fm-%s\nkind=scout\nworktree=/tmp/wt\n' "$id" > "$meta"
   FM_HOME="$home" "$BRIEF" "$id" proj --base main --scout >/dev/null 2>&1 \
     || fail "unfilled promote scout brief should scaffold"
-  out=$(FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" "$PROMOTE" "$id" --mode direct-PR --yolo on 2>&1)
+  # A scout that reaches promotion has a completed report, which is the
+  # planning disposition bin/fm-promote.sh uses.
+  printf 'findings for %s\n' "$id" > "$home/data/$id/report.md"
+  out=$(FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" "$PROMOTE" "$id" --mode direct-PR --yolo on --plan-report "$id"/report.md 2>&1)
   status=$?
   [ "$status" -ne 0 ] || fail "promotion of an unfilled scout brief should exit non-zero"
   assert_contains "$out" "preserve the original ask in ## Captain's intent" \
@@ -803,7 +822,8 @@ EOF
   id=promote-missing-brief
   meta="$home/state/$id.meta"
   printf 'window=fm-%s\nkind=scout\nworktree=/tmp/wt\n' "$id" > "$meta"
-  out=$(FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" "$PROMOTE" "$id" --mode direct-PR --yolo off 2>&1)
+  printf 'findings for %s\n' "$id" > "$home/data/$id/report.md"
+  out=$(FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" "$PROMOTE" "$id" --mode direct-PR --yolo off --plan-report "$id"/report.md 2>&1)
   status=$?
   [ "$status" -ne 0 ] || fail "promotion without a scout brief should exit non-zero"
   assert_contains "$out" "must contain nonempty" \
@@ -827,7 +847,8 @@ Unrelated notes are not the original ask.
 ## Firstmate spec
 Unrelated notes are not the task specification.
 EOF
-  out=$(FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" "$PROMOTE" "$id" --mode direct-PR --yolo off 2>&1)
+  printf 'findings for %s\n' "$id" > "$home/data/$id/report.md"
+  out=$(FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" "$PROMOTE" "$id" --mode direct-PR --yolo off --plan-report "$id"/report.md 2>&1)
   status=$?
   [ "$status" -ne 0 ] || fail "promotion without provenance-marked captain intent should fail"
   assert_contains "$out" "has no provenance-marked Captain's intent" \
@@ -841,10 +862,13 @@ EOF
   printf 'window=fm-%s\nkind=scout\nworktree=/tmp/wt\n' "$id" > "$meta"
   FM_HOME="$home" "$BRIEF" "$id" proj --base main --scout >/dev/null 2>&1 \
     || fail "filled promote scout brief should scaffold"
+  # A scout that reaches promotion has a completed report, which is the
+  # planning disposition bin/fm-promote.sh uses.
+  printf 'findings for %s\n' "$id" > "$home/data/$id/report.md"
   fill_brief_subsections "$home/data/$id/brief.md" \
     "Investigate why the identity check is failing." \
     "Ship the identity-check fix without adding a classifier."
-  out=$(FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" "$PROMOTE" "$id" --mode no-mistakes --yolo off 2>&1)
+  out=$(FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" "$PROMOTE" "$id" --mode no-mistakes --yolo off --plan-report "$id"/report.md 2>&1)
   status=$?
   expect_code 0 "$status" "promotion of a filled scout brief should succeed"
   assert_grep 'kind=ship' "$meta" "filled promotion did not restore ship teardown protection"
@@ -885,7 +909,8 @@ Keep this closing requirement.
 # Setup
 This scout-only setup must not become the spec.
 EOF
-  out=$(FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" "$PROMOTE" "$id" --mode direct-PR --yolo off 2>&1)
+  printf 'findings for %s\n' "$id" > "$home/data/$id/report.md"
+  out=$(FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" "$PROMOTE" "$id" --mode direct-PR --yolo off --plan-report "$id"/report.md 2>&1)
   status=$?
   expect_code 0 "$status" "promotion with nested and fenced spec content should succeed"
   brief="$home/data/$id/ship-instructions.md"
@@ -917,7 +942,8 @@ Ship the narrow session-floor fix with a regression test.
 # Setup
 This is a SCOUT task: the deliverable is a written report, not a PR.
 EOF
-  out=$(FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" "$PROMOTE" "$id" --mode direct-PR --yolo on 2>&1)
+  printf 'findings for %s\n' "$id" > "$home/data/$id/report.md"
+  out=$(FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" "$PROMOTE" "$id" --mode direct-PR --yolo on --plan-report "$id"/report.md 2>&1)
   status=$?
   expect_code 0 "$status" "promotion of a pre-subsection scout brief should succeed"
   brief="$home/data/$id/ship-instructions.md"
@@ -951,7 +977,119 @@ test_promote_requires_and_records_the_delivery_contract
 test_promote_refuses_local_only_on_a_non_default_base
 test_promotion_tells_a_tag_base_from_a_branch_base
 test_promote_refuses_a_symlinked_task_record
+# Promotion is the second door where a ship's delivery is decided, so it applies
+# the same planning provenance a fresh ship brief carries (bin/fm-planning-lib.sh).
+test_scout_promotion_requires_planning_disposition() {
+  local home meta id out status
+  home="$TMP_ROOT/promote-planning/home"
+  mkdir -p "$home/state" "$home/data"
+
+  id=promote-planning-none
+  meta="$home/state/$id.meta"
+  printf 'window=fm-%s\nkind=scout\nworktree=/tmp/wt\n' "$id" > "$meta"
+  FM_HOME="$home" "$BRIEF" "$id" proj --base main --scout >/dev/null 2>&1 \
+    || fail "planning: scout brief should scaffold"
+  fill_brief_subsections "$home/data/$id/brief.md" "Investigate the failure." "Report the cause."
+  # No report was ever written, so this scout has nothing to implement.
+  out=$(FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" "$PROMOTE" "$id" --mode direct-PR --yolo off 2>&1)
+  status=$?
+  expect_code 1 "$status" "promotion with no named plan should refuse"
+  assert_contains "$out" "planning gate refused $id: this promotion names no plan" \
+    "the refusal did not say the promotion named no plan"
+  assert_contains "$out" "--plan-report $home/data/$id/report.md" \
+    "the refusal did not name this scout's own report as the argument to pass"
+  assert_grep 'kind=scout' "$meta" "the refused promotion still changed the task record"
+
+  # A typed, reasoned exception is the other way through.
+  out=$(FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" "$PROMOTE" "$id" --mode direct-PR --yolo off \
+    --planning-exception one-line --planning-reason 'flip one default the scout already identified' 2>&1)
+  status=$?
+  expect_code 0 "$status" "promotion with a typed exception should succeed"
+  assert_contains "$out" "PLANNING EXCEPTION: $id one-line: flip one default the scout already identified" \
+    "the accepted exception was not printed"
+  assert_grep 'planning_exception=one-line' "$meta" "the exception kind was not recorded"
+  assert_grep 'planning_reason=flip one default the scout already identified' "$meta" \
+    "the exception reason was not recorded"
+  pass "promotion requires a planning disposition and records a typed exception"
+}
+
+test_scout_report_can_be_the_promoted_ship_plan() {
+  local home meta id out status
+  home="$TMP_ROOT/promote-planning-report/home"
+  mkdir -p "$home/state" "$home/data"
+
+  id=promote-planning-report
+  meta="$home/state/$id.meta"
+  printf 'window=fm-%s\nkind=scout\nworktree=/tmp/wt\n' "$id" > "$meta"
+  FM_HOME="$home" "$BRIEF" "$id" proj --base main --scout >/dev/null 2>&1 \
+    || fail "planning: scout brief should scaffold"
+  fill_brief_subsections "$home/data/$id/brief.md" "Investigate the failure." "Report the cause."
+  printf 'implementation-ready findings\n' > "$home/data/$id/report.md"
+
+  # A completed report is never adopted on its own: promotion refuses until the
+  # invocation names it.
+  out=$(FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" "$PROMOTE" "$id" --mode direct-PR --yolo off 2>&1)
+  status=$?
+  expect_code 1 "$status" "a completed report must not promote by itself"
+  assert_contains "$out" "this promotion names no plan" \
+    "an unnamed but present report was adopted as the plan"
+  assert_no_grep 'kind=ship' "$meta" "the refused promotion still flipped the task kind"
+
+  out=$(FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" "$PROMOTE" "$id" --mode direct-PR --yolo off \
+    --plan-report "$id/report.md" 2>&1)
+  status=$?
+  expect_code 0 "$status" "a scout naming its completed report should promote"
+  assert_grep "plan_report=$id/report.md" "$meta" \
+    "the scout's own report was not recorded as this ship's plan"
+  assert_no_grep 'planning_exception=' "$meta" "a planned promotion must record no exception"
+  assert_grep "This ship implements the completed report" "$home/data/$id/ship-instructions.md" \
+    "the promoted worker was not pointed at the plan it implements"
+  # A promoted scout keeps its SCOUT brief, whose Rule 2 permits only the report
+  # and the status file outside the worktree, while these instructions order it
+  # to write the retro receipt teardown then requires. The carried-over rule has
+  # to be amended here or a rule-following worker cannot satisfy the definition
+  # of done it was just given.
+  assert_grep "retro receipt named under Definition of done" "$home/data/$id/ship-instructions.md" \
+    "the promoted ship instructions did not amend the carried-over write rule for the retro receipt"
+  assert_grep "$id/retro.md" "$home/data/$id/ship-instructions.md" \
+    "the promoted ship instructions did not name the retro receipt they require"
+  pass "a scout report becomes the ship plan only when the promotion names it"
+}
+
+# bin/fm-spawn.sh re-validates the planning disposition by reading the BRIEF, so
+# a promotion that recorded it only in the task record and the prose
+# instructions leaves the promoted ship unable to relaunch itself: fm-control
+# stops the agent, the launch refuses, and the task is stranded.
+test_promotion_records_the_plan_where_spawn_reads_it() {
+  local home id meta brief out status
+  home="$TMP_ROOT/promote-brief-line/home"
+  mkdir -p "$home/data" "$home/state"
+  id=promote-brief-line
+  FM_HOME="$home" "$BRIEF" "$id" proj --base main --scout >/dev/null 2>&1 \
+    || fail "brief-line: scout brief should scaffold"
+  brief="$home/data/$id/brief.md"
+  assert_no_grep 'Planning gate: ' "$brief" "a scout brief must carry no planning line"
+  fill_brief_subsections "$brief" "Investigate the failure." "Report the cause."
+  printf 'implementation-ready findings\n' > "$home/data/$id/report.md"
+  meta="$home/state/$id.meta"
+  printf 'window=fm-%s\nkind=scout\nworktree=/tmp/wt\n' "$id" > "$meta"
+
+  out=$(FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" "$PROMOTE" "$id" --mode direct-PR --yolo off \
+    --plan-report "$id/report.md" 2>&1)
+  status=$?
+  expect_code 0 "$status" "a promotion naming its report should succeed ($out)"
+  assert_grep "Planning gate: plan=$id/report.md" "$brief" \
+    "the promotion did not record its plan in the brief that fm-spawn re-validates"
+  [ "$(grep -c '^Planning gate: ' "$brief")" = 1 ] \
+    || fail "the promoted brief must carry exactly one planning line"
+  pass "promotion records the plan in the brief the launch owner re-reads"
+}
+
 test_promotion_delivers_the_real_definition_of_done
+test_promotion_records_the_plan_where_spawn_reads_it
 test_project_mode_maps_the_conditional_policy
 test_spawn_and_promote_require_filled_task_subsections
+test_scout_promotion_requires_planning_disposition
+test_scout_report_can_be_the_promoted_ship_plan
+
 echo "# all fm-task-delivery tests passed"

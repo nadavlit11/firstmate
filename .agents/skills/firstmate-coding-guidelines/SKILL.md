@@ -81,6 +81,27 @@ Mark an axis not applicable only after inspecting its integration surface, and u
 For critical safety, routing, startup, and supervision infrastructure, prefer deterministic and idempotent enforcement over relying on agent memory alone.
 Keep instructions as the authority and discovery layer, but make repeated execution converge safely and make invalid or unsafe states fail closed wherever the runtime can enforce them.
 
+### New refusals and the fixtures they reach
+
+A new gate is a refusal inserted into a sequence of refusals, so order it deliberately against the ones already there.
+A refusal about unresolvable durable state must preempt a refusal about unfinished process, or the operator is told to satisfy a process step when the real fault is broken state.
+
+A gate that guards real work will also reach every test fixture that stands in for real work without carrying what real work carries.
+Those fixtures take more than one shape - a hand-written artifact, a call to the scaffold that writes it, and a record built by a shared helper - so search the whole test tree for every shape at once rather than letting a serial suite surface them one at a time over hours.
+Give the shared helper the fixture needs to `tests/lib.sh` instead of repeating the same block across suites.
+Update the fixture to carry what a real task carries; loosening the gate for a fixture silently repeals the rule the gate exists to enforce.
+
+Restoring a path that a new gate broke is where the gate most easily un-enforces itself.
+This branch refused a relaunch on an adapter it could not prove ran at low, then fixed that by carrying the recorded reason forward - and in doing so let a stale task record re-authorize non-low effort on every later relaunch, which is the precise inheritance the gate existed to close.
+When you reopen a path a gate closed, state the rule the gate enforces and walk the restored path against it, because a recovery fix is written while thinking about availability and the rule is about authority.
+
+### Positive controls before calling a failure pre-existing
+
+This repository's suites carry failures that are environment-shaped on any given machine, so a failing test proves nothing on its own.
+Before attributing a failure to anything other than the branch, run that exact test in a clean clone of the base commit and compare both the exit code and the ok/not-ok counts, because several suites abort at their first failure and only equal counts prove parity.
+Re-run a file whose failure point moves between runs on both sides before calling it flaky, and say so with the paired evidence rather than the impression.
+Record the comparison where the next session can read it; a control that lives only in a commit message or a terminal has to be rediscovered.
+
 ### Harness-dependent checks
 
 This section is the single owner of the rule and of how to satisfy it.
