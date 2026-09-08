@@ -499,6 +499,28 @@ test_remote_relaunch_carries_recorded_capability_cover() {
   pass "T6b a remote relaunch carries the mate's recorded capability reason across the host boundary"
 }
 
+# --- T6c: an effort-capable adapter is never given someone else's exception ---
+# A reason recorded for a harness that CAN pin low covered something else (a past
+# non-low launch); presenting it as capability cover on an ordinary low relaunch
+# would announce an override that is not in force.
+test_remote_relaunch_omits_cover_an_adapter_does_not_need() {
+  local dir out rc relaunch_line
+  dir=$(new_case remote-nocover)
+  setup_remote_case "$dir" sm10 ok
+  export FM_FAKE_ANSWER_STATUS="$dir/home/state/sm10.status"
+  printf 'claude\n' > "$dir/home/config/secondmate-harness"
+  printf 'effort_override_reason=captain exception 2026-09-07\n' >> "$dir/home/state/sm10.meta"
+
+  out=$(run_restart "$dir" fm-sm10); rc=$?
+  unset FM_FAKE_ANSWER_STATUS
+
+  expect_code 0 "$rc" "a remote mate on an effort-capable adapter should restart"$'\n'"$out"
+  relaunch_line=$(grep '^fm-remote-secondmate-control.sh relaunch' "$dir/ssh.log" | head -1)
+  [ "$relaunch_line" = "fm-remote-secondmate-control.sh relaunch sm10 claude default default" ] \
+    || fail "a recorded reason was carried to an adapter that can prove low: $relaunch_line"
+  pass "T6c a relaunch onto an adapter that can enforce low carries no capability cover"
+}
+
 # --- T7: an unreachable host is unknown, never a claimed reload --------------
 test_unreachable_host_is_reported_unknown() {
   local dir out rc
@@ -796,6 +818,7 @@ test_refused_restart_falls_back_without_claiming_a_reload
 test_local_restart_uses_the_home_pin_and_reports_what_ran
 test_remote_mate_restarts_over_the_transport_hop
 test_remote_relaunch_carries_recorded_capability_cover
+test_remote_relaunch_omits_cover_an_adapter_does_not_need
 test_unreachable_host_is_reported_unknown
 test_concurrent_reply_cannot_release_persist_gate
 test_persist_waits_are_polled_together

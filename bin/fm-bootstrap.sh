@@ -170,6 +170,8 @@ DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
 . "$SCRIPT_DIR/fm-config-inherit-lib.sh"
 # shellcheck source=bin/fm-secondmate-nudge-lib.sh disable=SC1091
 . "$SCRIPT_DIR/fm-secondmate-nudge-lib.sh"
+# shellcheck source=bin/fm-control-lib.sh disable=SC1091
+. "$SCRIPT_DIR/fm-control-lib.sh"
 # shellcheck source=bin/fm-startup-memory-budget-lib.sh disable=SC1091
 . "$SCRIPT_DIR/fm-startup-memory-budget-lib.sh"
 # shellcheck source=bin/fm-x-lib.sh disable=SC1091
@@ -1475,11 +1477,10 @@ secondmate_harness_validate() {
   # such a pin may already be running under a written exception this home
   # recorded, and a home that was legally set up must not be refused on update.
   harness=$("$SCRIPT_DIR/fm-harness.sh" secondmate 2>/dev/null || true)
-  case "$harness" in
-    opencode|kimi|cursor)
-      echo "SECONDMATE_HARNESS: warning config/secondmate-harness pins '$harness', which has no verified low-effort launch axis; a spawn selecting it refuses unless that invocation carries --effort-override-reason naming the capability gap, or this mate's own record already carries one from an earlier exception. Pin a harness that can enforce low, or respawn once with a written exception so the recorded reason keeps it recoverable"
-      ;;
-  esac
+  [ -n "$harness" ] || return 0
+  if ! fm_control_harness_enforces_effort "$harness" low; then
+    echo "SECONDMATE_HARNESS: warning the resolved secondmate harness is '$harness', which has no verified low-effort launch axis; a spawn selecting it refuses unless that invocation carries --effort-override-reason naming the capability gap, or this mate's own record already carries one from an earlier exception. It resolves through config/secondmate-harness, then config/crew-harness, then the primary's own harness - correct whichever of those supplies it, or respawn once with a written exception so the recorded reason keeps the mate recoverable"
+  fi
 }
 
 detect_local_config() {

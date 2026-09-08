@@ -1219,10 +1219,22 @@ test_secondmate_harness_warns_about_an_axisless_pin() {
   out=$(PATH="$fakebin:$BASE_PATH" FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$case_dir/home" \
     FM_FAKE_TREEHOUSE_LEASE_HELP=1 "$ROOT/bin/fm-bootstrap.sh")
   expect_code 0 "$?" "an axis-less secondmate pin must warn, never fail bootstrap"
-  assert_contains "$out" "SECONDMATE_HARNESS: warning config/secondmate-harness pins 'kimi'" \
+  assert_contains "$out" "SECONDMATE_HARNESS: warning the resolved secondmate harness is 'kimi'" \
     "an axis-less standing secondmate pin was not reported at startup"
   assert_contains "$out" "--effort-override-reason" \
     "the warning did not tell the operator how to make the pin usable"
+
+  # The same verdict when the harness comes from the crew fallback: the pin file
+  # does not exist here, so the warning must not send the operator to edit it.
+  rm -f "$case_dir/home/config/secondmate-harness"
+  printf '%s\n' kimi > "$case_dir/home/config/crew-harness"
+  out=$(PATH="$fakebin:$BASE_PATH" FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$case_dir/home" \
+    FM_FAKE_TREEHOUSE_LEASE_HELP=1 "$ROOT/bin/fm-bootstrap.sh")
+  assert_contains "$out" "SECONDMATE_HARNESS: warning the resolved secondmate harness is 'kimi'" \
+    "an axis-less harness inherited from the crew fallback was not reported"
+  assert_contains "$out" "config/crew-harness" \
+    "the warning did not name the fallback file that actually supplied the harness"
+  rm -f "$case_dir/home/config/crew-harness"
 
   printf '%s\n' claude > "$case_dir/home/config/secondmate-harness"
   out=$(PATH="$fakebin:$BASE_PATH" FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$case_dir/home" \

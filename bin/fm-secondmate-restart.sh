@@ -290,10 +290,13 @@ while [ "$i" -lt "${#IDS[@]}" ]; do
     # An adapter with no verified low-effort axis was legally dispatched under a
     # written capability reason, so the mate stays recoverable: the reason this
     # home recorded travels with the relaunch. It is carried ONLY as capability
-    # cover for the same harness at low, the same narrowing bin/fm-control.sh
-    # applies, so it can never authorize a different adapter or a higher level -
-    # those need a fresh reason typed into the verb.
-    if [ "${HARNESS[i]}" = "$FM_SECONDMATE_RESTART_HARNESS" ]; then
+    # cover for the same harness at low, and only while that harness still
+    # cannot prove low - the same narrowing bin/fm-control.sh and bin/fm-spawn.sh
+    # apply - so it can never authorize a different adapter or a higher level,
+    # and an effort-capable adapter never has an exception claimed on its behalf.
+    # Those need a fresh reason typed into the verb.
+    if [ "${HARNESS[i]}" = "$FM_SECONDMATE_RESTART_HARNESS" ] \
+      && ! fm_control_harness_enforces_effort "${HARNESS[i]}" low; then
       case "${EFFORT[i]}" in
         ''|low) OVERRIDE_REASON[i]=$(fm_meta_get "$STATE/$id.meta" effort_override_reason 2>/dev/null || true) ;;
       esac
