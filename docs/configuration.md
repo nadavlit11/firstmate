@@ -596,7 +596,7 @@ Forcing a fresh pull of a day already captured as finalized - if Google ever res
 Each day and dimension is paged at the documented per-request maximum of 25,000 rows and stops at `--max-rows` (default 25,000); on reaching that ceiling one more row is requested to settle whether anything was actually left behind, so a result of exactly `--max-rows` rows is reported complete and only a genuine overflow is recorded in the manifest and warned, never silently dropped.
 The cache is keyed by that cap as well, so a day first pulled under a low `--max-rows` is re-queried rather than re-served as if it were the complete day.
 
-`manifest.json` records the `responseAggregationType` Google returned for each table.
+`manifest.json` reports `responseAggregationType` per table as what THIS run observed from live responses; it is `null` for any dimension whose days all came from cache, which is the normal case for a repeated review, so it is not the place to read a table's baseline from.
 Google aggregates a page-dimension result `byPage` and the query and date results `byProperty`, so the page table's totals are not comparable with the query or date tables' - measured on 2026-09-08 over three days of clickbateva.co.il, the page table read 98 clicks against the property's true 88.
 Read each table against its own baseline.
 

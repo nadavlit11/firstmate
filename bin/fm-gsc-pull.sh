@@ -616,8 +616,8 @@ cmd_pull() {
     fi
     # Google aggregates a page-dimension result byPage and the others
     # byProperty, so the page table's totals are NOT comparable with the query
-    # or date tables'"'"'. Record which one produced each table rather than
-    # leaving a reader to assume one property-wide baseline.
+    # or date tables'"'"'. Report what this run actually saw Google say, which is
+    # null for a table every day of which came from cache.
     aggregations=$(jq -c --arg d "$dim" \
       --argjson a "$(jq -sc '[.[] | .aggregation | select(. != null)] | first // null' < "$tmp/$dim.live.ndjson")" \
       '. + {($d): $a}' <<< "$aggregations")
