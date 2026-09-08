@@ -34,13 +34,16 @@
 #              Already-stopped is success (idempotent).
 #   relaunch   Transactionally replace the running agent with a new one, in the
 #              SAME endpoint and SAME worktree, on the same or a newly chosen
-#              harness/model/effort - so switching harness is one ordinary use
-#              of this verb. An explicit `default` model or effort clears that
-#              axis for the replacement. With no explicit axis, a secondmate
-#              re-resolves its durable config/secondmate-harness pin (harness
-#              plus its optional model and effort tokens) exactly as any other
-#              respawn does, while a ship or scout keeps the exact adapter
-#              already recorded for it.
+#              harness/model - so switching harness is one ordinary use of this
+#              verb. An explicit `default` model clears that axis for the
+#              replacement. With no explicit harness, a secondmate re-resolves
+#              its durable config/secondmate-harness pin (harness plus its
+#              optional model token) exactly as any other respawn does, while a
+#              ship or scout keeps the exact adapter already recorded for it.
+#              Effort is not one of the inherited axes: a relaunch always
+#              launches at low unless --effort and --effort-override-reason are
+#              BOTH named on this invocation. Neither the task record nor the
+#              secondmate config can supply it.
 #              A prefixed raw-command basename cannot reconstruct its launch
 #              command, so relaunch requires an explicit --harness for it.
 #              --note is required for a ship or scout, whose replacement
@@ -528,7 +531,6 @@ PRIOR_RECORDED_HARNESS=$RECORDED_HARNESS
 CONFIG_HARNESS=
 CONFIG_MODEL=
 PRIOR_MODEL=
-PRIOR_EFFORT=
 PRIOR_EFFORT_OVERRIDE_REASON=
 TARGET_HARNESS=$HARNESS
 TARGET_MODEL=
@@ -549,7 +551,6 @@ journal_write() {  # <phase> [extra-line]...
     echo "kind=$KIND"
     echo "from_harness=$PRIOR_RECORDED_HARNESS"
     echo "from_model=$PRIOR_MODEL"
-    echo "from_effort=$PRIOR_EFFORT"
     echo "to_harness=$TARGET_HARNESS"
     echo "to_model=$TARGET_MODEL"
     echo "to_effort=$TARGET_EFFORT"
@@ -626,10 +627,8 @@ resolve_relaunch_profile() {
   PRIOR_HARNESS=$HARNESS
   PRIOR_RECORDED_HARNESS=$RECORDED_HARNESS
   PRIOR_MODEL=$(fm_meta_get "$META" model)
-  PRIOR_EFFORT=$(fm_meta_get "$META" effort)
   PRIOR_EFFORT_OVERRIDE_REASON=$(fm_meta_get "$META" effort_override_reason)
   [ -n "$PRIOR_MODEL" ] || PRIOR_MODEL=default
-  [ -n "$PRIOR_EFFORT" ] || PRIOR_EFFORT=default
   if [ "$HARNESS_SET" = 0 ] \
      && [ "$PRIOR_RECORDED_HARNESS" != "$PRIOR_HARNESS" ]; then
     die "task $ID records harness '$PRIOR_RECORDED_HARNESS', whose original launch command cannot be reconstructed from its recorded basename; relaunching without --harness would substitute the canonical adapter '$PRIOR_HARNESS' for the command actually running. Pass an explicit --harness to choose the replacement runtime deliberately"
@@ -637,9 +636,9 @@ resolve_relaunch_profile() {
   CONFIG_HARNESS=
   CONFIG_MODEL=
   if [ "$KIND" = secondmate ]; then
-    # A secondmate's harness, model, and effort are a durable configured pin
-    # that every respawn re-resolves (the secondmate-provisioning contract), so
-    # a relaunch with no explicit harness picks up a newly configured one
+    # A secondmate's harness and model are a durable configured pin that every
+    # respawn re-resolves (the secondmate-provisioning contract), so a relaunch
+    # with no explicit harness picks up a newly configured one
     # instead of freezing whatever this incarnation happens to run. Crewmates
     # and scouts deliberately do NOT resolve config here: their harness comes
     # from firstmate's own dispatch-profile judgment at intake, and silently
@@ -664,9 +663,9 @@ resolve_relaunch_profile() {
   # transaction, where nothing has changed yet.
   fm_control_harness_supports_kind "$TARGET_HARNESS" "$KIND" \
     || die "'$TARGET_HARNESS' is not verified to run a $KIND task, so relaunching $ID onto it would stop the running agent for a launch that must be refused; choose an adapter verified for this kind"
-  # A model or effort chosen for the previous harness does not transfer to a
-  # different one, so an explicit harness change resets both axes unless the
-  # caller names them too.
+  # A model chosen for the previous harness does not transfer to a different
+  # one, so an explicit harness change resets that axis unless the caller names
+  # it too. Effort transfers from nowhere at all; see the block below.
   if [ "$MODEL_SET" = 1 ]; then
     TARGET_MODEL=$NEW_MODEL
   elif [ "$HARNESS_SET" = 0 ] && [ -n "$CONFIG_HARNESS" ]; then
