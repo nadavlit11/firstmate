@@ -723,6 +723,39 @@ Never run the registered blocking source command directly in a conversational tu
 
 A long-polling external process is registered as a *source* through its adapter, whose header and `--help` own the commands and flags.
 `bin/fm-procevent.sh` owns the generic contract; built-in adapters retain their tracked `bin/fm-procevent-<adapter>.sh` commands, while an explicitly bound external adapter routes through the trusted host contract above.
+
+### Codemagic build watches (`config/codemagic.env`)
+
+Codemagic build watching is an opt-in, read-only built-in process-event adapter.
+It never starts or cancels a build.
+An absent `config/codemagic.env` has no effect on startup, bootstrap, or ordinary watcher behavior.
+
+In Codemagic, open **Account settings > API token** and copy your personal API token.
+Store it in the effective Firstmate home's gitignored `config/codemagic.env` as one line, and restrict the file to its owner:
+
+```sh
+mkdir -p "$FM_HOME/config"
+printf 'CODEMAGIC_API_TOKEN=%s\n' '<token>' > "$FM_HOME/config/codemagic.env"
+chmod 0600 "$FM_HOME/config/codemagic.env"
+```
+
+Register one build by its Codemagic build id:
+
+```sh
+FM_HOME=/path/to/home bin/fm-procevent-codemagic.sh arm <build-id>
+```
+
+The adapter polls `GET https://codemagic.io/api/v3/builds/{buildId}` with the token in the `x-auth-token` header and reads the pinned response field `data.status`.
+The in-progress states are `initializing`, `queued`, `preparing`, `fetching`, `testing`, `building`, `publishing`, and `finishing`.
+The terminal states are `finished`, `failed`, `canceled`, `timeout`, and `skipped`; `finished` is the only successful terminal state.
+For a raw `finished` result, the adapter also reads the v3 build-actions endpoint so a failed `pre_publish`, `publishing`, `post_publish`, or `finishing` action is reported as `post-processing-failed` without losing `raw_status: finished` or the failed action type.
+It applies the same distinction when `app_store_connect_status` is `failed`.
+The source retires after its first terminal result, including a build that was already terminal when registered.
+Authentication rejection, a missing or inaccessible build, rate limiting, a network failure, another HTTP failure, an invalid v3 response, or an undocumented status each produces a distinct terminal diagnostic rather than a success or silent retry.
+The missing-build diagnostic also recognizes Codemagic's observed HTTP 200 application-page fallback for an unknown build id.
+If action detail cannot be retrieved or is inconsistent with the terminal build status, the adapter reports `action-detail-error` alongside the raw status instead of flattening uncertainty into success or failure.
+The API key is read only by the poll process and is not stored in the process-event registration, result, wake, or status history.
+Codemagic's [current REST API overview](https://docs.codemagic.io/rest-api/codemagic-rest-api/) owns token setup, and its [Jenkins integration](https://docs.codemagic.io/integrations/jenkins-integration/#poll-build-status) documents the v3 build-status endpoint and status schema.
 `bin/fm-procevent-lavish.sh` is the first built-in adapter and wraps only the currently published `lavish-axi poll` interface.
 That adapter, and only that adapter, retries the one exact transient response a cut-short listener returns while its marks remain available (`error: Lavish Editor poll response was interrupted` with `code: SERVER_ERROR`), up to 12 times at 5 second intervals, so an internal retry never reaches the runner as a captured result.
 Real feedback, ended and missing sessions, any other `SERVER_ERROR`, and that same interruption still standing once the bound is spent are all captured and announced normally; `FM_LAVISH_POLL_RETRY_DELAY` is a bounded 0 to 60 second test override for the interval only, and the runner itself stays adapter-agnostic.
