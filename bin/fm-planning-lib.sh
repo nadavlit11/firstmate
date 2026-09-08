@@ -76,7 +76,9 @@ fm_planning_validate_record() {
   [ -f "$meta" ] || return 1
   plan=$(fm_meta_get "$meta" plan_report)
   if [ -n "$plan" ]; then
+    # shellcheck disable=SC2034  # output contract: read by the caller after validation
     PLANNING_PLAN_REPORT=$(fm_planning_canonical_plan_report "$plan" "$data" "$id") || return 1
+    # shellcheck disable=SC2034  # output contract: read by the caller after validation
     PLANNING_DISPOSITION=plan
     return 0
   fi
@@ -87,6 +89,7 @@ fm_planning_validate_record() {
     # could produce one. Refusing here would strand it with no agent and no way
     # back, so a relaunch - and only a relaunch - grandfathers it and records
     # the fact as its own distinct marker, never as a forged plan reference.
+    # shellcheck disable=SC2034  # output contract: read by the caller after validation
     PLANNING_DISPOSITION=legacy
     echo "PLANNING LEGACY: $id relaunches with no recorded planning disposition and is grandfathered; a fresh spawn of this task still requires --plan-report or --planning-exception" >&2
     return 0
@@ -97,7 +100,9 @@ fm_planning_validate_record() {
   esac
   reason=$(fm_meta_get "$meta" planning_reason)
   fm_planning_valid_reason "$reason" || return 1
+  # shellcheck disable=SC2034  # output contract: read by the caller after validation
   PLANNING_DISPOSITION="exception:$kind"
+  # shellcheck disable=SC2034  # output contract: read by the caller after validation
   PLANNING_REASON_RECORD=$reason
   echo "PLANNING EXCEPTION: $id $kind: $reason (from the task record on relaunch)" >&2
   return 0
@@ -121,7 +126,9 @@ fm_planning_validate_provenance() { # <brief> <data-dir> <task-id> [relaunch-met
   case "$line" in
     'Planning gate: plan='*)
       value=${line#Planning gate: plan=}
+      # shellcheck disable=SC2034  # output contract: read by the caller after validation
       PLANNING_PLAN_REPORT=$(fm_planning_canonical_plan_report "$value" "$data" "$id") || return 1
+      # shellcheck disable=SC2034  # output contract: read by the caller after validation
       PLANNING_DISPOSITION=plan
       ;;
     'Planning gate: exception='*)
@@ -138,7 +145,9 @@ fm_planning_validate_provenance() { # <brief> <data-dir> <task-id> [relaunch-met
         echo "error: planning gate refused $id: exception '$kind' requires a specific single-line --planning-reason; use one-line only for a literal one-line change, or precedent-following with the precedent named." >&2
         return 1
       fi
+      # shellcheck disable=SC2034  # output contract: read by the caller after validation
       PLANNING_DISPOSITION="exception:$kind"
+      # shellcheck disable=SC2034  # output contract: read by the caller after validation
       PLANNING_REASON_RECORD=$reason
       echo "PLANNING EXCEPTION: $id $kind: $reason" >&2
       ;;

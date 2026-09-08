@@ -884,7 +884,17 @@ spawn_remote_secondmate() {
     remote_traceparent=$(FM_TRACE_CONTEXT=on fm_trace_context_resolve "$CONFIG" "$meta" || true)
   fi
   launch_args=("$id" "$harness" "$model" "$effort" "$backend")
-  [ -z "$remote_traceparent" ] || launch_args+=("$remote_traceparent")
+  # The remote host re-runs the effort gate, so the capability reason that
+  # authorized this launch has to cross with it; without it an adapter with no
+  # verified axis for this level is refused on arrival even though the exception
+  # was granted here. The reason is the LAST positional and a "-" placeholder
+  # keeps the traceparent slot, so a control script predating it refuses loudly
+  # on the argument count instead of reading the reason as a traceparent.
+  if [ -n "$EFFORT_OVERRIDE_REASON" ]; then
+    launch_args+=("${remote_traceparent:--}" "$EFFORT_OVERRIDE_REASON")
+  elif [ -n "$remote_traceparent" ]; then
+    launch_args+=("$remote_traceparent")
+  fi
   if out=$("$SCRIPT_DIR/fm-on.sh" "$id" fm-remote-secondmate-control.sh launch \
     "${launch_args[@]}" < /dev/null 2>&1); then
     rc=0

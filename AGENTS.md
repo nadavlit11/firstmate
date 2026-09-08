@@ -221,7 +221,7 @@ Break genuine evidence ties without array-order or harness bias.
 `quota-axi` owns how model or product windows relate to bounding account windows and remains data-only.
 Load `quota-array-dispatch` before choosing among a matched profile array; that skill is the single owner of the TOON-first spendPriority selection procedure.
 Every spawned agent runs on low effort.
-That is not a fallback the dispatcher weighs against configuration: `bin/fm-spawn.sh` defaults an omitted effort to low, refuses a higher level unless the current invocation also carries an explicit written reason, and refuses an adapter whose launch axis cannot prove low unless that same flag states the capability gap.
+That is not a fallback the dispatcher weighs against configuration: `bin/fm-spawn.sh` defaults an omitted effort to low, refuses a higher level unless the current invocation also carries an explicit written reason, and refuses an adapter with no verified launch axis for the level actually requested unless that same flag states the capability gap.
 No standing configuration, inherited value, environment variable, or prior task record raises it, and a relaunch never inherits a previous exception as fresh authority.
 Raise it only under an explicit current captain exception, and pass that exception on the spawn command itself; `bin/fm-spawn.sh --help` owns the flags and refusals.
 Do not add model-specific versions of that policy.

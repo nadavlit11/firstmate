@@ -56,11 +56,12 @@ It is not deterministic across the verified adapters: codex, grok, and gemini re
 `relaunch` is the only verb that changes durable records, so it runs as a transaction with a journal at `state/<id>.control-relaunch`, the prior record preserved beside it, and a ship or scout's prior instructions preserved when a progress note is appended.
 
 1. **Resolve the profile.**
-   An explicit `--harness`, `--model`, or `--effort` wins.
-   Otherwise a `kind=secondmate` task re-resolves its durable `config/secondmate-harness` pin, including that file's optional model and effort tokens, exactly as every other respawn does - so setting the pin and relaunching is the ordinary way to move a secondmate's runtime.
+   An explicit `--harness` or `--model` wins, and an explicit non-low `--effort` is refused unless `--effort-override-reason` is named on the same invocation.
+   Effort is never inherited: a relaunch that does not name a level resolves to low, whatever the task record or configuration holds, because a relaunch inherits identity and work but never authority.
+   Otherwise a `kind=secondmate` task re-resolves its durable `config/secondmate-harness` pin, including that file's optional model token, exactly as every other respawn does - so setting the pin and relaunching is the ordinary way to move a secondmate's runtime.
    A ship or scout keeps the harness already recorded for it, because that harness comes from firstmate's dispatch-profile judgment at intake and must not be silently re-read from configuration.
    A recorded raw-command basename that differs from its resolved adapter cannot reproduce the command actually running, so relaunch refuses before the checkpoint unless the caller passes an explicit `--harness` to choose the replacement runtime deliberately.
-   A harness change resets model and effort unless they are named too, because a model chosen for one adapter does not transfer to another.
+   A harness change resets the model unless it is named too, because a model chosen for one adapter does not transfer to another; effort needs no reset because it was never carried.
 2. **Safe checkpoint.**
    The recorded worktree must exist and be a worktree root; its head and dirty state are recorded.
    For a `kind=secondmate` task, the home's identity marker must match and its child records must be readable, so a relaunch can never strand child work behind an unreadable home.
