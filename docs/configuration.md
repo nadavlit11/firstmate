@@ -527,6 +527,83 @@ The sweep must finish inside `FM_CHECK_TIMEOUT` (default 30), because a run the 
 So a budget larger than that timeout allows is cut down to what fits instead of being refused, and the cut is reported in the report line.
 A budget that is not a whole number from 1 to 120 is still refused outright.
 
+## Search Console pull (config/gsc.env)
+
+`bin/fm-gsc-pull.sh` reads Google Search Console through its official, free API instead of driving the web console by hand.
+It is read-only: the only endpoints it reaches are `sites.list` and `searchAnalytics.query`.
+The recurring SEO review is its consumer, and the `seo-review` skill owns that review procedure and the target-term lists.
+
+The feature is absent until this file exists.
+No session-start path calls the script, so a home without `config/gsc.env` behaves exactly as it did before the script existed: no warning, no failure, nothing on the digest.
+`bin/fm-gsc-pull.sh status` reports `not configured` and exits 0 in such a home, so a caller can branch on the feature without treating its absence as an error.
+
+`config/gsc.env` is local and gitignored, like every other file under `config/`.
+It is read as data, not sourced as script: only the named `NAME=VALUE` fields below are honoured.
+Nothing in the script prints, logs, or writes a credential into an export, and the access token is passed to `curl` through a mode-600 config file rather than on a command line where `ps` could read it.
+
+### Setup, once, by the captain
+
+The credential is the captain's to grant, because only an owner of a Search Console property can add a user to it.
+Two paths exist, and the first is much shorter wherever a Google Cloud project already exists for that business.
+
+**Service account (preferred where a cloud project already exists).**
+This reuses the pattern click-bateva already uses for its GA4 queries and stores no long-lived secret at all: the access token is minted fresh on each run by the `gcloud` CLI.
+
+1. Enable the Search Console API (`searchconsole.googleapis.com`) in the Google Cloud project that owns the service account.
+2. In Search Console, open the property's settings, then users and permissions, and add the service account's email address as a user with read access.
+3. Write `config/gsc.env`:
+
+```
+GSC_AUTH=gcloud-sa
+GSC_SA_ACCOUNT=<service-account>@<project>.iam.gserviceaccount.com
+```
+
+**Installed-app OAuth (for a property whose Google account has no cloud project).**
+Use this when the property lives under an identity that cannot be granted through an existing service account.
+
+1. In a Google Cloud project, enable `searchconsole.googleapis.com`.
+2. Create an OAuth client of type "Desktop app" and note its client id and client secret.
+3. Authorize the account that owns the property for the `https://www.googleapis.com/auth/webmasters.readonly` scope and keep the resulting refresh token.
+4. Write `config/gsc.env`:
+
+```
+GSC_AUTH=refresh-token
+GSC_CLIENT_ID=<client id>
+GSC_CLIENT_SECRET=<client secret>
+GSC_REFRESH_TOKEN=<refresh token>
+```
+
+A refresh token is a long-lived credential for that Google account.
+It belongs in this file in the operational home and nowhere else; never copy it into a project worktree, a brief, or a task record.
+
+Confirm the grant with `bin/fm-gsc-pull.sh sites`, which lists the properties the credential can actually read.
+A property missing from that list is one the credential cannot see, whatever the web console shows.
+
+### Pulling data
+
+`bin/fm-gsc-pull.sh pull --site <property> --start <date> --end <date>` writes an export directory holding `שאילתות.csv`, `דפים.csv`, `תרשים.csv`, and a `manifest.json`.
+Those three CSVs carry the same headers, column order, and `NN.NN%` formatting as a Search Console UI export, so the review's existing reader needs no change.
+Device and country tables are deliberately not produced, because the API returns `MOBILE` and `isr` where the UI export returns `נייד` and `ישראל`, and inventing that translation would put made-up vocabulary into a file the review reads as if it came from Google.
+
+Search Console data is incomplete for roughly the last two to three days.
+Every row request asks Google for finalized data only, so a review never reports a still-moving day as settled.
+Whenever the API reports a first incomplete date, that date is carried into `manifest.json` and warned on stderr rather than swallowed.
+That horizon describes the moment the request was made rather than the days it covers, so it is never cached: every run observes it once with a single `dataState: all` request over the range, so even a run otherwise served entirely from cache reports the boundary Google states now. `responseAggregationType` is request-time state too but is read only from day responses, so it is `null` for a table no request was made for.
+
+A pull asks for one day at a time, which is what Google recommends over long ranges, and caches each day under `data/gsc-cache/`, so re-running a review over an overlapping range re-reads disk instead of re-querying history; a range is composed from those cached days.
+Only a settled day is history: a day fetched on or after the observed incomplete date was still moving when it was captured, so it is cached as provisional and re-fetched on every later run until it falls outside the horizon. A day captured settled is served from disk forever, and a cache entry written before this provenance existed is re-fetched once rather than trusted.
+Google reporting no incomplete date is not Google saying everything is settled: in that case the trailing three days of the documented settling window are assumed incomplete instead - measured on the Search Console reporting timezone (`America/Los_Angeles`), the calendar its days actually end on, rather than on the machine clock, and widened by a further day with a stderr notice on a host where that timezone cannot be resolved - `manifest.firstIncompleteDate` stays null, `firstIncompleteDateSource` reads `assumed-conservative-default` rather than `reported`, `provisionalFromDate` records the boundary that actually gated the days, and the assumption is stated on stderr.
+When that assumed window falls entirely after the requested range - a wholly historical pull, where nothing asked about can still be moving - neither the assumed-window warning nor the unresolvable-timezone notice is emitted, `firstIncompleteDateSource` reads `not-applicable`, and both `firstIncompleteDate` and `provisionalFromDate` are null; null there means no day in the range is unsettled, not that the boundary is unknown.
+Forcing a fresh pull of a day already captured as finalized - if Google ever restates finalized data - means deleting the relevant day files under `data/gsc-cache/`.
+Each day and dimension is paged at the documented per-request maximum of 25,000 rows and stops at `--max-rows` (default 25,000); on reaching that ceiling one more row is requested to settle whether anything was actually left behind, so a result of exactly `--max-rows` rows is reported complete and only a genuine overflow is recorded in the manifest and warned, never silently dropped.
+The cache is keyed by that cap as well, so a day first pulled under a low `--max-rows` is re-queried rather than re-served as if it were the complete day.
+
+`manifest.json` reports `responseAggregationType` per table as what THIS run observed from live responses; it is `null` for any dimension whose days all came from cache, which is the normal case for a repeated review, so it is not the place to read a table's baseline from.
+Google aggregates a page-dimension result `byPage` and the query and date results `byProperty`, so the page table's totals are not comparable with the query or date tables' - measured on 2026-09-08 over three days of clickbateva.co.il, the page table read 98 clicks against the property's true 88.
+Read each table against its own baseline.
+
+Every failure is reported as itself rather than as an empty result, with its own exit code: 2 usage or configuration, 3 authorization expired, revoked, or never granted for that property, 4 a quota rejection, 5 a network failure, and 6 the Search Console API not enabled for the project.
+
 ## Relay (.env)
 
 Relay lets a firstmate instance answer public mentions and act on normal reversible mention requests through firstmate's normal lifecycle.

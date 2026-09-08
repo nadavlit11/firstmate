@@ -36,59 +36,57 @@ bateva-shelanu's 2026-08-29 export refuted the sitewide retitle the session open
 click-bateva's 2026-09-01 audit found six of eight allegedly page-less terms already had a page, and returned a code ticket instead of a new page axis.
 Cancelling a plan is a full result; report it as one.
 
-## The pull: decided
+## The pull: through the API, into the same export directory
 
-**The review starts from the export already on disk.
-The saved export directory is the loop's input contract.
-Do not build a Search Console API client.**
+**The saved export directory is still the loop's input contract.
+What changed on 2026-09-08 is only who produces it.**
 
-The reasoning, so it is not relitigated every run:
+The captain asked for the Search Console API, overriding this skill's earlier "do not build a Search Console API client" ruling.
+`bin/fm-gsc-pull.sh` is that pull, and `docs/configuration.md` "Search Console pull (config/gsc.env)" owns its setup and its flags.
+It is read-only and writes `שאילתות.csv`, `דפים.csv` and `תרשים.csv` with the same headers and column order a UI export has, so everything downstream - `scripts/gsc_report.py` on bateva-shelanu included - reads it unchanged.
+That was the whole point of keeping the on-disk contract: the API became a drop-in producer rather than a rewrite of the analysis.
 
-- It works today on both sites with no new credential and no dependency on a third party.
-- bateva-shelanu's `scripts/gsc_report.py` already reads exactly that on-disk shape, and firstmate cannot change it (hard rule 1) - a project worker would have to.
-  Keeping the on-disk contract is what makes an API a drop-in *producer* later rather than a rewrite of the analysis.
-- Every recorded loss on this surface came from not saving a pull, never from how the pull was fetched.
+Use it, and keep saving every pull.
+The 2026-08-25 pull was lost by being quoted into a session transcript instead of saved, and the API does not make that failure any less permanent.
 
-So the pull half stays a class-B identity-bound read: an agent driving the captain's logged-in Chrome, never a headless process.
-Where a site's own records already own the pull procedure, follow them rather than restating one here.
+What the API bought, exactly:
 
-### What the API would buy, and the exact credential that gates it
+- The export click is gone and the pull is mechanical and repeatable.
+- ⭐ **Hebrew queries arrive as UTF-8 data rather than as something read off a screenshot.**
+  This is the accuracy win, not a convenience: the review no longer interprets Hebrew glyphs from an image.
+- The row cap rises from the UI export's roughly 1,000 to 25,000 per request, paged.
+- The pull is cached per day, so a repeated review re-reads disk instead of re-querying history.
 
-State this when the captain asks whether to automate the pull, and stop there.
-Do not half-build around a credential that does not exist.
+What it did not buy, so do not claim it:
 
-It would buy three things and only three:
-
-- The export click disappears, and the pull becomes mechanical.
-- The row cap disappears: the API pages to 25,000 rows against a UI export capped near 1,000.
-- ⭐ **The query-by-page join becomes reachable.**
-  A two-dimension query answers "which pages earn impressions for this phrase" in one call.
-  That is precisely the limitation `scripts/README.md` records as having no shell route, so it is the strongest single argument for paying the setup cost.
-
-It would buy none of the following, and saying otherwise oversells it:
-
-- Security issues and manual actions have no API at all; that stays a browser look.
+- Security issues and manual actions have no API at all; that stays a browser look, and it stays a class-B identity-bound read in the captain's logged-in Chrome.
 - Search volume is a different product (Keyword Planner) on a spend-gated account.
 - Rare queries stay anonymised, so every non-brand bucket remains a lower bound.
-- The survivorship trap is structural and no access method touches it (see below).
+- Grouping by query and page together still loses rows to Google's own omission, exactly as `scripts/README.md` records; the pull does not produce that pairing and no access method removes the limitation.
+- The survivorship trap below is structural and no access method touches it.
+- Device and country tables are not produced, because the API's `MOBILE` and `isr` are not the UI export's `נייד` and `ישראל` and the translation would be invented.
 
-The credential, exactly:
+⚠️ **Never report the last two to three days as settled.**
+Search Console finalizes data on that lag.
+The pull asks for finalized data only and records the boundary it actually applied in each export's `manifest.json` as `provisionalFromDate`; read that field, not `firstIncompleteDate`, before quoting a recent day.
+`firstIncompleteDateSource` says which of three states produced it:
 
-- **click-bateva is the short path, because the pattern already exists.**
-  `scripts/ga4-query.mjs` on `origin/develop` mints an ephemeral token with `gcloud auth print-access-token --account=ga4-admin@click-bateva.iam.gserviceaccount.com --scopes=<scope>`.
-  The same call with `https://www.googleapis.com/auth/webmasters.readonly` is the entire auth story.
-  What the captain must do: enable `searchconsole.googleapis.com` in the existing `click-bateva` cloud project, then add that service account as a user on `sc-domain:clickbateva.co.il` under the property's users-and-permissions settings, read access being enough.
-  Granting a user requires owner access on the property.
-- **bateva-shelanu is the longer path and is not the captain's to grant alone.**
+- `reported` - Google gave a first incomplete date, and `firstIncompleteDate` carries it.
+- `assumed-conservative-default` - Google reported no horizon, so the trailing days of the documented settling window were assumed unsettled; `firstIncompleteDate` is null and `provisionalFromDate` carries the assumed boundary.
+- `not-applicable` - the settling window falls entirely after the pulled range, so both `firstIncompleteDate` and `provisionalFromDate` are null. Null there means **no day in this range is unsettled**, never "unknown".
+
+Per-property access, as it stands:
+
+- **click-bateva** goes through the existing `ga4-admin@click-bateva.iam.gserviceaccount.com` service account, which needs the Search Console API enabled in that cloud project and read access on `sc-domain:clickbateva.co.il`.
+- **bateva-shelanu** is the longer path and is not the captain's to grant alone.
   Its property is `sc-domain:batevashelanu.co.il` under the `batevashelanu@gmail.com` identity, and that project has no cloud project of its own.
-  It needs either its own service account or a grant of click-bateva's onto that property, and either way an owner of that Google account has to make the grant.
+  It needs either its own credential or a grant of click-bateva's service account onto that property, and either way an owner of that Google account has to make the grant.
   Name that dependency rather than assuming the captain can clear it.
 
 ## What the loop cannot answer without him
 
 Say these plainly in any review that runs into them, rather than answering around them.
 
-- **Attributing a phrase to pages.** The export's page and query tables are independent margins; joining them needs a filter in the Search Console UI, and there is no shell route until the API above exists.
 - **Security issues and manual actions.** No API, and a reputational standing is the captain's call even when the fix is code.
 - **Search volume.** Search Console cannot size demand; volumes come from Keyword Planner on an existing Ads account, and a fresh account cannot reach the tool.
 - **Anything needing his commercial judgment**, such as whether demand the business does not sell into is worth chasing.
@@ -160,6 +158,12 @@ Point at the owner and use its tool rather than hand-rolling the sweep again.
 - **A rate quoted without its baseline is a number pretending to be a finding.**
   `scripts/gsc_report.py` refuses to print a CTR without the expected CTR at that position, because a 0.45% CTR was once presented as the site's biggest fixable defect when the page ranked at position 33, where 0.45% is normal.
   Run it; do not recompute CTR by hand.
+- ⛔ **The three tables have three different baselines; never add them up or compare their totals.**
+  Measured fact: Search Console aggregates a page-dimension result `byPage` and the query and date results `byProperty`.
+  Do not look this up in the pull's `manifest.json` - its `responseAggregationType` reports only what that run observed from live responses, and is `null` for any dimension whose days all came from cache, which is the normal case for a repeated review.
+  Measured on click-bateva over 2026-09-01..03: the date table read 88 clicks and 434 impressions, the query table 74 and 330, and the page table 98 and 989.
+  The date table is the property truth; the query table is short by every anonymised rare query, which was 16% of clicks and 24% of impressions on that sample and is the concrete size of the "lower bound" warning below; the page table is a different aggregation entirely and is larger than the property total.
+  A rate computed by dividing one table by another is meaningless.
 - **Never quote a blended average position as progress.**
   Brand is around 86% of click-bateva's clicks on around 14% of its impressions at position 1, so the blend improves whenever paid manufactures brand searches.
   Report brand and non-brand separately, every time.
