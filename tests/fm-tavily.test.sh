@@ -387,10 +387,13 @@ test_explicit_harness_override_cannot_drift_from_the_brief() {
   FM_HOME="$HOME_DIR" "$ROOT/bin/fm-brief.sh" "$id" demo --base main --mode no-mistakes >/dev/null \
     || fail "scaffolding the brief failed"
   # Firstmate fills these before dispatch; spawn refuses a brief that still has them.
-  sed -e 's/{TASK}/Investigate the thing./' -e 's/{FIRSTMATE_SPEC}/Exercise the spawn behavior under test./' \
-    "$HOME_DIR/data/$id/brief.md" > "$HOME_DIR/data/$id/brief.filled" \
-    && mv "$HOME_DIR/data/$id/brief.filled" "$HOME_DIR/data/$id/brief.md" \
-    || fail "could not fill the scaffolded brief"
+  if sed -e 's/{TASK}/Investigate the thing./' -e 's/{FIRSTMATE_SPEC}/Exercise the spawn behavior under test./' \
+    "$HOME_DIR/data/$id/brief.md" > "$HOME_DIR/data/$id/brief.filled"; then
+    mv "$HOME_DIR/data/$id/brief.filled" "$HOME_DIR/data/$id/brief.md" \
+      || fail "could not fill the scaffolded brief"
+  else
+    fail "could not fill the scaffolded brief"
+  fi
 
   out=$(run_spawn "$id" --mode no-mistakes --yolo off --harness opencode)
   status=$?
