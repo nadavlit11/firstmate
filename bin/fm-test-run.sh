@@ -298,7 +298,8 @@ family_for_basename() {
     fm-sessionstart-hook-live-e2e.test.sh|fm-sessionstart-instruction-refresh-live-e2e.test.sh|\
     fm-quota-array-dispatch-live-e2e.test.sh|fm-send-secondmate-marker-herdr-e2e.test.sh|\
     fm-send-inbox-doorbell-live-e2e.test.sh|\
-    fm-herdr-submit-confirm-live-e2e.test.sh)
+    fm-herdr-submit-confirm-live-e2e.test.sh|\
+    fm-tavily-live-e2e.test.sh)
       printf '%s\n' live-harness-optin
       ;;
     fm-backend-herdr.test.sh|fm-backend-tmux-smoke.test.sh|fm-backend.test.sh|\
@@ -307,6 +308,7 @@ family_for_basename() {
     fm-herdr-session-cleanup.test.sh|fm-send-resolve-key.test.sh|fm-send-strict.test.sh|\
     fm-send-inbox.test.sh|fm-spawn-batch.test.sh|\
     fm-crew-model-config.test.sh|fm-spawn-dispatch-profile.test.sh|fm-claude-trust.test.sh|\
+    fm-tavily.test.sh|\
     fm-trace-context-spawn.test.sh|fm-spawn-worktree-settle.test.sh|\
     fm-teardown-endpoint-safety.test.sh)
       printf '%s\n' backend-dispatch
@@ -674,6 +676,8 @@ tests/fm-supervision-events.test.sh 719
 tests/fm-tangle-guard.test.sh 17730
 tests/fm-task-delivery.test.sh 19006
 tests/fm-task-inbox.test.sh 26560
+tests/fm-tavily-live-e2e.test.sh 21
+tests/fm-tavily.test.sh 75000
 tests/fm-teardown-endpoint-safety.test.sh 4840
 tests/fm-teardown.test.sh 126211
 tests/fm-test-fixture-cleanup.test.sh 915
@@ -1343,6 +1347,14 @@ families_for_changed_path() {
     bin/fm-peek.sh|bin/fm-composer*)
       printf '%s\n' backend-dispatch
       printf '%s\n' pure-contract-unit
+      ;;
+    bin/fm-tavily-lib.sh|bin/fm-tavily-exec.sh)
+      # The optional Tavily wiring reaches both the launch (backend-dispatch)
+      # and the generated brief (pure-contract-unit), and its withholding
+      # control is a vendor flag that only a real harness can vouch for.
+      printf '%s\n' backend-dispatch
+      printf '%s\n' pure-contract-unit
+      printf '%s\n' live-harness-optin
       ;;
     bin/fm-task-inbox-lib.sh)
       # The steering-inbox record/doorbell/ladder owner: fm-send's data plane

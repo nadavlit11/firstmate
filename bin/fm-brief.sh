@@ -97,7 +97,15 @@ esac
 . "$SCRIPT_DIR/fm-classify-lib.sh"
 # shellcheck source=bin/fm-dod-lib.sh
 . "$SCRIPT_DIR/fm-dod-lib.sh"
+# shellcheck source=bin/fm-tavily-lib.sh
+. "$SCRIPT_DIR/fm-tavily-lib.sh"
 PAUSED_VERB=${FM_CLASSIFY_PAUSED_VERB:-$FM_CLASSIFY_PAUSED_VERB_DEFAULT}
+
+# Tell the worker about Tavily only when this home actually has it, so a brief
+# never advertises a tool the launch cannot grant. bin/fm-tavily-lib.sh owns the
+# wording and the withheld-endpoint contract; the presence gate here is read
+# against the same config directory bin/fm-spawn.sh resolves the key from.
+TAVILY_LINES=
 
 resolve_directory_input() {
   local name=$1 path=$2 resolved
@@ -122,6 +130,14 @@ if [ -n "${FM_STATE_OVERRIDE:-}" ]; then
   STATE=$(resolve_directory_input FM_STATE_OVERRIDE "$FM_STATE_OVERRIDE") || exit 1
 else
   STATE="$FM_HOME/state"
+fi
+if [ -n "${FM_CONFIG_OVERRIDE:-}" ]; then
+  CONFIG=$(resolve_directory_input FM_CONFIG_OVERRIDE "$FM_CONFIG_OVERRIDE") || exit 1
+else
+  CONFIG="$FM_HOME/config"
+fi
+if fm_tavily_key_present "$CONFIG"; then
+  TAVILY_LINES=$'\n'$(fm_tavily_brief_lines)
 fi
 KIND=ship
 HERDR_LAB=0
@@ -407,7 +423,7 @@ The report is the only thing that survives, so anything worth keeping must be in
 2. Stay inside this worktree; the only files you may write outside it are the report and the status file below.
 3. Use gh-axi for GitHub operations.
    For browser operations use your own harness's browser tooling: on Codex its native browser and computer-use tools, on Claude the claude-in-chrome tools.
-   Do NOT use chrome-devtools-axi for browser operations while the fm-chrome-devtools-attach-chrome152 defect is open - it cannot attach to Chrome 152 at all.
+   Do NOT use chrome-devtools-axi for browser operations while the fm-chrome-devtools-attach-chrome152 defect is open - it cannot attach to Chrome 152 at all.$TAVILY_LINES
 4. Report status by appending one line:
    \`echo "{state}: {one short line}" >> $STATUS_FILE\`
    States: working, needs-decision, blocked, $PAUSED_VERB, done, failed.
@@ -493,7 +509,7 @@ $RULE1
 2. Stay inside this worktree; modify nothing outside it.
 3. Use gh-axi for GitHub operations.
    For browser operations use your own harness's browser tooling: on Codex its native browser and computer-use tools, on Claude the claude-in-chrome tools.
-   Do NOT use chrome-devtools-axi for browser operations while the fm-chrome-devtools-attach-chrome152 defect is open - it cannot attach to Chrome 152 at all.
+   Do NOT use chrome-devtools-axi for browser operations while the fm-chrome-devtools-attach-chrome152 defect is open - it cannot attach to Chrome 152 at all.$TAVILY_LINES
 4. Report status by appending one line:
    \`echo "{state}: {one short line}" >> $STATUS_FILE\`
    States: working, needs-decision, blocked, $PAUSED_VERB, done, failed.
