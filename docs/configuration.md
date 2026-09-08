@@ -527,6 +527,77 @@ The sweep must finish inside `FM_CHECK_TIMEOUT` (default 30), because a run the 
 So a budget larger than that timeout allows is cut down to what fits instead of being refused, and the cut is reported in the report line.
 A budget that is not a whole number from 1 to 120 is still refused outright.
 
+## Search Console pull (config/gsc.env)
+
+`bin/fm-gsc-pull.sh` reads Google Search Console through its official, free API instead of driving the web console by hand.
+It is read-only: the only endpoints it reaches are `sites.list` and `searchAnalytics.query`.
+The recurring SEO review is its consumer, and the `seo-review` skill owns that review procedure and the target-term lists.
+
+The feature is absent until this file exists.
+No session-start path calls the script, so a home without `config/gsc.env` behaves exactly as it did before the script existed: no warning, no failure, nothing on the digest.
+`bin/fm-gsc-pull.sh status` reports `not configured` and exits 0 in such a home, so a caller can branch on the feature without treating its absence as an error.
+
+`config/gsc.env` is local and gitignored, like every other file under `config/`.
+It is read as data, not sourced as script: only the named `NAME=VALUE` fields below are honoured.
+Nothing in the script prints, logs, or writes a credential into an export, and the access token is passed to `curl` through a mode-600 config file rather than on a command line where `ps` could read it.
+
+### Setup, once, by the captain
+
+The credential is the captain's to grant, because only an owner of a Search Console property can add a user to it.
+Two paths exist, and the first is much shorter wherever a Google Cloud project already exists for that business.
+
+**Service account (preferred where a cloud project already exists).**
+This reuses the pattern click-bateva already uses for its GA4 queries and stores no long-lived secret at all: the access token is minted fresh on each run by the `gcloud` CLI.
+
+1. Enable the Search Console API (`searchconsole.googleapis.com`) in the Google Cloud project that owns the service account.
+2. In Search Console, open the property's settings, then users and permissions, and add the service account's email address as a user with read access.
+3. Write `config/gsc.env`:
+
+```
+GSC_AUTH=gcloud-sa
+GSC_SA_ACCOUNT=<service-account>@<project>.iam.gserviceaccount.com
+```
+
+**Installed-app OAuth (for a property whose Google account has no cloud project).**
+Use this when the property lives under an identity that cannot be granted through an existing service account.
+
+1. In a Google Cloud project, enable `searchconsole.googleapis.com`.
+2. Create an OAuth client of type "Desktop app" and note its client id and client secret.
+3. Authorize the account that owns the property for the `https://www.googleapis.com/auth/webmasters.readonly` scope and keep the resulting refresh token.
+4. Write `config/gsc.env`:
+
+```
+GSC_AUTH=refresh-token
+GSC_CLIENT_ID=<client id>
+GSC_CLIENT_SECRET=<client secret>
+GSC_REFRESH_TOKEN=<refresh token>
+```
+
+A refresh token is a long-lived credential for that Google account.
+It belongs in this file in the operational home and nowhere else; never copy it into a project worktree, a brief, or a task record.
+
+Confirm the grant with `bin/fm-gsc-pull.sh sites`, which lists the properties the credential can actually read.
+A property missing from that list is one the credential cannot see, whatever the web console shows.
+
+### Pulling data
+
+`bin/fm-gsc-pull.sh pull --site <property> --start <date> --end <date>` writes an export directory holding `שאילתות.csv`, `דפים.csv`, `תרשים.csv`, and a `manifest.json`.
+Those three CSVs carry the same headers, column order, and `NN.NN%` formatting as a Search Console UI export, so the review's existing reader needs no change.
+Device and country tables are deliberately not produced, because the API returns `MOBILE` and `isr` where the UI export returns `נייד` and `ישראל`, and inventing that translation would put made-up vocabulary into a file the review reads as if it came from Google.
+`--join` additionally writes `query-page.csv`, the query-by-page pairing that has no UI export route at all.
+
+Search Console data is incomplete for roughly the last two to three days.
+The default `--data-state final` asks Google for finalized data only, so a review never reports a still-moving day as settled; `--data-state all` includes fresh data and is recorded as such in the manifest.
+Whenever the API reports a first incomplete date, that date is carried into `manifest.json` and warned on stderr rather than swallowed.
+
+The default `--mode daily` asks for one day at a time, which is what Google recommends over long ranges, and caches each day under `data/gsc-cache/`, so re-running a review over an overlapping range re-reads disk instead of re-querying history.
+Pass `--refresh` to re-query days that were first pulled before they finalized.
+Each day and dimension is paged at the documented per-request maximum of 25,000 rows and stops at `--max-rows` (default 25,000); hitting that ceiling is recorded in the manifest and warned, never silently dropped.
+`--mode range` issues one request for the whole range instead, matching what a UI export returns, at the cost of a more expensive query shape and no caching.
+The two modes can disagree slightly, because Google anonymises rare queries per request: a term below the anonymity threshold on every single day can vanish from a daily-mode pull while surviving a range-mode one.
+
+Every failure is reported as itself rather than as an empty result, with its own exit code: 2 usage or configuration, 3 authorization expired, revoked, or never granted for that property, 4 a quota rejection, 5 a network failure, and 6 the Search Console API not enabled for the project.
+
 ## Relay (.env)
 
 Relay lets a firstmate instance answer public mentions and act on normal reversible mention requests through firstmate's normal lifecycle.

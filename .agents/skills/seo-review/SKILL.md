@@ -36,59 +36,55 @@ bateva-shelanu's 2026-08-29 export refuted the sitewide retitle the session open
 click-bateva's 2026-09-01 audit found six of eight allegedly page-less terms already had a page, and returned a code ticket instead of a new page axis.
 Cancelling a plan is a full result; report it as one.
 
-## The pull: decided
+## The pull: through the API, into the same export directory
 
-**The review starts from the export already on disk.
-The saved export directory is the loop's input contract.
-Do not build a Search Console API client.**
+**The saved export directory is still the loop's input contract.
+What changed on 2026-09-08 is only who produces it.**
 
-The reasoning, so it is not relitigated every run:
+The captain asked for the Search Console API, overriding this skill's earlier "do not build a Search Console API client" ruling.
+`bin/fm-gsc-pull.sh` is that pull, and `docs/configuration.md` "Search Console pull (config/gsc.env)" owns its setup and its flags.
+It is read-only and writes `שאילתות.csv`, `דפים.csv` and `תרשים.csv` with the same headers and column order a UI export has, so everything downstream - `scripts/gsc_report.py` on bateva-shelanu included - reads it unchanged.
+That was the whole point of keeping the on-disk contract: the API became a drop-in producer rather than a rewrite of the analysis.
 
-- It works today on both sites with no new credential and no dependency on a third party.
-- bateva-shelanu's `scripts/gsc_report.py` already reads exactly that on-disk shape, and firstmate cannot change it (hard rule 1) - a project worker would have to.
-  Keeping the on-disk contract is what makes an API a drop-in *producer* later rather than a rewrite of the analysis.
-- Every recorded loss on this surface came from not saving a pull, never from how the pull was fetched.
+Use it, and keep saving every pull.
+The 2026-08-25 pull was lost by being quoted into a session transcript instead of saved, and the API does not make that failure any less permanent.
 
-So the pull half stays a class-B identity-bound read: an agent driving the captain's logged-in Chrome, never a headless process.
-Where a site's own records already own the pull procedure, follow them rather than restating one here.
+What the API bought, exactly:
 
-### What the API would buy, and the exact credential that gates it
+- The export click is gone and the pull is mechanical and repeatable.
+- ⭐ **Hebrew queries arrive as UTF-8 data rather than as something read off a screenshot.**
+  This is the accuracy win, not a convenience: the review no longer interprets Hebrew glyphs from an image.
+- The row cap rises from the UI export's roughly 1,000 to 25,000 per request, paged.
+- ⭐ **The query-by-page join is reachable** with `--join`, which is precisely the limitation `scripts/README.md` records as having no shell route.
 
-State this when the captain asks whether to automate the pull, and stop there.
-Do not half-build around a credential that does not exist.
+What it did not buy, so do not claim it:
 
-It would buy three things and only three:
-
-- The export click disappears, and the pull becomes mechanical.
-- The row cap disappears: the API pages to 25,000 rows against a UI export capped near 1,000.
-- ⭐ **The query-by-page join becomes reachable.**
-  A two-dimension query answers "which pages earn impressions for this phrase" in one call.
-  That is precisely the limitation `scripts/README.md` records as having no shell route, so it is the strongest single argument for paying the setup cost.
-
-It would buy none of the following, and saying otherwise oversells it:
-
-- Security issues and manual actions have no API at all; that stays a browser look.
+- Security issues and manual actions have no API at all; that stays a browser look, and it stays a class-B identity-bound read in the captain's logged-in Chrome.
 - Search volume is a different product (Keyword Planner) on a spend-gated account.
 - Rare queries stay anonymised, so every non-brand bucket remains a lower bound.
-- The survivorship trap is structural and no access method touches it (see below).
+- The survivorship trap below is structural and no access method touches it.
+- Device and country tables are not produced, because the API's `MOBILE` and `isr` are not the UI export's `נייד` and `ישראל` and the translation would be invented.
 
-The credential, exactly:
+⚠️ **Never report the last two to three days as settled.**
+Search Console finalizes data on that lag.
+The pull defaults to finalized data only and records the API's own first incomplete date in each export's `manifest.json`; read that field before quoting a recent day.
 
-- **click-bateva is the short path, because the pattern already exists.**
-  `scripts/ga4-query.mjs` on `origin/develop` mints an ephemeral token with `gcloud auth print-access-token --account=ga4-admin@click-bateva.iam.gserviceaccount.com --scopes=<scope>`.
-  The same call with `https://www.googleapis.com/auth/webmasters.readonly` is the entire auth story.
-  What the captain must do: enable `searchconsole.googleapis.com` in the existing `click-bateva` cloud project, then add that service account as a user on `sc-domain:clickbateva.co.il` under the property's users-and-permissions settings, read access being enough.
-  Granting a user requires owner access on the property.
-- **bateva-shelanu is the longer path and is not the captain's to grant alone.**
+⚠️ **A day-by-day pull and a whole-range pull can disagree, and neither is wrong.**
+Google anonymises rare queries per request, so a term under the threshold every single day vanishes from the cached daily pull while surviving a single range request.
+The daily mode is the default because it caches and is what Google recommends; reach for `--mode range` when an exact match with a UI export is what matters, and say which one produced the numbers.
+
+Per-property access, as it stands:
+
+- **click-bateva** goes through the existing `ga4-admin@click-bateva.iam.gserviceaccount.com` service account, which needs the Search Console API enabled in that cloud project and read access on `sc-domain:clickbateva.co.il`.
+- **bateva-shelanu** is the longer path and is not the captain's to grant alone.
   Its property is `sc-domain:batevashelanu.co.il` under the `batevashelanu@gmail.com` identity, and that project has no cloud project of its own.
-  It needs either its own service account or a grant of click-bateva's onto that property, and either way an owner of that Google account has to make the grant.
+  It needs either its own credential or a grant of click-bateva's service account onto that property, and either way an owner of that Google account has to make the grant.
   Name that dependency rather than assuming the captain can clear it.
 
 ## What the loop cannot answer without him
 
 Say these plainly in any review that runs into them, rather than answering around them.
 
-- **Attributing a phrase to pages.** The export's page and query tables are independent margins; joining them needs a filter in the Search Console UI, and there is no shell route until the API above exists.
 - **Security issues and manual actions.** No API, and a reputational standing is the captain's call even when the fix is code.
 - **Search volume.** Search Console cannot size demand; volumes come from Keyword Planner on an existing Ads account, and a fresh account cannot reach the tool.
 - **Anything needing his commercial judgment**, such as whether demand the business does not sell into is worth chasing.
