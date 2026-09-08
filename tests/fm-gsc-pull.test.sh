@@ -308,6 +308,19 @@ assert_grep "could not resolve the Search Console reporting timezone" "$TMP_ROOT
   || fail "the conservative widened window was not applied for an unresolvable timezone"
 pass "an unresolvable reporting timezone widens the window instead of passing UTC off as Pacific"
 
+# The same unresolvable zone over a wholly historical range: no window touches
+# it, so the notice about a widened window must not be announced either.
+OUT4G="$TMP_ROOT/out4g"
+( cd "$HOME1C" && FM_HOME="$HOME1C" FM_GSC_TEST_CLOCK="$CLOCK" FM_GSC_TEST_TZ=Not/AZone \
+    "$GSC" pull --site sc-domain:example.co.il \
+    --start 2026-05-01 --end 2026-05-07 --out "$OUT4G" ) 2>"$TMP_ROOT/stderr.txt" \
+  || fail "historical-range pull with an unresolvable timezone failed: $(cat "$TMP_ROOT/stderr.txt")"
+assert_not_contains "$(cat "$TMP_ROOT/stderr.txt")" "could not resolve" \
+  "a widened window is not announced for a range no window touches"
+[ "$(jq -r .firstIncompleteDateSource "$OUT4G/manifest.json")" = "not-applicable" ] \
+  || fail "a wholly historical range should record the horizon as not applicable"
+pass "the unresolvable-timezone notice is scoped to ranges the window actually touches"
+
 # A wholly historical range cannot contain an unsettled day, so the assumed
 # window does not apply to it: no caveat on stderr, and no boundary date named
 # outside the range that was actually pulled.

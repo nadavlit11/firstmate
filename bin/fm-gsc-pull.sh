@@ -448,9 +448,11 @@ zone_time() {  # <tz-or-empty> <epoch> <format>
 # no horizon of its own. Search Console's days end on the property's reporting
 # timezone, so the window is measured on that calendar rather than on the
 # machine clock: measuring in UTC can leave a genuinely unsettled Pacific day
-# outside the window and cache it as final.
+# outside the window and cache it as final. Emits `<date> <resolved|unresolved>
+# <base-date>`, so the caller - which alone knows whether the window touches the
+# requested range - decides whether an unresolvable-timezone notice applies.
 assumed_horizon() {
-  local epoch tz offset base back=2 utc local_date
+  local epoch tz offset base back=2 utc local_date zone=resolved
   epoch=${FM_GSC_TEST_CLOCK:-$(date -u +%s)}
   tz=${FM_GSC_TEST_TZ:-America/Los_Angeles}
   # The zone has to be proved by the offset it resolved to. An unresolvable TZ
@@ -467,10 +469,10 @@ assumed_horizon() {
       base=$utc
       if [[ $local_date > $base ]]; then base=$local_date; fi
       back=3
-      warn "could not resolve the Search Console reporting timezone; using a wider conservative settling window measured from $base"
+      zone=unresolved
       ;;
   esac
-  day_date "$(( $(day_number "$base") - back ))"
+  printf '%s %s %s\n' "$(day_date "$(( $(day_number "$base") - back ))")" "$zone" "$base"
 }
 
 # ── Aggregation and rendering ───────────────────────────────────────────
@@ -627,12 +629,12 @@ cmd_pull() {
   trap "rm -rf '$tmp'; cleanup" EXIT
 
   local dim day n result cache_file fresh_days=0 cached_days=0 provisional
-  local aggregations='{}' horizon horizon_source=reported
+  local aggregations='{}' horizon horizon_zone="" horizon_base="" horizon_source=reported
   if [ "$first_incomplete" = null ]; then
     # Google reporting no horizon is not Google reporting that everything is
     # settled. Fall back to the documented settling window - the trailing three
     # days, inclusive - so a still-moving day is never captured as final.
-    horizon=$(assumed_horizon)
+    read -r horizon horizon_zone horizon_base <<< "$(assumed_horizon)"
     if [[ $horizon > $end ]]; then
       # The assumed window lies entirely after the requested range, so nothing
       # in this pull can be unsettled. Announcing a caveat that cannot apply
@@ -640,6 +642,9 @@ cmd_pull() {
       horizon_source=not-applicable
     else
       horizon_source=assumed-conservative-default
+      if [ "$horizon_zone" = unresolved ]; then
+        warn "could not resolve the Search Console reporting timezone; using a wider conservative settling window measured from $horizon_base"
+      fi
       warn "Search Console reported no incomplete-data horizon; assuming data from $horizon onward is not yet settled"
     fi
   else

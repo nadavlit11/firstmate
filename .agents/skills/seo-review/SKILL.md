@@ -68,7 +68,12 @@ What it did not buy, so do not claim it:
 
 ⚠️ **Never report the last two to three days as settled.**
 Search Console finalizes data on that lag.
-The pull defaults to finalized data only and records the boundary it actually applied in each export's `manifest.json` as `provisionalFromDate`; read that field, not `firstIncompleteDate`, before quoting a recent day, because `firstIncompleteDate` is null whenever Google reported no horizon and the pull fell back to the assumed settling window (`firstIncompleteDateSource: assumed-conservative-default`).
+The pull asks for finalized data only and records the boundary it actually applied in each export's `manifest.json` as `provisionalFromDate`; read that field, not `firstIncompleteDate`, before quoting a recent day.
+`firstIncompleteDateSource` says which of three states produced it:
+
+- `reported` - Google gave a first incomplete date, and `firstIncompleteDate` carries it.
+- `assumed-conservative-default` - Google reported no horizon, so the trailing days of the documented settling window were assumed unsettled; `firstIncompleteDate` is null and `provisionalFromDate` carries the assumed boundary.
+- `not-applicable` - the settling window falls entirely after the pulled range, so both `firstIncompleteDate` and `provisionalFromDate` are null. Null there means **no day in this range is unsettled**, never "unknown".
 
 Per-property access, as it stands:
 
