@@ -588,10 +588,11 @@ Device and country tables are deliberately not produced, because the API returns
 Search Console data is incomplete for roughly the last two to three days.
 The default `--data-state final` asks Google for finalized data only, so a review never reports a still-moving day as settled; `--data-state all` includes fresh data and is recorded as such in the manifest.
 Whenever the API reports a first incomplete date, that date is carried into `manifest.json` and warned on stderr rather than swallowed.
-That horizon describes the moment the request was made rather than the days it covers, so it is never cached: a run served entirely from cache asked Google nothing and reports `firstIncompleteDate: null` with `firstIncompleteDateObserved: false`, which is how a reader tells "Google reported nothing incomplete" apart from "we did not ask". The same holds for `responseAggregationType`, which is `null` for a table no request was made for.
+That horizon describes the moment the request was made rather than the days it covers, so it is never cached: every run observes it once with a single `dataState: all` request over the range, so even a run otherwise served entirely from cache reports the boundary Google states now. `responseAggregationType` is request-time state too but is read only from day responses, so it is `null` for a table no request was made for.
 
 A pull asks for one day at a time, which is what Google recommends over long ranges, and caches each day under `data/gsc-cache/`, so re-running a review over an overlapping range re-reads disk instead of re-querying history; a range is composed from those cached days.
-Pass `--refresh` to re-query days that were first pulled before they finalized.
+Only a settled day is history: a day fetched on or after the observed incomplete date was still moving when it was captured, so it is cached as provisional and re-fetched on every later run until it falls outside the horizon. A day captured settled is served from disk forever, and a cache entry written before this provenance existed is re-fetched once rather than trusted.
+Pass `--refresh` to re-query cached days regardless.
 Each day and dimension is paged at the documented per-request maximum of 25,000 rows and stops at `--max-rows` (default 25,000); on reaching that ceiling one more row is requested to settle whether anything was actually left behind, so a result of exactly `--max-rows` rows is reported complete and only a genuine overflow is recorded in the manifest and warned, never silently dropped.
 The cache is keyed by that cap as well, so a day first pulled under a low `--max-rows` is re-queried rather than re-served as if it were the complete day.
 

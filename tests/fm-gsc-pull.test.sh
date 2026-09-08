@@ -19,8 +19,10 @@
 #     and --refresh overrides that
 #   - --max-rows truncation is recorded and warned, never silent
 #   - paging follows startRow past one page
-#   - the API's first incomplete date reaches the manifest, and a fully cached
-#     run reports no horizon rather than replaying a stale one
+#   - the API's first incomplete date is observed once per run and reaches the
+#     manifest, including on a run otherwise served entirely from cache
+#   - a day fetched while it was still inside that horizon is re-fetched rather
+#     than served later as settled, while a settled day stays cached
 #   - each unhappy path gets its own exit code: API disabled (6), not
 #     authorized (3), quota (4), revoked token (3), network failure (5)
 #   - only an exact `http://<loopback-host>:<port>` test endpoint override is
@@ -57,13 +59,13 @@ stop_stub() {
 cleanup_all() { stop_stub; fm_test_cleanup; }
 trap cleanup_all EXIT INT TERM
 
-# start_stub <mode>: run the stub in that scenario and export the loopback
-# endpoint the script is allowed to redirect to.
+# start_stub <mode> [first-incomplete-date]: run the stub in that scenario and
+# export the loopback endpoint the script is allowed to redirect to.
 start_stub() {
   stop_stub
   local fifo="$TMP_ROOT/port.$$"
   rm -f "$fifo"; mkfifo "$fifo"
-  FM_GSC_STUB_MODE="$1" python3 "$STUB" > "$fifo" &
+  FM_GSC_STUB_MODE="$1" FM_GSC_STUB_HORIZON="${2:-2026-09-06}" python3 "$STUB" > "$fifo" &
   STUB_PID=$!
   local port
   read -r port < "$fifo"
@@ -199,8 +201,6 @@ pass "the freshness boundary reaches the manifest and stderr rather than being s
 
 # --- caching -----------------------------------------------------------------
 
-cache_dir=$(FM_HOME="$HOME1" "$GSC" cache-path --site sc-domain:example.co.il)
-assert_present "$cache_dir" "the cache directory exists after a pull"
 # Three dimensions over two days, so six day/dimension pulls, all fresh.
 [ "$(jq -r .dayDimensionsQueried "$OUT1/manifest.json")" = 6 ] \
   || fail "the first pull should have queried every day/dimension fresh"
@@ -214,26 +214,50 @@ run_pull "$HOME1" "$OUT2" || fail "second pull failed: $(cat "$TMP_ROOT/stderr.t
 assert_grep "$HEB_Q1" "$OUT2/שאילתות.csv" "the Hebrew query survived a cache round-trip"
 pass "a repeated review re-reads cached days instead of re-querying the same history"
 
-# The freshness horizon the first pull observed (2026-09-06) must not be
-# replayed by a later, fully cache-hit run over an overlapping range: that run
-# asked Google nothing, so it has no current horizon to report.
-[ "$(jq -r .firstIncompleteDate "$OUT2/manifest.json")" = null ] \
-  || fail "a fully cached run replayed a stale first incomplete date"
-[ "$(jq -r .firstIncompleteDateObserved "$OUT2/manifest.json")" = false ] \
-  || fail "a fully cached run did not record that no live request was made"
-assert_not_contains "$(cat "$TMP_ROOT/stderr.txt")" "still incomplete" \
-  "a horizon that was not observed this run is not warned"
+# The horizon is observed fresh every run, so a fully cache-hit run still
+# reports the boundary Google states now rather than one cached months ago.
+# The aggregation type is not observed at all when no day was requested, and
+# is reported as unknown instead of being replayed out of the cache.
+[ "$(jq -r .firstIncompleteDate "$OUT2/manifest.json")" = "2026-09-06" ] \
+  || fail "a fully cached run did not observe the current freshness horizon"
+[ "$(jq -r .firstIncompleteDateObserved "$OUT2/manifest.json")" = true ] \
+  || fail "the horizon is observed once per run and should be marked as such"
 [ "$(jq -r '.responseAggregationType | to_entries | map(select(.value != null)) | length' "$OUT2/manifest.json")" = 0 ] \
   || fail "a fully cached run replayed a stale response aggregation type"
-[ "$(jq -r .firstIncompleteDateObserved "$OUT1/manifest.json")" = true ] \
-  || fail "a run that did query Google did not mark its horizon as observed"
-pass "request-time state is reported from this run's responses, never replayed from cache"
+pass "the freshness horizon is observed fresh each run and never replayed from cache"
 
 OUT3="$TMP_ROOT/out3"
 run_pull "$HOME1" "$OUT3" --refresh || fail "refresh pull failed: $(cat "$TMP_ROOT/stderr.txt")"
 [ "$(jq -r .dayDimensionsQueried "$OUT3/manifest.json")" = 6 ] \
   || fail "--refresh did not re-query the cached days"
 pass "--refresh re-queries days that were cached before they finalized"
+
+# --- a day inside the incompleteness horizon is never cached as settled -------
+
+# 2026-09-02 is on the horizon when first pulled, so Google answers the
+# finalized-only request for it with nothing. That short day must not become
+# the cached truth for the rest of time.
+start_stub horizon 2026-09-02
+HOME1B=$(make_home home1b)
+OUT4A="$TMP_ROOT/out4a"
+run_pull "$HOME1B" "$OUT4A" || fail "provisional pull failed: $(cat "$TMP_ROOT/stderr.txt")"
+[ "$(tail -n +2 "$OUT4A/תרשים.csv" | wc -l | tr -d ' ')" = 1 ] \
+  || fail "the unsettled day should have come back empty from the stub"
+[ "$(jq -r .firstIncompleteDate "$OUT4A/manifest.json")" = "2026-09-02" ] \
+  || fail "the observed horizon did not reach the manifest"
+
+# The horizon has moved on; the day is settled now and must be re-fetched,
+# while the day that was already settled is still served from cache.
+start_stub horizon 2026-09-10
+OUT4B="$TMP_ROOT/out4b"
+run_pull "$HOME1B" "$OUT4B" || fail "re-pull after the horizon moved failed: $(cat "$TMP_ROOT/stderr.txt")"
+[ "$(tail -n +2 "$OUT4B/תרשים.csv" | wc -l | tr -d ' ')" = 2 ] \
+  || fail "a day cached while still unsettled was re-served as final"
+[ "$(jq -r .dayDimensionsQueried "$OUT4B/manifest.json")" = 3 ] \
+  || fail "only the provisional day's three dimensions should have been re-queried"
+[ "$(jq -r .dayDimensionsReadFromCache "$OUT4B/manifest.json")" = 3 ] \
+  || fail "the day already captured as settled should still come from cache"
+pass "a day fetched inside the incompleteness horizon is re-fetched, not served as settled"
 
 # --- paging and the row cap ---------------------------------------------------
 

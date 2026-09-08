@@ -31,15 +31,11 @@
 #
 #   fm-gsc-pull.sh pull --site <property> --start <YYYY-MM-DD> --end <YYYY-MM-DD>
 #                       [--out <dir>] [--data-state final|all]
-#                       [--max-rows <n>] [--config <file>] [--refresh]
+#                       [--max-rows <n>] [--refresh]
 #       Pull search analytics for one property and write an export directory.
 #       --site takes the property exactly as Search Console names it, such as
 #       `sc-domain:clickbateva.co.il`; run `sites` to see the exact strings.
 #       --out defaults to `gsc-<end-date>` under the current directory.
-#
-#   fm-gsc-pull.sh cache-path --site <property>
-#       Print the cache directory used for that property, so a review can say
-#       where its history lives. Makes no network call.
 #
 # Output directory contents:
 #   שאילתות.csv   top queries      - header `השאילתות המובילות,קליקים,הופעות,שיעור קליקים,מקום`
@@ -61,12 +57,20 @@
 # settled. `--data-state all` includes fresh data and is recorded as such in
 # manifest.json; whenever the API reports a first incomplete date, that date
 # is carried into the manifest and printed on stderr rather than swallowed.
-# That horizon and the response aggregation type describe the moment a request
-# was made, not the days they cover, so neither is cached: both are taken from
-# responses received during this run. A run served entirely from cache asked
-# Google nothing, so it reports `firstIncompleteDate: null` with
-# `firstIncompleteDateObserved: false` and warns nothing, rather than replaying
-# a horizon that may have passed months ago.
+# That horizon describes the moment a request was made, not the days it covers,
+# so it is never cached. Every run observes it once, with a single cheap
+# `dataState: all` request over the range, and reports it as
+# `firstIncompleteDate` with `firstIncompleteDateObserved` beside it. The
+# response aggregation type is request-time state too, and is read only from
+# responses received this run: a table served entirely from cache reports
+# `null` rather than replaying a stale value.
+#
+# That same horizon decides what may be cached. A day on or after it was still
+# moving when it was fetched, so it is written as `provisional` and is never
+# served from cache: it is re-fetched until it falls outside the horizon and is
+# captured settled. A settled day is a stable historical fact and is served
+# from disk forever. A cache entry from before this flag existed carries no
+# provenance, so it is re-fetched once rather than trusted.
 #
 # Cost and the row cap. A pull asks for one day at a time, which is what
 # Google recommends over long ranges, and caches each day's rows under
@@ -347,10 +351,10 @@ api_call() {  # <method> <url> [<json-body>]
 # ── Search analytics ────────────────────────────────────────────────────
 
 # One dimension set, one date range, paged to completion or to max_rows.
-# Emits a JSON object: {rows:[...], truncated:bool, firstIncompleteDate:string|null}
+# Emits a JSON object: {rows:[...], truncated:bool, aggregation:string|null}
 query_rows() {  # <property> <start> <end> <dimensions-json> <data-state> <max-rows>
   local site=$1 start=$2 end=$3 dims=$4 state=$5 max=$6
-  local url start_row=0 total_rows=0 truncated=false hit_cap=false first_incomplete=null aggregation=null
+  local url start_row=0 total_rows=0 truncated=false hit_cap=false aggregation=null
   local acc='[]' payload page page_rows page_count want
   url="$API_BASE/sites/$(jq -rn --arg s "$site" '$s|@uri')/searchAnalytics/query"
 
@@ -372,9 +376,6 @@ query_rows() {  # <property> <start> <end> <dimensions-json> <data-state> <max-r
     case "$page_count" in
       ''|*[!0-9]*) die "unreadable row count in the Search Console response" 3 ;;
     esac
-    if [ "$first_incomplete" = null ]; then
-      first_incomplete=$(printf '%s' "$page" | jq -c '.metadata.first_incomplete_date // .metadata.firstIncompleteDate // null')
-    fi
     if [ "$aggregation" = null ]; then
       aggregation=$(printf '%s' "$page" | jq -c '.responseAggregationType // null')
     fi
@@ -403,9 +404,23 @@ query_rows() {  # <property> <start> <end> <dimensions-json> <data-state> <max-r
     if [ "$page_count" -gt 0 ]; then truncated=true; fi
   fi
 
-  jq -cn --argjson rows "$acc" --argjson t "$truncated" --argjson f "$first_incomplete" \
-    --argjson a "$aggregation" \
-    '{rows:$rows, truncated:$t, firstIncompleteDate:$f, aggregation:$a}'
+  jq -cn --argjson rows "$acc" --argjson t "$truncated" --argjson a "$aggregation" \
+    '{rows:$rows, truncated:$t, aggregation:$a}'
+}
+
+# The freshness horizon Google reports right now for this range: the first date
+# it still considers incomplete, or null when it considers everything settled.
+# One request per run, not per day. It must ask with `dataState: all`, because
+# under the finalized-only default an unsettled day comes back empty with no
+# horizon at all, indistinguishable from a settled day with no traffic.
+observe_horizon() {  # <property> <start> <end>
+  local site=$1 start=$2 end=$3 url payload page
+  url="$API_BASE/sites/$(jq -rn --arg s "$site" '$s|@uri')/searchAnalytics/query"
+  payload=$(jq -cn --arg start "$start" --arg end "$end" --arg type "$SEARCH_TYPE" \
+    '{startDate:$start, endDate:$end, dimensions:["date"], type:$type,
+      dataState:"all", rowLimit:1, startRow:0}')
+  page=$(api_call POST "$url" "$payload") || exit $?
+  printf '%s' "$page" | jq -c '.metadata.first_incomplete_date // .metadata.firstIncompleteDate // null'
 }
 
 # ── Aggregation and rendering ───────────────────────────────────────────
@@ -506,18 +521,6 @@ cmd_sites() {
     | jq -r '.siteEntry | .[] | [.permissionLevel, .siteUrl] | @tsv'
 }
 
-cmd_cache_path() {
-  local site=""
-  while [ $# -gt 0 ]; do
-    case "$1" in
-      --site) site=${2:-}; shift 2 ;;
-      *) die "unexpected argument: $1" ;;
-    esac
-  done
-  [ -n "$site" ] || die "cache-path needs --site <property>"
-  printf '%s/data/gsc-cache/%s\n' "$FM_HOME" "$(site_slug "$site")"
-}
-
 cmd_pull() {
   need_tool curl; need_tool jq; need_tool awk
   local site="" start="" end="" out="" state=final
@@ -531,7 +534,6 @@ cmd_pull() {
       --out) out=${2:-}; shift 2 ;;
       --data-state) state=${2:-}; shift 2 ;;
       --max-rows) max=${2:-}; shift 2 ;;
-      --config) CONFIG_FILE=${2:-}; shift 2 ;;
       --refresh) refresh=true; shift ;;
       *) die "unexpected argument: $1" ;;
     esac
@@ -558,7 +560,8 @@ cmd_pull() {
   # The cap is part of the key: a day pulled under a low --max-rows is a
   # top-N, not that day, and must not be re-served as if it were complete.
   cache_root="$FM_HOME/data/gsc-cache/$(site_slug "$site")/$SEARCH_TYPE/$state/max-$max"
-  local first_incomplete=null truncated_dims=""
+  local first_incomplete truncated_dims=""
+  first_incomplete=$(observe_horizon "$site" "$start" "$end") || exit $?
   local -a dim_keys=(query page date)
 
   # `date` is fetched as its own dimension so the per-day totals table is the
@@ -576,13 +579,12 @@ cmd_pull() {
   # shellcheck disable=SC2064
   trap "rm -rf '$tmp'; cleanup" EXIT
 
-  local dim day n result cache_file fresh_days=0 cached_days=0
-  local aggregations='{}'
-  # A day's rows are a stable historical fact and are cached. The freshness
-  # horizon and the aggregation type are state Google reports at request time,
-  # so they are read only from responses actually received during THIS run; a
-  # cached day carries no such claim, and one written by an older version is
-  # ignored rather than replayed as current.
+  local dim day n result cache_file fresh_days=0 cached_days=0 provisional
+  local aggregations='{}' horizon=""
+  [ "$first_incomplete" = null ] || horizon=$(printf '%s' "$first_incomplete" | jq -r .)
+  # A day's rows become a stable historical fact only once Google has finished
+  # settling that day, so a day fetched on or after the observed horizon is
+  # cached as provisional and re-fetched next run rather than served as final.
   for dim in "${dim_keys[@]}"; do
     : > "$tmp/$dim.ndjson"
     : > "$tmp/$dim.live.ndjson"
@@ -590,14 +592,18 @@ cmd_pull() {
     for (( n = d0; n <= d1; n++ )); do
       day=$(day_date "$n")
       cache_file="$cache_root/$dim/$day.json"
-      if [ -s "$cache_file" ] && [ "$refresh" = false ]; then
+      provisional=false
+      if [ -n "$horizon" ] && [[ ! $day < $horizon ]]; then provisional=true; fi
+      if [ -s "$cache_file" ] && [ "$refresh" = false ] \
+         && [ "$(jq -r 'if .provisional == false then "settled" else "unusable" end' < "$cache_file")" = settled ]; then
         cached_days=$(( cached_days + 1 ))
       else
         result=$(query_rows "$site" "$day" "$day" "$(dims_for "$dim")" "$state" "$max") || exit $?
         printf '%s\n' "$result" >> "$tmp/$dim.live.ndjson"
         # Write through a temp file so an interrupted run never leaves a
         # half-written day that a later run would trust as complete.
-        printf '%s' "$result" | jq -c '{rows, truncated}' > "$cache_file.partial"
+        printf '%s' "$result" \
+          | jq -c --argjson p "$provisional" '{rows, truncated, provisional: $p}' > "$cache_file.partial"
         mv "$cache_file.partial" "$cache_file"
         fresh_days=$(( fresh_days + 1 ))
       fi
@@ -608,9 +614,6 @@ cmd_pull() {
       truncated_dims="$truncated_dims $dim"
       warn "$dim hit the --max-rows ceiling of $max; the table is a top-N, not the full set"
     fi
-    if [ "$first_incomplete" = null ]; then
-      first_incomplete=$(jq -sc '[.[] | .firstIncompleteDate | select(. != null)] | (sort | first) // null' < "$tmp/$dim.live.ndjson")
-    fi
     # Google aggregates a page-dimension result byPage and the others
     # byProperty, so the page table's totals are NOT comparable with the query
     # or date tables'"'"'. Record which one produced each table rather than
@@ -619,9 +622,6 @@ cmd_pull() {
       --argjson a "$(jq -sc '[.[] | .aggregation | select(. != null)] | first // null' < "$tmp/$dim.live.ndjson")" \
       '. + {($d): $a}' <<< "$aggregations")
   done
-
-  local observed=false
-  [ "$fresh_days" -gt 0 ] && observed=true
 
   aggregate < "$tmp/query.ndjson" > "$tmp/query.agg.json"
   aggregate < "$tmp/page.ndjson" > "$tmp/page.agg.json"
@@ -644,7 +644,7 @@ cmd_pull() {
     --arg truncated "${truncated_dims# }" \
     --argjson maxRows "$max" \
     --argjson firstIncompleteDate "$first_incomplete" \
-    --argjson firstIncompleteDateObserved "$observed" \
+    --argjson firstIncompleteDateObserved true \
     --argjson aggregation "$aggregations" \
     --argjson freshDays "$fresh_days" --argjson cachedDays "$cached_days" \
     --argjson queryRows "$(jq length < "$tmp/query.agg.json")" \
@@ -673,7 +673,6 @@ main() {
     status) cmd_status "$@" ;;
     sites) cmd_sites "$@" ;;
     pull) cmd_pull "$@" ;;
-    cache-path) cmd_cache_path "$@" ;;
     -h|--help|help|'') usage ;;
     *) die "unknown command: $cmd" ;;
   esac

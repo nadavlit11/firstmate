@@ -14,6 +14,9 @@ The scenario is chosen by the FM_GSC_STUB_MODE environment variable:
   denied    403 on the property (not a user / revoked)
   quota     429 rate limit
   nosites   an authorized credential with no properties shared with it
+  horizon   like "ok", but a day on or after FM_GSC_STUB_HORIZON is still
+            unsettled and comes back with no rows, the way Google answers a
+            finalized-only request for a day it has not finished settling
   badtoken  400 invalid_grant from the token endpoint
 """
 import json
@@ -22,6 +25,9 @@ import sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 MODE = os.environ.get("FM_GSC_STUB_MODE", "ok")
+# The first date Google still considers incomplete, reported as metadata on
+# every response the way the API reports it.
+HORIZON = os.environ.get("FM_GSC_STUB_HORIZON", "2026-09-06")
 
 # Deliberately Hebrew, including a final-form letter, so the test proves the
 # bytes survive the whole pipeline rather than just that some row appeared.
@@ -70,6 +76,10 @@ def analytics(body):
     if start_row > 0:
         return 200, {"rows": []}
 
+    # An unsettled day answers a finalized-only request with nothing at all.
+    if MODE == "horizon" and body.get("dataState") == "final" and start >= HORIZON:
+        return 200, {"rows": [], "metadata": {"first_incomplete_date": HORIZON}}
+
     if dims == ["query"]:
         # Two days are pulled in the "ok" scenario; the same rows on each day
         # let the test assert the summing and impression-weighted position.
@@ -91,7 +101,7 @@ def analytics(body):
     out = {"rows": rows, "responseAggregationType": "byProperty"}
     # Report the freshness boundary the way the API does, so the test can
     # assert it reaches the manifest instead of being swallowed.
-    out["metadata"] = {"first_incomplete_date": "2026-09-06"}
+    out["metadata"] = {"first_incomplete_date": HORIZON}
     return 200, out
 
 
