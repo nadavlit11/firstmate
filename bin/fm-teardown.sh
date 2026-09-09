@@ -2699,7 +2699,7 @@ if [ "$KIND" = ship ] && [ "$FORCE" != "--force" ]; then
   # proceeds, while one that carries the requirement and disagrees refuses. The
   # requirement shows up as the fixed heading bin/fm-dod-lib.sh renders into a
   # ship brief (or into the ship instructions of a promoted scout).
-  if ! grep -qlF -- "# Lesson before you finish" \
+  if ! grep -qF -- "# Lesson before you finish" \
       "$DATA/$ID/brief.md" "$DATA/$ID/ship-instructions.md" 2>/dev/null; then
     echo "warning: $ID was briefed before ship tasks owed a recorded lesson; a task briefed now would have to record one at $LESSON before cleanup - proceeding without it" >&2
   elif [ ! -f "$LESSON" ] || [ -z "$(tr -d '[:space:]' < "$LESSON" 2>/dev/null)" ]; then

@@ -5,9 +5,12 @@
 # receives. Both paths must hand the worker the same contract: a promoted
 # no-mistakes worker that never received the ask-user escalation rule or the
 # `--yes` ban is the exact delivery hole this single owner exists to close.
-# fm_dod_block <no-mistakes|direct-PR|local-only> <task-id> <base-ref> [<project-dir>]
+# fm_dod_block <no-mistakes|direct-PR|local-only> <task-id> <base-ref> [<project-dir>] <data-dir>
 # prints the block on stdout with no trailing blank line. The caller validates the mode; an
 # unknown mode is refused rather than silently rendered as the pipeline contract.
+# The data dir is required: it is where the block tells the worker to record its
+# lesson, and a block rendered without one would name a path the worker cannot
+# write while bin/fm-teardown.sh still refuses the cleanup for the missing record.
 # The base ref is the branch or tag the task was dispatched from. It is named in
 # the block so a PR targets that same line and a rebase has a line to fetch: a
 # worker that correctly branches from a production line and then lets `gh pr
@@ -308,10 +311,14 @@ Never invent a store the project does not already keep, and name the agent-neutr
 EOF
 }
 
-fm_dod_block() {  # <mode> <task-id> <base-ref> [<project-dir>] [<data-dir>]
+fm_dod_block() {  # <mode> <task-id> <base-ref> [<project-dir>] <data-dir>
   local mode=$1 id=$2 base=${3:-} dir=${4:-} data=${5:-}
   local pr_base_rule pipeline_pr_base_rule rebase_target kind why lesson
-  lesson=$(fm_lesson_block "${data:-<firstmate data dir>}" "$id")
+  if [ -z "$data" ]; then
+    echo "error: fm_dod_block: a data dir is required to name where '$id' records its lesson" >&2
+    return 1
+  fi
+  lesson=$(fm_lesson_block "$data" "$id")
   kind=
   [ -z "$base" ] || kind=$(fm_base_ref_kind "$base" "$dir")
   if [ -n "$base" ] && [ "$kind" != branch ]; then
