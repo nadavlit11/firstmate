@@ -57,6 +57,8 @@
 #   (z4) ship + landed + whitespace-only lesson record        -> REFUSE (not an answer)
 #   (z5) ship + landed + no lesson + --force                  -> ALLOW  (escape hatch)
 #   (z6) scout + no lesson record            -> never refused BY THE LESSON GATE
+#   (z7) ship + landed + no lesson + brief predating the requirement -> WARN, ALLOW
+#   (z8) ship + landed + no lesson + no brief at all                 -> WARN, ALLOW
 set -u
 
 # shellcheck source=tests/lib.sh disable=SC1091
@@ -194,6 +196,12 @@ SH
   # reach those gates. The lesson cases below remove or replace this file.
   mkdir -p "$case_dir/data/task-x1"
   printf '%s\n' "no lesson from this one" > "$case_dir/data/task-x1/lesson.md"
+  # The gate only binds a task whose brief carries the requirement, so the default
+  # brief here is one the real renderer produced.
+  ( . "$ROOT/bin/fm-dod-lib.sh"
+    printf '%s\n' "You are a crewmate."
+    fm_lesson_block "$case_dir/data" task-x1
+  ) > "$case_dir/data/task-x1/brief.md"
 
   printf '%s\n' "$case_dir"
 }
@@ -3413,9 +3421,54 @@ test_scout_without_lesson_allows() {
   pass "scout task without a lesson record is not caught by the ship lesson gate"
 }
 
+# A brief scaffolded before the lesson requirement existed cannot have asked its
+# worker for a lesson, so cleanup warns once and proceeds - the same shape
+# bin/fm-spawn.sh uses for briefs predating its delivery contract line.
+test_ship_with_pre_contract_brief_allows() {
+  local case_dir rc
+  case_dir=$(make_case lesson-legacy-brief)
+  write_meta "$case_dir" no-mistakes ship
+  land_work_on_origin "$case_dir"
+  rm -f "$case_dir/data/task-x1/lesson.md"
+  printf '%s\n' "You are a crewmate." "# Rules" "1. Never push to the default branch." \
+    > "$case_dir/data/task-x1/brief.md"
+
+  set +e
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 0 "$rc" "lesson-legacy-brief: a brief predating the requirement should tear down"
+  ! grep -q REFUSED "$case_dir/stderr" || fail "lesson-legacy-brief: teardown printed a REFUSED line"
+  grep -Fq "$case_dir/data/task-x1/lesson.md" "$case_dir/stderr" \
+    || fail "lesson-legacy-brief: no warning naming what would be required now"
+  [ "$(grep -c '^warning: task-x1 was briefed before' "$case_dir/stderr")" = 1 ] \
+    || fail "lesson-legacy-brief: the pre-contract warning did not appear exactly once"
+  pass "ship task briefed before the requirement warns once and tears down"
+}
+
+test_ship_without_brief_allows() {
+  local case_dir rc
+  case_dir=$(make_case lesson-no-brief)
+  write_meta "$case_dir" no-mistakes ship
+  land_work_on_origin "$case_dir"
+  rm -f "$case_dir/data/task-x1/lesson.md" "$case_dir/data/task-x1/brief.md"
+
+  set +e
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 0 "$rc" "lesson-no-brief: a task with no brief should tear down"
+  ! grep -q REFUSED "$case_dir/stderr" || fail "lesson-no-brief: teardown printed a REFUSED line"
+  pass "ship task with no brief at all tears down"
+}
+
 test_ship_without_lesson_refuses
 test_ship_with_concrete_lesson_allows
 test_ship_with_explicit_no_lesson_allows
 test_ship_with_blank_lesson_refuses
 test_ship_without_lesson_force_allows
 test_scout_without_lesson_allows
+test_ship_with_pre_contract_brief_allows
+test_ship_without_brief_allows

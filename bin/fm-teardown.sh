@@ -2694,7 +2694,15 @@ fi
 
 if [ "$KIND" = ship ] && [ "$FORCE" != "--force" ]; then
   LESSON="$DATA/$ID/lesson.md"
-  if [ ! -f "$LESSON" ] || [ -z "$(tr -d '[:space:]' < "$LESSON" 2>/dev/null)" ]; then
+  # Following the brief/spawn delivery-contract precedent in bin/fm-spawn.sh: a
+  # contract artifact scaffolded before the requirement existed warns once and
+  # proceeds, while one that carries the requirement and disagrees refuses. The
+  # requirement shows up as the fixed heading bin/fm-dod-lib.sh renders into a
+  # ship brief (or into the ship instructions of a promoted scout).
+  if ! grep -qlF -- "# Lesson before you finish" \
+      "$DATA/$ID/brief.md" "$DATA/$ID/ship-instructions.md" 2>/dev/null; then
+    echo "warning: $ID was briefed before ship tasks owed a recorded lesson; a task briefed now would have to record one at $LESSON before cleanup - proceeding without it" >&2
+  elif [ ! -f "$LESSON" ] || [ -z "$(tr -d '[:space:]' < "$LESSON" 2>/dev/null)" ]; then
     echo "REFUSED: ship task $ID has no recorded lesson at $LESSON." >&2
     echo "The worker holds the only fresh account of this work, and cleanup ends it. Have the worker write the lesson there - an explicit \"no lesson from this one\" is a valid answer - or use --force after explicit discard approval." >&2
     exit 1
