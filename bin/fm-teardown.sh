@@ -54,6 +54,12 @@
 # declared scratch and the report at data/<task-id>/report.md is the work
 # product. Teardown proceeds only once the report exists and the shared
 # unresolved-decision completion gate verifies its captain-held inventory.
+# A ship task additionally owes a recorded lesson at data/<task-id>/lesson.md
+# before cleanup, because this script removes the worker that is the only holder
+# of the fresh detail. bin/fm-dod-lib.sh owns what that record must say and puts
+# the requirement in every ship brief; this gate only proves an answer was
+# recorded and never judges it, so an explicit "no lesson from this one" passes.
+# --force is the same explicit-discard escape hatch it is everywhere else.
 # Before destructive cleanup, teardown validates task check artifacts as
 # ordinary single-link files on the state device. It refuses and preserves
 # task state when that proof fails; otherwise it removes the task's check,
@@ -2682,6 +2688,15 @@ if [ "$KIND" = scout ] && [ "$FORCE" != "--force" ]; then
       FM_CONFIG_OVERRIDE="$CONFIG" "$SCRIPT_DIR/fm-captain-hold.sh" verify "$ID" >/dev/null; then
     echo "REFUSED: scout task $ID has not passed the captain-call completion gate." >&2
     echo "Inventory its report and any visual review through bin/fm-captain-hold.sh before teardown." >&2
+    exit 1
+  fi
+fi
+
+if [ "$KIND" = ship ] && [ "$FORCE" != "--force" ]; then
+  LESSON="$DATA/$ID/lesson.md"
+  if [ ! -f "$LESSON" ] || [ -z "$(tr -d '[:space:]' < "$LESSON" 2>/dev/null)" ]; then
+    echo "REFUSED: ship task $ID has no recorded lesson at $LESSON." >&2
+    echo "The worker holds the only fresh account of this work, and cleanup ends it. Have the worker write the lesson there - an explicit \"no lesson from this one\" is a valid answer - or use --force after explicit discard approval." >&2
     exit 1
   fi
 fi
