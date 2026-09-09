@@ -59,6 +59,8 @@
 #   (z6) scout + no lesson record            -> never refused BY THE LESSON GATE
 #   (z7) ship + landed + no lesson + brief predating the requirement -> WARN, ALLOW
 #   (z8) ship + landed + no lesson + no brief at all                 -> WARN, ALLOW
+#   (z9) ship + landed + pre-contract brief + a recorded lesson      -> ALLOW, no warning
+#   (z10) ship + unlanded work + no lesson  -> REFUSE on landing, never on the lesson
 set -u
 
 # shellcheck source=tests/lib.sh disable=SC1091
@@ -3464,6 +3466,50 @@ test_ship_without_brief_allows() {
   pass "ship task with no brief at all tears down"
 }
 
+# A task briefed before the requirement that recorded a lesson anyway has nothing
+# to be grandfathered for, so the pre-contract warning must stay silent.
+test_ship_with_pre_contract_brief_and_lesson_is_quiet() {
+  local case_dir rc
+  case_dir=$(make_case lesson-legacy-brief-answered)
+  write_meta "$case_dir" no-mistakes ship
+  land_work_on_origin "$case_dir"
+  printf '%s\n' "You are a crewmate." "# Rules" "1. Never push to the default branch." \
+    > "$case_dir/data/task-x1/brief.md"
+  printf '%s\n' "Lesson: the landing gate speaks before the bookkeeping gate." \
+    > "$case_dir/data/task-x1/lesson.md"
+
+  set +e
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 0 "$rc" "lesson-legacy-brief-answered: a recorded lesson should tear down"
+  ! grep -q "briefed before" "$case_dir/stderr" \
+    || fail "lesson-legacy-brief-answered: warned about a missing lesson that was recorded"
+  pass "pre-contract brief that recorded a lesson anyway is not warned about"
+}
+
+# Unlanded work is a stop-and-investigate refusal and must not be masked by the
+# lesson gate, which is bookkeeping about work that is not going anywhere yet.
+test_unlanded_work_refuses_before_the_lesson_gate() {
+  local case_dir rc
+  case_dir=$(make_case lesson-unlanded)
+  write_meta "$case_dir" local-only ship
+  wt_commit "$case_dir" "unlanded work"
+  rm -f "$case_dir/data/task-x1/lesson.md"
+
+  set +e
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 1 "$rc" "lesson-unlanded: unlanded work must refuse"
+  grep -q REFUSED "$case_dir/stderr" || fail "lesson-unlanded: no REFUSED line in stderr"
+  ! grep -Fq "has no recorded lesson" "$case_dir/stderr" \
+    || fail "lesson-unlanded: the lesson refusal muddied the unlanded-work refusal"
+  pass "unlanded work refuses on landing safety, never on the missing lesson"
+}
+
 test_ship_without_lesson_refuses
 test_ship_with_concrete_lesson_allows
 test_ship_with_explicit_no_lesson_allows
@@ -3472,3 +3518,5 @@ test_ship_without_lesson_force_allows
 test_scout_without_lesson_allows
 test_ship_with_pre_contract_brief_allows
 test_ship_without_brief_allows
+test_ship_with_pre_contract_brief_and_lesson_is_quiet
+test_unlanded_work_refuses_before_the_lesson_gate
