@@ -153,7 +153,7 @@ Setup guides for tmux (the default) and every other supported backend (herdr, ze
      ▼            ▼               ▼
   treehouse worktree, Orca worktree, or isolated secondmate home
      │
-     ├─ ship: project mode ► PR/local merge ► teardown
+     ├─ ship: project mode ► PR/local merge ► lesson ► teardown
      │
      └─ scout: report at data/<id>/report.md ► decision inventory ► relay findings ► teardown
 ```
