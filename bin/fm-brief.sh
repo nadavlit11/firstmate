@@ -474,7 +474,7 @@ esac
 # for itself.
 PROJ_DIR="${FM_PROJECTS_OVERRIDE:-$FM_HOME/projects}/$REPO"
 [ -d "$PROJ_DIR" ] || PROJ_DIR=
-DOD=$(fm_dod_block "$MODE" "$ID" "$BASE" "$PROJ_DIR") || exit 1
+DOD=$(fm_dod_block "$MODE" "$ID" "$BASE" "$PROJ_DIR" "$DATA") || exit 1
 
 cat > "$BRIEF" <<EOF
 You are a crewmate: an autonomous worker agent managed by firstmate. Work on your own; do not wait for a human.
@@ -495,7 +495,7 @@ If the top-level path is the primary checkout or not the worktree you were launc
 
 # Rules
 $RULE1
-2. Stay inside this worktree; modify nothing outside it.
+2. Stay inside this worktree; the only files you may write outside it are the status file and the lesson record below.
 3. Use gh-axi for GitHub operations.
    For browser operations use your own harness's browser tooling: on Codex its native browser and computer-use tools, on Claude the claude-in-chrome tools.
    Do NOT use chrome-devtools-axi for browser operations while the fm-chrome-devtools-attach-chrome152 defect is open - it cannot attach to Chrome 152 at all.

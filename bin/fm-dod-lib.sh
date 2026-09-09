@@ -5,9 +5,12 @@
 # receives. Both paths must hand the worker the same contract: a promoted
 # no-mistakes worker that never received the ask-user escalation rule or the
 # `--yes` ban is the exact delivery hole this single owner exists to close.
-# fm_dod_block <no-mistakes|direct-PR|local-only> <task-id> <base-ref> [<project-dir>]
+# fm_dod_block <no-mistakes|direct-PR|local-only> <task-id> <base-ref> [<project-dir>] <data-dir>
 # prints the block on stdout with no trailing blank line. The caller validates the mode; an
 # unknown mode is refused rather than silently rendered as the pipeline contract.
+# The data dir is required: it is where the block tells the worker to record its
+# lesson, and a block rendered without one would name a path the worker cannot
+# write while bin/fm-teardown.sh still refuses the cleanup for the missing record.
 # The base ref is the branch or tag the task was dispatched from. It is named in
 # the block so a PR targets that same line and a rebase has a line to fetch: a
 # worker that correctly branches from a production line and then lets `gh pr
@@ -37,6 +40,13 @@
 # and cannot be answered later, so the worker is told to establish that from
 # evidence and start the run with `no-mistakes axi run --skip ci` instead.
 # AGENTS.md section 7's PR-ready wording points here rather than restating it.
+# This file is also the one owner of the ship task's lesson requirement: every
+# ship mode tells the worker to record one durable lesson answer at
+# <data-dir>/<task-id>/lesson.md before its final `done:` line. The worker is the
+# only one who ever holds the fresh detail, because bin/fm-teardown.sh removes it
+# the moment the work lands, and that script's matching refusal is the backstop.
+# Shell never judges the content: an explicit "no lesson from this one" is as
+# valid an answer as a lesson, and only a recorded answer is enforced.
 # bin/fm-brief.sh scaffolds those two `# Task` subsections; bin/fm-spawn.sh and
 # bin/fm-promote.sh refuse leftover `{TASK}` / `{FIRSTMATE_SPEC}` placeholders
 # through the helpers below. Other mentions of `--intent` point here rather than
@@ -284,9 +294,31 @@ fm_ask_user_escalation_block() {  # <data-dir> <task-id>
 EOF
 }
 
-fm_dod_block() {  # <mode> <task-id> <base-ref> [<project-dir>]
-  local mode=$1 id=$2 base=${3:-} dir=${4:-}
-  local pr_base_rule pipeline_pr_base_rule rebase_target kind why
+# The lesson a ship task owes before its worker stops. Rendered into every ship
+# mode by fm_dod_block below; bin/fm-teardown.sh refuses a ship cleanup that has
+# no such record.
+fm_lesson_block() {  # <data-dir> <task-id>
+  local data=$1 id=$2
+  cat <<EOF
+# Lesson before you finish
+Record this task's lesson at \`$data/$id/lesson.md\` BEFORE your final \`done:\` line, and commit nothing of it to the project unless the routing below applies.
+Write it while the detail is still fresh: you are the only one who ever holds it, and cleanup refuses a ship task with no recorded answer.
+The answer may be a concrete lesson or an explicit "no lesson from this one" - both are legitimate, and only you can tell which is true.
+When the lesson is durable knowledge about the PROJECT rather than about this task, promote it in the same pass so the next review reads it whoever runs that review.
+Route it to the canonical store the project's OWN \`AGENTS.md\` names for that kind of knowledge - a review-rubric home, a codebase map, or another named reference home - and fall back to that \`AGENTS.md\` itself when it names none, through \`bin/fm-ensure-agents-md.sh\`.
+Never invent a store the project does not already keep, and name the agent-neutral location (\`.agents/skills/\`) rather than any \`.claude/\` compatibility path.
+"Nothing that store needed" is as valid an answer as an update.
+EOF
+}
+
+fm_dod_block() {  # <mode> <task-id> <base-ref> [<project-dir>] <data-dir>
+  local mode=$1 id=$2 base=${3:-} dir=${4:-} data=${5:-}
+  local pr_base_rule pipeline_pr_base_rule rebase_target kind why lesson
+  if [ -z "$data" ]; then
+    echo "error: fm_dod_block: a data dir is required to name where '$id' records its lesson" >&2
+    return 1
+  fi
+  lesson=$(fm_lesson_block "$data" "$id")
   kind=
   [ -z "$base" ] || kind=$(fm_base_ref_kind "$base" "$dir")
   if [ -n "$base" ] && [ "$kind" != branch ]; then
@@ -317,6 +349,8 @@ The task is complete only when committed on your branch.
 When it is implemented and committed, push your branch and open a PR with \`gh-axi\`, then append \`done: PR {url}\` to the status file and stop.
 $pr_base_rule
 Do NOT run the no-mistakes skill (\`\$no-mistakes\` on Codex, \`/no-mistakes\` on every other harness). The configured merge authority decides whether to merge the PR; firstmate relays the outcome.
+
+$lesson
 EOF
       ;;
     local-only)
@@ -328,6 +362,8 @@ The task is complete only when committed on your branch \`fm/$id\`. Do NOT push,
 $rebase_target
 When it is implemented and committed, append \`done: ready in branch fm/$id\` to the status file and stop.
 The configured merge authority approves the ready branch, then firstmate merges it into local \`main\` through the guarded fast-forward path.
+
+$lesson
 EOF
       ;;
     no-mistakes)
@@ -364,6 +400,8 @@ Pass \`--skip ci\` only when both say no; a repository that does run checks must
 When you do skip it, report \`done: PR {url} checks green (no CI configured; skipped ci, evidence: <what you checked>, head <sha>)\` once the run reaches its outcome, naming the evidence you actually checked, and stop.
 
 After the no-mistakes pipeline reports CI green (the CI-ready return point - do not wait for it to keep monitoring in the background until merge), append \`done: PR {url} checks green\` and stop. You are finished.
+
+$lesson
 EOF
       ;;
     *)

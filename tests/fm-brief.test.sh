@@ -1175,6 +1175,27 @@ test_dod_base_kind_lookup_that_never_answers_falls_back() {
   pass "fm-brief: a base-kind lookup that never answers is bounded and falls back to unconfirmed"
 }
 
+# The data dir names where the worker records its lesson, so a block rendered
+# without one would point at a path nobody can write while teardown still refuses
+# the cleanup. It is refused in the same shape as an unknown delivery mode.
+test_dod_block_refuses_without_a_data_dir() {
+  local out rc
+  out=$(
+    . "$ROOT/bin/fm-dod-lib.sh"
+    fm_dod_block no-mistakes brief-dod-nodata main "" 2>&1
+  ); rc=$?
+  [ "$rc" -ne 0 ] || fail "fm_dod_block without a data dir should exit non-zero"
+  assert_contains "$out" "data dir is required" \
+    "fm_dod_block: the refusal did not explain the missing data dir"
+  out=$(
+    . "$ROOT/bin/fm-dod-lib.sh"
+    fm_dod_block no-mistakes brief-dod-data main "" /tmp/fm-dod-data 2>&1
+  ) || fail "fm_dod_block with a data dir should render"
+  assert_contains "$out" "/tmp/fm-dod-data/brief-dod-data/lesson.md" \
+    "fm_dod_block: the rendered block did not name the lesson path under the data dir"
+  pass "fm-dod-lib: fm_dod_block refuses to render without a data dir"
+}
+
 test_documented_global_replace_leaves_the_herdr_gate_intact
 test_herdr_lab_contract_applies_to_scouts_but_not_secondmates
 test_secondmate_no_projects_charter
@@ -1185,3 +1206,4 @@ test_scout_and_secondmate_load_decision_hold_policy
 test_scout_and_secondmate_scaffold
 test_dod_tells_a_tag_base_from_a_branch_base
 test_dod_base_kind_lookup_that_never_answers_falls_back
+test_dod_block_refuses_without_a_data_dir

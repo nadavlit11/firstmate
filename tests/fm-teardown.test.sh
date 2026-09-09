@@ -49,6 +49,18 @@
 #   (w) index.lock mtime read failure                         -> lock kept, REFUSE
 #   (x) transient lock cleared after first failed return      -> retry ALLOW
 #   (y) persistent lock (never clears, not provably stale)    -> REFUSE loudly
+#
+# Lesson gate (a ship task owes a recorded lesson before its worker is cleaned up):
+#   (z1) ship + landed + no lesson record                     -> REFUSE, names it
+#   (z2) ship + landed + concrete lesson                      -> ALLOW
+#   (z3) ship + landed + explicit "no lesson from this one"   -> ALLOW
+#   (z4) ship + landed + whitespace-only lesson record        -> REFUSE (not an answer)
+#   (z5) ship + landed + no lesson + --force                  -> ALLOW  (escape hatch)
+#   (z6) scout + no lesson record            -> never refused BY THE LESSON GATE
+#   (z7) ship + landed + no lesson + brief predating the requirement -> WARN, ALLOW
+#   (z8) ship + landed + no lesson + no brief at all                 -> WARN, ALLOW
+#   (z9) ship + landed + pre-contract brief + a recorded lesson      -> ALLOW, no warning
+#   (z10) ship + unlanded work + no lesson  -> REFUSE on landing, never on the lesson
 set -u
 
 # shellcheck source=tests/lib.sh disable=SC1091
@@ -180,6 +192,18 @@ SH
 
   # Fresh watcher beacon so fm-guard stays quiet.
   touch "$case_dir/state/.last-watcher-beat"
+
+  # Every ship teardown owes a recorded lesson (bin/fm-dod-lib.sh); the default
+  # here is the explicit no-lesson answer, so cases about the landed-work gates
+  # reach those gates. The lesson cases below remove or replace this file.
+  mkdir -p "$case_dir/data/task-x1"
+  printf '%s\n' "no lesson from this one" > "$case_dir/data/task-x1/lesson.md"
+  # The gate only binds a task whose brief carries the requirement, so the default
+  # brief here is one the real renderer produced.
+  ( . "$ROOT/bin/fm-dod-lib.sh"
+    printf '%s\n' "You are a crewmate."
+    fm_lesson_block "$case_dir/data" task-x1
+  ) > "$case_dir/data/task-x1/brief.md"
 
   printf '%s\n' "$case_dir"
 }
@@ -3272,3 +3296,227 @@ test_process_spawned_during_grace_is_reaped_on_later_pass
 test_persistent_scan_refuses_after_bounded_retries
 test_process_exit_during_identity_lookup_does_not_refuse
 test_run_abort_precedes_process_reap_precedes_worktree_removal
+
+# --- Lesson gate (z1..z6) ---------------------------------------------------
+# A ship task owes one recorded lesson before cleanup, because teardown ends the
+# only worker that ever held the fresh detail. The gate proves an answer was
+# recorded and never judges what it says.
+
+# Land the task branch on origin so the landed-work gates pass and the lesson
+# gate is the only thing left that can refuse. Args: case_dir
+land_work_on_origin() {
+  local case_dir=$1
+  wt_commit "$case_dir" "shippable work"
+  git -C "$case_dir/wt" push -q origin fm/task-x1
+  git -C "$case_dir/project" fetch -q origin
+}
+
+test_ship_without_lesson_refuses() {
+  local case_dir rc
+  case_dir=$(make_case lesson-missing)
+  write_meta "$case_dir" no-mistakes ship
+  land_work_on_origin "$case_dir"
+  rm -f "$case_dir/data/task-x1/lesson.md"
+
+  set +e
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 1 "$rc" "lesson-missing: teardown should refuse landed work with no lesson"
+  grep -q REFUSED "$case_dir/stderr" || fail "lesson-missing: no REFUSED line in stderr"
+  grep -F "$case_dir/data/task-x1/lesson.md" "$case_dir/stderr" >/dev/null \
+    || fail "lesson-missing: refusal did not name the missing record"
+  grep -Fq "no lesson from this one" "$case_dir/stderr" \
+    || fail "lesson-missing: refusal did not say an explicit no-lesson answer counts"
+  pass "landed ship task with no recorded lesson is refused, and the refusal names it"
+}
+
+test_ship_with_concrete_lesson_allows() {
+  local case_dir rc
+  case_dir=$(make_case lesson-concrete)
+  write_meta "$case_dir" no-mistakes ship
+  land_work_on_origin "$case_dir"
+  printf '%s\n' "Gates at a single call site cost a paragraph; gates in the spawn path cost a fixture per suite." \
+    > "$case_dir/data/task-x1/lesson.md"
+
+  set +e
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 0 "$rc" "lesson-concrete: teardown should succeed with a recorded lesson"
+  ! grep -q REFUSED "$case_dir/stderr" || fail "lesson-concrete: teardown printed a REFUSED line"
+  pass "landed ship task with a concrete recorded lesson is torn down"
+}
+
+test_ship_with_explicit_no_lesson_allows() {
+  local case_dir rc
+  case_dir=$(make_case lesson-none)
+  write_meta "$case_dir" no-mistakes ship
+  land_work_on_origin "$case_dir"
+  printf '%s\n' "no lesson from this one: a one-line typo fix." \
+    > "$case_dir/data/task-x1/lesson.md"
+
+  set +e
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 0 "$rc" "lesson-none: an explicit no-lesson answer should tear down"
+  ! grep -q REFUSED "$case_dir/stderr" || fail "lesson-none: teardown printed a REFUSED line"
+  pass "landed ship task with an explicit no-lesson answer is torn down"
+}
+
+test_ship_with_blank_lesson_refuses() {
+  local case_dir rc
+  case_dir=$(make_case lesson-blank)
+  write_meta "$case_dir" no-mistakes ship
+  land_work_on_origin "$case_dir"
+  printf '\n   \n\t\n' > "$case_dir/data/task-x1/lesson.md"
+
+  set +e
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 1 "$rc" "lesson-blank: a whitespace-only record is not an answer"
+  grep -q REFUSED "$case_dir/stderr" || fail "lesson-blank: no REFUSED line in stderr"
+  pass "landed ship task with a whitespace-only lesson record is refused"
+}
+
+test_ship_without_lesson_force_allows() {
+  local case_dir rc
+  case_dir=$(make_case lesson-force)
+  write_meta "$case_dir" no-mistakes ship
+  land_work_on_origin "$case_dir"
+  rm -f "$case_dir/data/task-x1/lesson.md"
+
+  set +e
+  run_teardown "$case_dir" --force > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 0 "$rc" "lesson-force: --force should still discard after explicit approval"
+  ! grep -q REFUSED "$case_dir/stderr" || fail "lesson-force: teardown printed a REFUSED line"
+  pass "--force still tears down a ship task with no recorded lesson"
+}
+
+test_scout_without_lesson_allows() {
+  local case_dir rc
+  case_dir=$(make_case lesson-scout)
+  write_meta "$case_dir" no-mistakes scout
+  land_work_on_origin "$case_dir"
+  rm -f "$case_dir/data/task-x1/lesson.md"
+  printf '%s\n' "# Report" "Findings." > "$case_dir/data/task-x1/report.md"
+
+  set +e
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  # A scout carries its own completion gates (report plus the captain-call
+  # inventory), so this case asserts only what it is about: whatever the scout
+  # path decides, the ship lesson gate never speaks for it.
+  ! grep -Fq "has no recorded lesson" "$case_dir/stderr" \
+    || fail "lesson-scout: the ship lesson gate refused a scout task (rc=$rc)"
+  pass "scout task without a lesson record is not caught by the ship lesson gate"
+}
+
+# A brief scaffolded before the lesson requirement existed cannot have asked its
+# worker for a lesson, so cleanup warns once and proceeds - the same shape
+# bin/fm-spawn.sh uses for briefs predating its delivery contract line.
+test_ship_with_pre_contract_brief_allows() {
+  local case_dir rc
+  case_dir=$(make_case lesson-legacy-brief)
+  write_meta "$case_dir" no-mistakes ship
+  land_work_on_origin "$case_dir"
+  rm -f "$case_dir/data/task-x1/lesson.md"
+  printf '%s\n' "You are a crewmate." "# Rules" "1. Never push to the default branch." \
+    > "$case_dir/data/task-x1/brief.md"
+
+  set +e
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 0 "$rc" "lesson-legacy-brief: a brief predating the requirement should tear down"
+  ! grep -q REFUSED "$case_dir/stderr" || fail "lesson-legacy-brief: teardown printed a REFUSED line"
+  grep -Fq "$case_dir/data/task-x1/lesson.md" "$case_dir/stderr" \
+    || fail "lesson-legacy-brief: no warning naming what would be required now"
+  [ "$(grep -c '^warning: task-x1 was briefed before' "$case_dir/stderr")" = 1 ] \
+    || fail "lesson-legacy-brief: the pre-contract warning did not appear exactly once"
+  pass "ship task briefed before the requirement warns once and tears down"
+}
+
+test_ship_without_brief_allows() {
+  local case_dir rc
+  case_dir=$(make_case lesson-no-brief)
+  write_meta "$case_dir" no-mistakes ship
+  land_work_on_origin "$case_dir"
+  rm -f "$case_dir/data/task-x1/lesson.md" "$case_dir/data/task-x1/brief.md"
+
+  set +e
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 0 "$rc" "lesson-no-brief: a task with no brief should tear down"
+  ! grep -q REFUSED "$case_dir/stderr" || fail "lesson-no-brief: teardown printed a REFUSED line"
+  pass "ship task with no brief at all tears down"
+}
+
+# A task briefed before the requirement that recorded a lesson anyway has nothing
+# to be grandfathered for, so the pre-contract warning must stay silent.
+test_ship_with_pre_contract_brief_and_lesson_is_quiet() {
+  local case_dir rc
+  case_dir=$(make_case lesson-legacy-brief-answered)
+  write_meta "$case_dir" no-mistakes ship
+  land_work_on_origin "$case_dir"
+  printf '%s\n' "You are a crewmate." "# Rules" "1. Never push to the default branch." \
+    > "$case_dir/data/task-x1/brief.md"
+  printf '%s\n' "Lesson: the landing gate speaks before the bookkeeping gate." \
+    > "$case_dir/data/task-x1/lesson.md"
+
+  set +e
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 0 "$rc" "lesson-legacy-brief-answered: a recorded lesson should tear down"
+  ! grep -q "briefed before" "$case_dir/stderr" \
+    || fail "lesson-legacy-brief-answered: warned about a missing lesson that was recorded"
+  pass "pre-contract brief that recorded a lesson anyway is not warned about"
+}
+
+# Unlanded work is a stop-and-investigate refusal and must not be masked by the
+# lesson gate, which is bookkeeping about work that is not going anywhere yet.
+test_unlanded_work_refuses_before_the_lesson_gate() {
+  local case_dir rc
+  case_dir=$(make_case lesson-unlanded)
+  write_meta "$case_dir" local-only ship
+  wt_commit "$case_dir" "unlanded work"
+  rm -f "$case_dir/data/task-x1/lesson.md"
+
+  set +e
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 1 "$rc" "lesson-unlanded: unlanded work must refuse"
+  grep -q REFUSED "$case_dir/stderr" || fail "lesson-unlanded: no REFUSED line in stderr"
+  ! grep -Fq "has no recorded lesson" "$case_dir/stderr" \
+    || fail "lesson-unlanded: the lesson refusal muddied the unlanded-work refusal"
+  pass "unlanded work refuses on landing safety, never on the missing lesson"
+}
+
+test_ship_without_lesson_refuses
+test_ship_with_concrete_lesson_allows
+test_ship_with_explicit_no_lesson_allows
+test_ship_with_blank_lesson_refuses
+test_ship_without_lesson_force_allows
+test_scout_without_lesson_allows
+test_ship_with_pre_contract_brief_allows
+test_ship_without_brief_allows
+test_ship_with_pre_contract_brief_and_lesson_is_quiet
+test_unlanded_work_refuses_before_the_lesson_gate
